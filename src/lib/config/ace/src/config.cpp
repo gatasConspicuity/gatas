@@ -217,8 +217,7 @@ bool Config::setData(const etl::string_view data, const etl::string_view fullPat
         {
             if (path.back() == "SaveBr")
             {
-                saveToFlash();
-                requestSucceeded = true;
+                requestSucceeded = saveToFlash();
             }
 #if GATAS_DEBUG == 1
             // Added for automated testing. This endpoint is excluded from release firmware.
@@ -313,12 +312,25 @@ bool Config::setData(const etl::string_view data, const etl::string_view fullPat
     return requestSucceeded;
 }
 
-void Config::saveToFlash()
+bool Config::saveToFlash()
 {
     doc["config"]["_dirty"] = false;
+    // Check both capacities before changing the retained RAM image.
+    const size_t required = measureJson(doc) + 1;
+    if (required > volatileStore.capacity() || required > permanentStore.capacity())
+    {
+        doc["config"]["_dirty"] = true;
+        return false;
+    }
     serializeToVolatile();
-    serializeToPersistent();
+    const bool saved = serializeToPersistent();
+    if (!saved)
+    {
+        doc["config"]["_dirty"] = true;
+        serializeToVolatile();
+    }
     getBus().receive(GATAS::ConfigUpdatedMsg{*this, Configuration::NAME});
+    return saved;
 }
 
 void Config::serializeToVolatile()
@@ -328,18 +340,24 @@ void Config::serializeToVolatile()
     volatileStore.write(0);
 }
 
-void Config::serializeToPersistent()
+bool Config::serializeToPersistent()
 {
     // One byte operations not yet supported, and arduinoJson wants to do these
     // It might not work at all due to complexity of flash (no interrupts etc)
     // So for now we do this from volatileStore
 
+    if (persistentMatchesVolatile())
+    {
+        return true;
+    }
     permanentStore.rewind();
-    // Known limitation: persistence failures are not propagated to SaveBr yet.
-    // The store reports zero on failure, but the current API keeps its historic
-    // best-effort save behavior.
-    permanentStore.write(volatileStore.data(), volatileStore.writtenSize());
+    const auto written = permanentStore.write(volatileStore.data(), volatileStore.writtenSize());
+    if (written != volatileStore.writtenSize() || !persistentMatchesVolatile())
+    {
+        return false;
+    }
     statistics.persistentStoreSize = volatileStore.writtenSize();
+    return true;
 }
 
 bool Config::persistentMatchesVolatile() const
@@ -707,6 +725,7 @@ void Config::on_receive(const GATAS::SelectAircraftRequestMsg &msg)
         if (!callSign.empty() && gaTasConfig().conspicuity.icaoAddress != msg.icaoAddress)
         {
             setValueBypath("config/aircraftId", callSign);
+            serializeToVolatile();
             getBus().receive(GATAS::ConfigUpdatedMsg{*this, Configuration::NAME});
         }
     }
@@ -749,5 +768,10 @@ void Config::on_receive(const GATAS::IdleMsg &msg)
         break;
     }
 
-    SpinlockGuard::withLock(CoreUtils::sharedSpinLock(), [this]() { pendingDeviceAction.reset(); });
+    SpinlockGuard::withLock(CoreUtils::sharedSpinLock(), [this, action]() {
+        if (pendingDeviceAction == action)
+        {
+            pendingDeviceAction.reset();
+        }
+    });
 }

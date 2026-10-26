@@ -43,6 +43,7 @@ OpenAce is a multi-protocol aviation conspicuity device (OGN, FLARM, ADS-L, FANE
 cd src
 cmake -B build_test -G Ninja
 ninja -C build_test
+ctest --test-dir build_test --output-on-failure
 ```
 
 ### Running a Single Test Module

@@ -141,7 +141,7 @@ private:
     }
 
     void serializeToVolatile();
-    void serializeToPersistent();
+    bool serializeToPersistent();
     bool persistentMatchesVolatile() const;
 
 private:
@@ -155,7 +155,7 @@ private:
     SemaphoreHandle_t configMutex;
     etl::optional<GATAS::DeviceAction> pendingDeviceAction;
     // Private mutation helpers: the caller must hold configMutex.
-    void saveToFlash();
+    bool saveToFlash();
     void setValueBypath(const etl::string_view pathToValue, etl::string_view value);
     void setValueBypath(const etl::string_view pathToValue, uint64_t value);
 

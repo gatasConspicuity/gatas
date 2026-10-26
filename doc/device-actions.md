@@ -40,17 +40,20 @@ After dispatch, Config clears the pending action if it still matches the action
 it executed. A different action queued during execution remains pending. If Save
 cannot acquire the configuration mutex, it remains pending for a later tick.
 
-`saveToFlash()` clears the dirty flag, serializes the document into the volatile
-store, writes that image to persistent flash, then publishes
+`saveToFlash()` checks store capacities, serializes a clean image into the volatile
+store, writes it to persistent flash and verifies the complete readback. An
+unchanged image avoids another flash write. A failed write restores the dirty
+flag in retained RAM. It then publishes
 `ConfigUpdatedMsg{*this, Configuration::NAME}`. A busy configuration mutex skips
 the save for that tick, leaving the action pending for a later tick.
 
 USB boot does not implicitly save changes. Restart uses the existing retained
-RAM configuration. Flash-write failures are currently not propagated by the
-save helper, so a cleared dirty flag is not proof of verified persistence.
+RAM configuration, including the latest BLE aircraft selection. Flash-write
+failures leave the configuration dirty so periodic broadcasts show it as unsaved.
 
 The web SaveBr endpoint calls the same save helper synchronously under its
-configuration mutex. Web Restart and UsbBoot publish `SystemActionMsg` directly;
+configuration mutex and reports failure if persistence could not be verified.
+Web Restart and UsbBoot publish `SystemActionMsg` directly;
 they do not use the pending device-action slot.
 
 ## Configuration broadcasts
