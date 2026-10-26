@@ -3,11 +3,18 @@
 #include "../gatasconnect.hpp"
 #include "ace/coreutils.hpp"
 #include "ace/debug.hpp"
+#include "pico/rand.h"
 
 #include "etl/algorithm.h"
 
+// Keep the bootId in memory after restart. This allows us to increase it by one
+// after PostConstruct. THis way we can validate if the device was restarted reliably.
+// No need for a random value
+uint8_t __uninitialized_ram(bootId);
+
 GATAS::PostConstruct GatasConnect::postConstruct()
 {
+    bootId += 1;
     requestTimer = xTimerCreate(GatasConnect::NAME, TASK_DELAY_MS(1000), pdTRUE, this, requestTimerCallbackTrampoline);
 
     if (requestTimer == nullptr)
@@ -54,6 +61,7 @@ void GatasConnect::on_receive(const GATAS::GpsStatsMsg &msg)
 
 void GatasConnect::on_receive(const GATAS::ConfigUpdatedMsg &msg)
 {
+    configurationDirty = msg.config.isDirty();
     if (msg.moduleName == GatasConnect::NAME || msg.moduleName == Configuration::NAME)
     {
         getConfig(msg.config);
@@ -82,8 +90,10 @@ void GatasConnect::on_receive(const GATAS::GatasConnectRx &msg)
         }
     }
 
-    const bool allowLegacy = localConfigurationUpdateCnt == 0;
-    if (!allowLegacy)
+    // After a local configuration update, ignore non-device-action frames for
+    // the next five received messages. Save/Restart/USB boot remain available.
+    const bool allowNonDeviceActionFrames = localConfigurationUpdateCnt == 0;
+    if (!allowNonDeviceActionFrames)
     {
         localConfigurationUpdateCnt -= 1;
     }
@@ -95,25 +105,7 @@ void GatasConnect::on_receive(const GATAS::GatasConnectRx &msg)
 
     auto ownship = ownshipState.location.load();
     cobsStreamHandler.handle(ownship.lat, ownship.lon, etl::span<uint8_t>(msg.cobsMessage.get(), msg.length),
-        msg.source == GATAS::GatasConnectTransport::Bluetooth ? msg.bleSession : 0, allowLegacy);
-}
-
-void GatasConnect::on_receive(const GATAS::DeviceActionResponseMsg &msg)
-{
-    const auto capacity = getCOBSBufferSize(BinaryMessages::DEVICE_ACTION_RESPONSE_SIZE_V1, true);
-    auto &pool = BaseModule::getGlobalPool();
-    auto *payload = static_cast<uint8_t *>(pool.alloc(capacity));
-    if (payload == nullptr)
-    {
-        return;
-    }
-    const auto written = BinaryMessages::serializeDeviceActionResponseV1(msg.response, payload, capacity);
-    if (written == 0)
-    {
-        pool.release(payload);
-        return;
-    }
-    getBus().receive(GATAS::GatasConnectTx{pool, GATAS::GatasConnectOutput::Bluetooth, payload, written, msg.session});
+        msg.source, bootId, allowNonDeviceActionFrames);
 }
 
 void GatasConnect::on_receive(const GATAS::GdlMsg &msg)
@@ -150,6 +142,7 @@ void GatasConnect::getConfig(const Configuration &config)
     gdl90BridgeEnabled = config.valueByPath(false, NAME, "enableGdl90Bridge");
 
     auto gatasConfig = config.gaTasConfig();
+    const bool dirty = config.isDirty();
     auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
     hasUdpTraffic = false;
     localConfigurationUpdateCnt = LOCALCONFIGURATIONCHANGE_HOLD_BACK;
@@ -157,6 +150,7 @@ void GatasConnect::getConfig(const Configuration &config)
     allIcaoAddresses = gatasConfig.allIcaoAddresses;
     groundStation = gatasConfig.conspicuity.groundStation;
     gatasId = config.internalStore()->gatasId;
+    configurationDirty = dirty;
 }
 
 /**
@@ -231,6 +225,7 @@ void GatasConnect::sendOwnshipPosition()
 
 void GatasConnect::sendAircraftConfiguration()
 {
+    bool dirtyFlagSnap = false;
     uint64_t gatasIdSnap = 0;
     uint32_t icaoAddressSnap = 0;
     uint32_t gatasIpSnap = 0;
@@ -248,6 +243,7 @@ void GatasConnect::sendAircraftConfiguration()
         wifiModeSnap = wifiMode;
         outputSnap = gatasConnectOutput;
         allIcaoAddressesSnap = allIcaoAddresses;
+        dirtyFlagSnap = configurationDirty;
     }
 
     if (outputSnap == GATAS::GatasConnectOutput::NOOP)
@@ -264,7 +260,7 @@ void GatasConnect::sendAircraftConfiguration()
         return;
     }
 
-    const size_t written = BinaryMessages::serializeAircraftConfigurationV2(cobsPayload, configFrameSize, gatasIdSnap, icaoAddressSnap, allIcaoAddressesSnap, gatasIpSnap, pinCodeSnap, wifiModeSnap);
+    const size_t written = BinaryMessages::serializeAircraftConfigurationV2(cobsPayload, configFrameSize, gatasIdSnap, icaoAddressSnap, allIcaoAddressesSnap, gatasIpSnap, pinCodeSnap, wifiModeSnap, bootId, dirtyFlagSnap);
     if (written == 0)
     {
         GATAS_WARN("GatasConnect: failed to encode configuration payload");

@@ -23,7 +23,7 @@
  * framed binary protocol while transport specific modules subscribe to
  * GatasConnectTx and publish GatasConnectRx.
  */
-class GatasConnect : public BaseModule, public etl::message_router<GatasConnect, GATAS::WifiConnectionStateMsg, GATAS::ConfigUpdatedMsg, GATAS::GpsStatsMsg, GATAS::IngressAircraftPositionMsg, GATAS::GatasConnectRx, GATAS::GdlMsg, GATAS::DeviceActionResponseMsg>
+class GatasConnect : public BaseModule, public etl::message_router<GatasConnect, GATAS::WifiConnectionStateMsg, GATAS::ConfigUpdatedMsg, GATAS::GpsStatsMsg, GATAS::IngressAircraftPositionMsg, GATAS::GatasConnectRx, GATAS::GdlMsg>
 {
     friend class message_router;
 
@@ -44,6 +44,7 @@ class GatasConnect : public BaseModule, public etl::message_router<GatasConnect,
     uint32_t gatasIp = 0;
     uint32_t pinCode = 0;
     uint64_t gatasId = 0;
+    bool configurationDirty = false;
     bool groundStation = false;
     GATAS::WifiMode wifiMode = GATAS::WifiMode::NC;
 
@@ -64,7 +65,6 @@ private:
     void on_receive(const GATAS::IngressAircraftPositionMsg &msg);
     void on_receive(const GATAS::GatasConnectRx &msg);
     void on_receive(const GATAS::GdlMsg &msg);
-    void on_receive(const GATAS::DeviceActionResponseMsg &msg);
 
     static void requestTimerCallbackTrampoline(TimerHandle_t xTimer);
     void requestTimerCallback(TimerHandle_t xTimer);

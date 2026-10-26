@@ -81,7 +81,7 @@
 #else
 /* Static idle and timer task storage now lives in .bss, so return the equivalent
  * space from the FreeRTOS heap to the libc heap used for module allocation. */
-#define configTOTAL_HEAP_SIZE                   (60*1024)
+#define configTOTAL_HEAP_SIZE                   (50*1024)
 #endif
 #define configAPPLICATION_ALLOCATED_HEAP        0
 

@@ -20,20 +20,21 @@ private:
     // gulpBuffer needs to be at least the size of one array of length ending with DelimiterBitmap
     etl::vector<uint8_t, 64> gulpBuffer;
     Gulp gulp;
-    uint32_t lastBleSession = 0;
+    GATAS::GatasConnectTransport lastTransport = GATAS::GatasConnectTransport::UDP;
 
 public:
     CobsStreamHandler(etl::imessage_bus &bus_, GATAS::OwnshipState &ownshipState_) : bus(bus_), ownshipState(ownshipState_), gulp(gulpBuffer, DelimiterBitmap::Null())
     {
     }
 
-    void handle(float ownShipLat, float ownShipLon, etl::span<uint8_t> cobsBuffer, uint32_t bleSession = 0, bool allowLegacy = true)
+    void handle(float ownShipLat, float ownShipLon, etl::span<uint8_t> cobsBuffer, GATAS::GatasConnectTransport transport = GATAS::GatasConnectTransport::UDP, uint8_t bootId = 0, bool allowNonDeviceActionFrames = true)
     {
-        // Never finish a buffered frame using another transport/connection.
-        if (lastBleSession != bleSession)
+        // Never finish a buffered frame using another transport.
+        // Bluetooth already assembles complete frames separately per connection.
+        if (lastTransport != transport)
         {
             gulp.erase();
-            lastBleSession = bleSession;
+            lastTransport = transport;
         }
         gulp.setRef(cobsBuffer);
         etl::vector<GATAS::AircraftPositionInfo, GATAS::IngressAircraftPositionsMsg::MAX_POSITIONS> positionMessages;
@@ -73,18 +74,20 @@ public:
 
             if (frameType == BinaryMessages::DataType::DEVICE_ACTION_REQUEST_V1)
             {
-                // Management is BLE-only and deliberately bypasses the legacy
-                // aircraft/configuration holdback during connection startup.
-                if (bleSession != 0)
+                if (transport == GATAS::GatasConnectTransport::Bluetooth)
                 {
                     if (const auto request = BinaryMessages::deserializeDeviceActionRequestV1(data))
                     {
-                        bus.receive(GATAS::DeviceActionRequestMsg{request.value(), bleSession});
+                        if (request->bootId == bootId)
+                        {
+                            bus.receive(GATAS::DeviceActionRequestMsg{request->action});
+                        }
                     }
                 }
                 continue;
             }
-            if (frameType == BinaryMessages::DataType::DEVICE_ACTION_RESPONSE_V1 || !allowLegacy)
+            // Device actions above bypass the configuration-update holdback.
+            if (!allowNonDeviceActionFrames)
             {
                 continue;
             }

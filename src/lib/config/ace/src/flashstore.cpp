@@ -74,7 +74,7 @@ size_t __not_in_flash_func(FlashStore::write)(const uint8_t *buffer, size_t leng
     if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
     {
         // Safe version when multitasking
-        if (flash_safe_execute(pico_flash_bank_perform_flash, &mop, 5000) == PICO_OK)
+        if (flash_safe_execute(pico_flash_bank_perform_flash, &mop, UINT32_MAX) == PICO_OK)
         {
             bytesWritten = length;
             return length;

@@ -137,6 +137,39 @@ TEST_CASE("COBS pressure updates source state before notifying and recovers afte
     bus.unsubscribe(receiver);
 }
 
+TEST_CASE("COBS partial frames cannot cross transports", "[binarymessages][pressure]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    etl::message_bus<2> bus;
+    PressureReceiver receiver{state};
+    bus.subscribe(receiver);
+    CobsStreamHandler handler{bus, state};
+    using Transport = GATAS::GatasConnectTransport;
+
+    uint8_t first[] = {7, 11, 0x27};
+    uint8_t rest[] = {0x95, 0x27, 0x95, 1, 0};
+    handler.handle(0.0f, 0.0f, first, Transport::UDP);
+    handler.handle(0.0f, 0.0f, rest, Transport::Bluetooth);
+    REQUIRE(receiver.samples.empty());
+
+    uint8_t complete[] = {7, 11, 0x27, 0x95, 0x27, 0x95, 1, 0};
+    handler.handle(0.0f, 0.0f, complete, Transport::Bluetooth);
+    REQUIRE(receiver.samples.size() == 1);
+    REQUIRE(receiver.samples.back().value.pressurehPa == Catch::Approx(1013.3f));
+
+    uint8_t nextFirst[] = {7, 11, 0x27};
+    uint8_t nextRest[] = {0x95, 0x27, 0x95, 1, 0};
+    handler.handle(0.0f, 0.0f, nextFirst, Transport::Bluetooth);
+    handler.handle(0.0f, 0.0f, nextRest, Transport::UDP);
+    REQUIRE(receiver.samples.size() == 1);
+
+    uint8_t recovered[] = {7, 11, 0x27, 0x95, 0x27, 0x95, 1, 0};
+    handler.handle(0.0f, 0.0f, recovered, Transport::UDP);
+    REQUIRE(receiver.samples.size() == 2);
+}
+
 TEST_CASE("External COBS pressure cannot overwrite fresh internal pressure", "[binarymessages][pressure]")
 {
     CoreUtils::init();

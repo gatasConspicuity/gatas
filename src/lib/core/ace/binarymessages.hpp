@@ -12,7 +12,6 @@
 #include "ace/cobs.hpp"
 #include "lib_crc.hpp"
 #include "coreutils.hpp"
-#include "deviceactions.hpp"
 #include "models.hpp"
 #include "ace/measure.hpp"
 
@@ -21,9 +20,7 @@ class BinaryMessages
 public:
     // Upper bound for one framed COBS payload including the trailing zero delimiter.
     static constexpr size_t MAX_COBS_FRAME_SIZE = 256;
-
-    static constexpr size_t DEVICE_ACTION_REQUEST_SIZE_V1 = 16;
-    static constexpr size_t DEVICE_ACTION_RESPONSE_SIZE_V1 = 17;
+    static constexpr size_t DEVICE_ACTION_REQUEST_SIZE_V1 = 3;
 
     /**
      * Object that can be used by binary messages to indicate how many bytes it will consume
@@ -56,8 +53,7 @@ public:
             AIRCRAFT_POSITION_TYPE_V3 = 9,     // Aircraft position with pressure altitude and QNH
             AIRCRAFT_POSITION_REQUEST_V2 = 10, // Request aircraft positions using the versioned response format
             OWNSHIP_PRESSURE_V1 = 11, // Ownship ambient pressure and QNH
-            DEVICE_ACTION_REQUEST_V1 = 12,
-            DEVICE_ACTION_RESPONSE_V1 = 13,
+            DEVICE_ACTION_REQUEST_V1 = 12,     // Action and current 8-bit boot ID
         };
 
         ETL_DECLARE_ENUM_TYPE(DataType, uint8_t)
@@ -73,11 +69,23 @@ public:
         ETL_ENUM_TYPE(AIRCRAFT_POSITION_REQUEST_V2, "Versioned conspicuity data request")
         ETL_ENUM_TYPE(OWNSHIP_PRESSURE_V1, "Ownship ambient pressure and QNH")
         ETL_ENUM_TYPE(DEVICE_ACTION_REQUEST_V1, "Device action request")
-        ETL_ENUM_TYPE(DEVICE_ACTION_RESPONSE_V1, "Device action response")
         ETL_END_ENUM_TYPE
     };
 
+    static etl::optional<GATAS::DeviceActionRequest> deserializeDeviceActionRequestV1(etl::span<const uint8_t> data)
+    {
+
+        if (data.size() != DEVICE_ACTION_REQUEST_SIZE_V1 || data[0] != DataType::DEVICE_ACTION_REQUEST_V1 ||
+            data[1] < static_cast<uint8_t>(GATAS::DeviceAction::Save) ||
+            data[1] > static_cast<uint8_t>(GATAS::DeviceAction::UsbBoot))
+        {
+            return etl::nullopt;
+        }
+        return GATAS::DeviceActionRequest{static_cast<GATAS::DeviceAction>(data[1]), data[2]};
+    }
+
     static constexpr uint8_t AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK = 0x03U;
+    static constexpr uint8_t AIRCRAFT_CONFIGURATION_DIRTY_FLAG = 0x04U;
 
     static constexpr int32_t LEGACY_ELLIPSOID_HEIGHT_OFFSET_M = 100;
     static constexpr int32_t V3_ELLIPSOID_HEIGHT_OFFSET_M = 1000;
@@ -398,17 +406,23 @@ public:
         return getCOBSBufferSize(serializeOwnshipPositionSizeV2().items(1), true);
     }
 
-    static void serializeAircraftConfigurationV2(etl::bit_stream_writer &writer, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode)
+    static void serializeAircraftConfigurationV2(etl::bit_stream_writer &writer, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode, uint8_t bootId, bool dirtyFlag)
     {
         writer.write_unchecked(DataType(DataType::AIRCRAFT_CONFIGURATIONS_V2).get_value(), 8U);
-        const uint8_t flags = static_cast<uint8_t>(wifiMode) & AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK;
-        writer.write_unchecked(flags, 8U); // Reserved bits, bits 0-1 encode WiFi mode: NC/AP/CLIENT
+        const uint8_t flags = (static_cast<uint8_t>(wifiMode) & AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK)
+            | (dirtyFlag ? AIRCRAFT_CONFIGURATION_DIRTY_FLAG : 0U);
+        writer.write_unchecked(flags, 8U); // Bits 0-1: WiFi mode NC/AP/CLIENT; bit 2: dirty; bits 3-7: reserved
         writer.write_unchecked(gatasId, 32U);
         writer.write_unchecked(gatasIp, 32U);
         writer.write_unchecked(icaoAddressSnap, 24U);
 
-        writer.write_unchecked(0, 32U);       // Version
+        writer.write_unchecked<uint8_t>(3); // GATAS::VERSION_MAJOR
+        writer.write_unchecked<uint8_t>(6); // GATAS::VERSION_MINOR
+        writer.write_unchecked<uint8_t>(0); // GATAS::VERSION_BUGFIX
+        writer.write_unchecked<uint8_t>(bootId);
         writer.write_unchecked(pinCode, 24U); // gatasConnect Pincode
+
+//        GATAS_WARN("VERSION: %d %d %d", GATAS::VERSION_MAJOR, GATAS::VERSION_MINOR, GATAS::VERSION_BUGFIX);
 
         // options how to set the addres as a response
         // Examples could be:
@@ -424,7 +438,7 @@ public:
         }
     }
 
-    static size_t serializeAircraftConfigurationV2(uint8_t *out, size_t outSize, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode)
+    static size_t serializeAircraftConfigurationV2(uint8_t *out, size_t outSize, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode, uint8_t bootId, bool dirtyFlag)
     {
         const size_t rawSize = serializeAircraftConfigurationSizeV2().items(addresses.size());
         const size_t framedSize = serializeAircraftConfigurationFramedSizeV2(addresses.size());
@@ -435,7 +449,7 @@ public:
 
         uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
         etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
-        serializeAircraftConfigurationV2(writer, gatasId, icaoAddressSnap, addresses, gatasIp, pinCode, wifiMode);
+        serializeAircraftConfigurationV2(writer, gatasId, icaoAddressSnap, addresses, gatasIp, pinCode, wifiMode, bootId, dirtyFlag);
         return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
     }
 
@@ -628,44 +642,5 @@ public:
         }
 
         return crc16;
-    }
-
-    static etl::optional<GATAS::DeviceActionRequest> deserializeDeviceActionRequestV1(const etl::span<const uint8_t> &raw)
-    {
-        if (raw.size() != DEVICE_ACTION_REQUEST_SIZE_V1 ||
-            raw[0] != DataType(DataType::DEVICE_ACTION_REQUEST_V1).get_value())
-        {
-            return etl::nullopt;
-        }
-
-        etl::bit_stream_reader reader(raw, etl::endian::big);
-        reader.read_unchecked<uint8_t>();
-        GATAS::DeviceActionRequest request;
-        request.action = static_cast<GATAS::DeviceAction>(reader.read_unchecked<uint8_t>());
-        request.phase = static_cast<GATAS::DeviceActionPhase>(reader.read_unchecked<uint8_t>());
-        request.requestId = reader.read_unchecked<uint32_t>();
-        request.bootId = reader.read_unchecked<uint64_t>();
-        request.updatePolicy = static_cast<GATAS::DeviceUpdatePolicy>(reader.read_unchecked<uint8_t>());
-        return request;
-    }
-
-    static size_t serializeDeviceActionResponseV1(const GATAS::DeviceActionResponse &response, uint8_t *out, size_t outSize)
-    {
-        const size_t framedSize = getCOBSBufferSize(DEVICE_ACTION_RESPONSE_SIZE_V1, true);
-        if (outSize < framedSize)
-        {
-            return 0;
-        }
-
-        uint8_t rawBuffer[DEVICE_ACTION_RESPONSE_SIZE_V1];
-        etl::bit_stream_writer writer(rawBuffer, sizeof(rawBuffer), etl::endian::big);
-        writer.write_unchecked<uint8_t>(DataType(DataType::DEVICE_ACTION_RESPONSE_V1).get_value());
-        writer.write_unchecked<uint8_t>(static_cast<uint8_t>(response.action));
-        writer.write_unchecked<uint32_t>(response.requestId);
-        writer.write_unchecked<uint8_t>(static_cast<uint8_t>(response.result));
-        writer.write_unchecked<uint8_t>(response.capabilities);
-        writer.write_unchecked<uint64_t>(response.bootId);
-        writer.write_unchecked<uint8_t>(response.dirty ? 1 : 0);
-        return encodeCOBS(rawBuffer, sizeof(rawBuffer), out, outSize, true);
     }
 };

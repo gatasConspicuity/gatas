@@ -26,6 +26,11 @@ constexpr float DIAMETER_EARTH_M = 6371640.f;         // Radius of the earth in 
 
 namespace GATAS
 {
+    // Derived from the build's Git tag; prerelease labels are omitted on the wire.
+    constexpr uint8_t VERSION_MAJOR = BUILD_VERSION_MAJOR;
+    constexpr uint8_t VERSION_MINOR = BUILD_VERSION_MINOR;
+    constexpr uint8_t VERSION_BUGFIX = BUILD_VERSION_BUGFIX;
+
     constexpr uint8_t MODULE_NAME_LENGTH = 16;
     constexpr uint8_t MANCHESTER = 2;
     constexpr uint8_t NMEA_MAX_LENGTH = 84;

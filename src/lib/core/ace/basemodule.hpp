@@ -317,6 +317,11 @@ public:
     virtual bool isModuleEnabled(const etl::string_view moduleName) const = 0;
 
     /**
+     * Returns whether the configuration has unsaved changes.
+     */
+    virtual bool isDirty() const = 0;
+
+    /**
      * Returns teh WIFI Service configuration
      */
     virtual const GATAS::Config::WifiServiceData wifiService() const = 0;
@@ -346,6 +351,4 @@ public:
      */
     virtual GATAS::CallSign getCallSignFromHex(uint32_t transponderId) const = 0;
 
-    virtual void setValueBypath(const etl::string_view pathToValue, etl::string_view value) = 0;
-    virtual void setValueBypath(const etl::string_view pathToValue, uint64_t value) = 0;
 };

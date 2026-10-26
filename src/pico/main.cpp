@@ -633,7 +633,7 @@ void vLaunch(void)
 
     // Load all the modules
     TaskHandle_t task;
-    xTaskCreate(loadModules, "LoadModulesTask", configMINIMAL_STACK_SIZE + 768, NULL, tskIDLE_PRIORITY, &task);
+    xTaskCreate(loadModules, "LoadModulesTask", configMINIMAL_STACK_SIZE + 512, NULL, tskIDLE_PRIORITY, &task);
     vTaskCoreAffinitySet(task, 1);
 
     // Dump some CPU diagnostics to terminal of all running tasks

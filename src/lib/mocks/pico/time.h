@@ -3,6 +3,17 @@
 #include <stdint.h>
 #include "../pico.h"
 
+struct repeating_timer_t
+{
+    void *user_data = nullptr;
+};
+
+inline bool add_repeating_timer_ms(int32_t, bool (*)(repeating_timer_t *), void *userData, repeating_timer_t *timer)
+{
+    timer->user_data = userData;
+    return true;
+}
+
 inline uint64_t get_absolute_timeValue = 0;
 // us since boot
 inline uint64_t get_absolute_time()

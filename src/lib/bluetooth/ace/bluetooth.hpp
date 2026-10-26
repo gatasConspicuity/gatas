@@ -39,7 +39,6 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
     static constexpr uint32_t ACTIVE_HEARTBEAT_MS = 100;
 
     inline static Bluetooth *instance;
-    uint32_t nextBleSession = 0;
 
     // advertisement and scan response data, max 31 bytes each
     etl::vector<uint8_t, 31> advertiseData;
@@ -60,7 +59,6 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
     struct BtContext
     {
         bool inUse = false;
-        uint32_t bleSession = 0;
         // Best-effort "work pending" hint for streaming TX.
         // This is intentionally lossy (not a strict synchronization flag):
         // missing a set/read can delay one cycle, but heartbeat re-checks and
@@ -95,9 +93,8 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
             attCallback.callback = attCallback_;
         }
 
-        void activate(hci_con_handle_t hciHandle_, uint16_t mtu_, uint32_t session)
+        void activate(hci_con_handle_t hciHandle_, uint16_t mtu_)
         {
-            bleSession = session;
             txDirty = false;
             hciHandle = hciHandle_;
             mtu = mtu_;
@@ -117,7 +114,6 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
 
         void deactivate()
         {
-            bleSession = 0;
             inUse = false;
             txDirty = false;
             hciHandle = 0;

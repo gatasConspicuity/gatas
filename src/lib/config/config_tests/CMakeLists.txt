@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.18)
 project(tests)
 include(FetchContent)
+include(${CMAKE_CURRENT_LIST_DIR}/../../../gatas_version.cmake)
 
 message(STATUS "Building tests.")
 
 add_definitions(-DCATCH_CONFIG_NO_POSIX_SIGNALS)
 add_definitions(-DUNIT_TESTING)
+add_definitions(-DMOCK_REAL_MUTEXES)
 add_definitions(-DGATAS_MAXIMUM_TCP_CLIENTS=4)
 add_definitions(-D__flash_binary_end=0x4000000)
 add_definitions(-DXIP_BASE=0x6000000)
@@ -34,6 +36,9 @@ if(${CMAKE_SOURCE_DIR} STREQUAL ${PROJECT_SOURCE_DIR})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/ArduinoJson ArduinoJson)
 endif()
 
+add_executable(jsonallocator_test jsonallocator_test.cpp)
+target_link_libraries(jsonallocator_test PRIVATE Catch2WithMain ArduinoJson)
+
 # These examples use the standard separate compilation
 set( SOURCES_IDIOMATIC_EXAMPLES
    config_test.cpp
@@ -49,6 +54,8 @@ set( ACE_SOURCE_FILES
         ../../utils/ace/src/moreutils.cpp
         ../../utils/ace/src/cobs.cpp
         ../ace/src/config.cpp
+        ../../idle/ace/src/idle.cpp
+        ../../gatasconnect/ace/src/gatasconnect.cpp
 )
 
 

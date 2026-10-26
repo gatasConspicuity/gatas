@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(MasterProject)
+include(${CMAKE_CURRENT_LIST_DIR}/gatas_version.cmake)
 
 message("===============================================================================")
 message("== Build and run unit tests                                                  ==")

@@ -73,7 +73,7 @@ GATAS::PostConstruct StaticGPS::postConstruct()
         return result;
     }
 
-    if (xTaskCreate(taskTrampoline, NAME.cbegin(), configMINIMAL_STACK_SIZE + 1024, this, tskIDLE_PRIORITY, &staticTaskHandle) != pdPASS)
+    if (xTaskCreate(taskTrampoline, NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY, &staticTaskHandle) != pdPASS)
     {
         return GATAS::PostConstruct::TASK_ERROR;
     }
