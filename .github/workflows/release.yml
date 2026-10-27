@@ -196,7 +196,7 @@ jobs:
           fi
 
           if [[ "$TAG_NAME" == *-prerelease || "$TAG_NAME" == *-rc* ]]; then
-            KIND="RC"
+            KIND="Release Candidate"
           else
             KIND="Release"
           fi

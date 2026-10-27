@@ -172,7 +172,15 @@ GATAS::CallSign Gdl90Service::makeGdlCallsign(const GATAS::CallSign &callSign) c
 void Gdl90Service::on_receive(const GATAS::OwnshipPositionMsg &)
 {
     const auto pos = ownshipState.location.load();
-    const auto pressureAltitude = ownshipState.calculatePressureAltitude();
+    etl::optional<int32_t> altitudeMetres;
+    if (const auto pressureAltitude = ownshipState.calculatePressureAltitude())
+    {
+        altitudeMetres = static_cast<int32_t>(pressureAltitude.value());
+    }
+    else if (mslAltFallback)
+    {
+        altitudeMetres = pos.heightMsl();
+    }
 
     uint32_t latitude;
     uint32_t longitude;
@@ -203,8 +211,6 @@ void Gdl90Service::on_receive(const GATAS::OwnshipPositionMsg &)
     auto nacp = calcNACp(hfom);
     auto nic = calcNIC(hpl);
 
-    auto pressureAltValue = pressureAltitude ? static_cast<int32_t>(pressureAltitude.value()) : GATAS::INVALID_BARO_ALTITUDE;
-
     if (gdl90.ownership_or_traffic_report_encode(
             unpacked,
             true,
@@ -213,7 +219,7 @@ void Gdl90Service::on_receive(const GATAS::OwnshipPositionMsg &)
             pos.conspicuity.icaoAddress,
             latitude,
             longitude,
-            encodePressureAltitude(pressureAltValue, pos.heightMsl(), mslAltFallback),
+            encodeAltitude(altitudeMetres),
             // Same as for tracked aircraft, force to AIRBORN unless we can understand how forflight handles this bit
             GDL90::MISC_TT_HEADING_TRUE_MASK | GDL90::MISC_AIRBORNE_MASK,
             // GDL90::MISC_TT_HEADING_TRUE_MASK | (msg.position.airborne ? GDL90::MISC_AIRBORNE_MASK : GDL90::MISC_ON_GROUND_MASK),
@@ -294,16 +300,15 @@ GDL90::NACP Gdl90Service::calcNACp(float hfomMeters)
     return GDL90::NACP::UNKNOWN;
 }
 
-uint32_t Gdl90Service::encodePressureAltitude(int32_t pressureAltitude, int32_t heightMsl, bool allowMslFallback)
+uint32_t Gdl90Service::encodeAltitude(etl::optional<int32_t> altitudeMetres)
 {
-    // Prefer standard-pressure altitude. MSL is only an intentional fallback when enabled.
-    if (allowMslFallback && pressureAltitude == GATAS::INVALID_BARO_ALTITUDE)
+    if (!altitudeMetres)
     {
-        pressureAltitude = heightMsl;
+        return GDL90::ALTITUDE_ENCODED_INVALID;
     }
 
     uint32_t encodedAltitude = GDL90::ALTITUDE_ENCODED_INVALID;
-    if (!gdl90.altitude_encode(encodedAltitude, pressureAltitude * M_TO_FT))
+    if (!gdl90.altitude_encode(encodedAltitude, static_cast<float>(altitudeMetres.value()) * M_TO_FT))
     {
         return GDL90::ALTITUDE_ENCODED_INVALID;
     }
@@ -345,6 +350,7 @@ GDL90::NIC Gdl90Service::calcNIC(float hplMeters)
 void Gdl90Service::on_receive(const GATAS::EgressAircraftPositionMsg &msg)
 {
     const GATAS::AircraftPositionInfo &pos = msg.position;
+    const auto altitudeMetres = CoreUtils::resolveTrafficAltitude(pos, ownshipState, mslAltFallback);
 
     uint32_t latitude;
     uint32_t longitude;
@@ -357,7 +363,7 @@ void Gdl90Service::on_receive(const GATAS::EgressAircraftPositionMsg &msg)
 
     gdl90.latlon_encode(latitude, pos.lat);
     gdl90.latlon_encode(longitude, pos.lon);
-    altitude = encodePressureAltitude(pos.pressureAlt, pos.ellipseHeight - ownshipState.location.load().geoidSeparation, false);
+    altitude = encodeAltitude(altitudeMetres);
     gdl90.horizontal_velocity_encode(horiz_velocity, pos.groundSpeed * MS_TO_KN);
     gdl90.vertical_velocity_encode(vert_velocity, pos.verticalSpeed * MS_TO_FTPMIN);
     gdl90.track_hdg_encode(track_hdg, pos.track);

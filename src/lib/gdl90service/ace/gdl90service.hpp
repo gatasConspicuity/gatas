@@ -69,7 +69,7 @@ private:
 
     GDL90::NIC calcNIC(float hplMeters);
     GDL90::NACP calcNACp(float hfomMeters);
-    uint32_t encodePressureAltitude(int32_t pressureAltitude, int32_t heightMsl, bool allowMslFallback = true);
+    uint32_t encodeAltitude(etl::optional<int32_t> altitudeMetres);
 
     GDL90::EMITTER aircraftTypeToEmitter(GATAS::AircraftCategory category) const;
     /**

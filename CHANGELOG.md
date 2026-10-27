@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added periodic device-state broadcasts with supported capabilities, boot IDs,
   and unsaved-configuration status, without request IDs, results, or sessions.
 - Response to specific DeviceActions so the device can be restarted/data saved over BLE via cobs
+- Display pressure source and altitude on AircraftTracker monitoring page
+
+### Fixed
+
+- PressureAltitude for OGN/FLARM/ADS-L when transmitted over GDL90
 
 ## [v3.5.1] - 2026-10-15
 

@@ -18,7 +18,8 @@ namespace
         size_t trafficBatches = 0;
         void on_receive(const GATAS::BarometricPressureMsg &)
         {
-            samples.push_back(ownshipState.loadPressureState().barometricPressure.at(GATAS::PressureSource::Calculated));
+            samples.push_back(ownshipState.loadPressureState().sample(
+                GATAS::BarometricSource::External, GATAS::PressureSource::Calculated));
         }
         void on_receive(const GATAS::IngressAircraftPositionsMsg &)
         {
@@ -132,7 +133,7 @@ TEST_CASE("COBS pressure updates source state before notifying and recovers afte
     uint8_t unknownSource[] = {7, 11, 0x27, 0x95, 0x27, 0x95, 255, 0};
     handler.handle(0.0f, 0.0f, unknownSource);
     REQUIRE(receiver.samples.size() == 3);
-    REQUIRE(state.loadPressureState().barometricPressure.size() == 1);
+    REQUIRE(state.loadPressureState().sample(GATAS::BarometricSource::External, GATAS::PressureSource::Calculated).valid);
     REQUIRE(receiver.trafficBatches == 0);
     bus.unsubscribe(receiver);
 }
@@ -188,12 +189,36 @@ TEST_CASE("External COBS pressure cannot overwrite fresh internal pressure", "[b
     uint8_t calculated[] = {7, 11, 0x27, 0x95, 0x27, 0x95, 1, 0};
     handler.handle(0.0f, 0.0f, calculated);
     const auto snapshot = state.loadPressureState();
-    REQUIRE(snapshot.barometricPressure.size() == 1);
-    REQUIRE(snapshot.barometricPressure.at(GATAS::PressureSource::PressureSensor).value.pressurehPa == 898.7628f);
-    REQUIRE(snapshot.barometricPressure.at(GATAS::PressureSource::PressureSensor).msSinceEpoch == now);
+    const auto &internal = snapshot.sample(GATAS::BarometricSource::Internal, GATAS::PressureSource::PressureSensor);
+    REQUIRE(internal.value.pressurehPa == 898.7628f);
+    REQUIRE(internal.msSinceEpoch == now);
+    REQUIRE(snapshot.sample(GATAS::BarometricSource::External, GATAS::PressureSource::PressureSensor).valid);
+    REQUIRE(snapshot.sample(GATAS::BarometricSource::External, GATAS::PressureSource::Calculated).valid);
+    REQUIRE(state.calculatePressureAltitude().value() == Catch::Approx(1000.0f).margin(0.1f));
     time_us_Value += 6'000'000;
     // A new COBS update may take over when the internal reading has expired.
     uint8_t next[] = {7, 11, 0x27, 0x95, 0x27, 0x95, 1, 0};
     handler.handle(0.0f, 0.0f, next);
-    REQUIRE(state.loadPressureState().barometricPressure.at(GATAS::PressureSource::Calculated).value.pressurehPa == Catch::Approx(1013.3f));
+    REQUIRE(state.loadPressureState().sample(GATAS::BarometricSource::External, GATAS::PressureSource::Calculated).value.pressurehPa == Catch::Approx(1013.3f));
+    REQUIRE(state.calculatePressureAltitude().value() == Catch::Approx(-0.416f).margin(0.1f));
+}
+
+TEST_CASE("COBS phone invalidation immediately falls back to the cached server estimate", "[binarymessages][pressure]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    etl::message_bus<2> bus;
+    CobsStreamHandler handler{bus, state};
+
+    // Phone: 1013.3 hPa measured; server: 900.0 hPa calculated.
+    uint8_t phone[] = {7, 11, 0x27, 0x95, 255, 255, 2, 0};
+    uint8_t server[] = {7, 11, 0x23, 0x28, 255, 255, 1, 0};
+    handler.handle(0.0f, 0.0f, phone);
+    handler.handle(0.0f, 0.0f, server);
+    REQUIRE(state.calculatePressureAltitude().value() == Catch::Approx(-0.416f).margin(0.1f));
+
+    uint8_t phoneUnavailable[] = {7, 11, 255, 255, 255, 255, 2, 0};
+    handler.handle(0.0f, 0.0f, phoneUnavailable);
+    REQUIRE(state.calculatePressureAltitude().value() == Catch::Approx(988.5f).margin(1.0f));
 }

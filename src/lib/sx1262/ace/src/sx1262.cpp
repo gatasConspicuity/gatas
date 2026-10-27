@@ -236,7 +236,7 @@ void Sx1262::configureSx1262(const GATAS::RadioParameters &newParameters,
 {
     GATAS_ASSERT(newParameters.config != nullptr && newParameters.frequency != nullptr, "Invalid radio parameters");
     GATAS_ASSERT(newParameters.config->dataSource() != GATAS::DataSource::NONE, "Cannot configure radio for NONE");
-    GATAS_MEASURE("configureSx1262", 600);
+    GATAS_MEASURE("configureSx1262", 900);
 
     // Completion/timeout leaves the radio in standby; the task stops active RX.
     // Only a modem change requires selecting RC standby here.
@@ -622,7 +622,7 @@ void Sx1262::recordHalSpiError()
 
 sx126x_status_t Sx1262::standBy(sx126x_standby_cfg_t mode)
 {
-    GATAS_MEASURE("standBy", 150);
+    GATAS_MEASURE("standBy", 500);
 
     // .715
     return sx126x_set_standby(this, mode);
