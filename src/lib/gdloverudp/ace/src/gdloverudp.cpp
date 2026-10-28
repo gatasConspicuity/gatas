@@ -253,8 +253,13 @@ void GDLoverUDP::transmitBuffer()
         return;
     }
 
-    auto [connectedClientsSnapshot, udpPortsSnapshot] =
-        SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), connectedClients, udpPorts);
+    decltype(connectedClients) connectedClientsSnapshot;
+    decltype(udpPorts) udpPortsSnapshot;
+    if (auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()})
+    {
+        connectedClientsSnapshot = connectedClients;
+        udpPortsSnapshot = udpPorts;
+    }
 
     uint8_t totalpBufs = connectedClientsSnapshot.size() * udpPortsSnapshot.size() +
                          (gateWayClient ? udpPortsSnapshot.size() : 0);

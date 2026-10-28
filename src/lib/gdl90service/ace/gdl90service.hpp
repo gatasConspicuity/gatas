@@ -9,6 +9,8 @@
 
 /* GATAS. */
 #include "ace/constants.hpp"
+#include "ace/coreutils.hpp"
+#include "ace/spinlockguard.hpp"
 #include "ace/basemodule.hpp"
 #include "ace/messages.hpp"
 #include "ace/ownshipstate.hpp"
@@ -48,7 +50,7 @@ private:
     GDL90::ADDR_TYPE type;
     const GATAS::OwnshipState &ownshipState;
     GATAS::GpsStats gpsStats;
-    GATAS::CallSign ownshipCallsign;
+    SynchronizedValue<GATAS::CallSign> ownshipCallsign{CoreUtils::sharedSpinLock()};
     bool mslAltFallback = false;
 
 private:

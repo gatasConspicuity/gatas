@@ -36,12 +36,13 @@ public:
     SpinlockGuard(SpinlockGuard &&) = delete;
     SpinlockGuard &operator=(SpinlockGuard &&) = delete;
 
-    template <typename T>
-    inline static auto copyWithLock(spin_lock_t *lock, const T &value)
-    {
-        SpinlockGuard guard(lock);
-        return value;
-    }
+    // These function are dangerious if not used correctly, do not re-enable
+    //    template <typename T>
+    //    inline static auto copyWithLock(spin_lock_t *lock, const T &value)
+    //    {
+    //        SpinlockGuard guard(lock);
+    //        return value;
+    //    }
 
     // template <typename F>
     // inline static auto withLock(spin_lock_t *lock, F &&fn)
@@ -50,12 +51,12 @@ public:
     //     return etl::forward<F>(fn)();
     // }
 
-    template <typename T1, typename T2>
-    inline static auto copyWithLock(spin_lock_t *lock, const T1 &val1, const T2 &val2)
-    {
-        SpinlockGuard guard(lock);
-        return etl::pair<T1, T2>(val1, val2);
-    }
+    //    template <typename T1, typename T2>
+    //    inline static auto copyWithLock(spin_lock_t *lock, const T1 &val1, const T2 &val2)
+    //    {
+    //        SpinlockGuard guard(lock);
+    //        return etl::pair<T1, T2>(val1, val2);
+    //    }
 
     operator bool() const
     {
@@ -83,7 +84,7 @@ public:
     explicit SynchronizedValue(spin_lock_t *lock, const T &initialValue = T{})
         : lock(lock), value(initialValue)
     {
-        GATAS_ASSERT(lock != nullptr, "SynchronizedValue requires a valid spinlock");
+        GATAS_ASSERT(lock != nullptr, "!Spinlock");
     }
 
     SynchronizedValue(const SynchronizedValue &) = delete;
@@ -94,22 +95,22 @@ public:
     /** Initialize once during startup, before any concurrent access. */
     void init(spin_lock_t *newLock, const T &initialValue = T{})
     {
-        GATAS_ASSERT(lock == nullptr, "SynchronizedValue already initialized");
-        GATAS_ASSERT(newLock != nullptr, "SynchronizedValue requires a valid spinlock");
+        // GATAS_ASSERT(lock == nullptr, "SynchronizedValue already initialized");
+        // GATAS_ASSERT(newLock != nullptr, "SynchronizedValue requires a valid spinlock");
         value = initialValue;
         lock = newLock;
     }
 
     T load() const
     {
-        GATAS_ASSERT(lock != nullptr, "SynchronizedValue must be initialized before load");
+        // GATAS_ASSERT(lock != nullptr, "SynchronizedValue must be initialized before load");
         SpinlockGuard guard(lock);
         return value;
     }
 
     void store(const T &newValue)
     {
-        GATAS_ASSERT(lock != nullptr, "SynchronizedValue must be initialized before store");
+        // GATAS_ASSERT(lock != nullptr, "SynchronizedValue must be initialized before store");
         SpinlockGuard guard(lock);
         value = newValue;
     }
@@ -119,7 +120,7 @@ public:
     template <typename F>
     void update(F &&fn)
     {
-        GATAS_ASSERT(lock != nullptr, "SynchronizedValue must be initialized before update");
+        // GATAS_ASSERT(lock != nullptr, "SynchronizedValue must be initialized before update");
         SpinlockGuard guard(lock);
         etl::forward<F>(fn)(value);
     }

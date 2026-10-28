@@ -36,19 +36,20 @@ public:
     TaskCriticalGuard(TaskCriticalGuard &&) = delete;
     TaskCriticalGuard &operator=(TaskCriticalGuard &&) = delete;
 
-    template <typename T>
-    inline static T copyWithLock(const T &value)
-    {
-        TaskCriticalGuard guard{};
-        return value;
-    }
+    // These function are dangerious if not used correctly, do not re-enable
+    // template <typename T>
+    // inline static T copyWithLock(const T &value)
+    // {
+    //     TaskCriticalGuard guard{};
+    //     return value;
+    // }
 
-    template <typename T1, typename T2>
-    inline static etl::pair<T1, T2> copyWithLock(const T1 &val1, const T2 &val2)
-    {
-        TaskCriticalGuard guard{};
-        return etl::pair<T1, T2>(val1, val2);
-    }
+    // template <typename T1, typename T2>
+    // inline static etl::pair<T1, T2> copyWithLock(const T1 &val1, const T2 &val2)
+    // {
+    //     TaskCriticalGuard guard{};
+    //     return etl::pair<T1, T2>(val1, val2);
+    // }
 
     operator bool() const
     {
