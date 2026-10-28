@@ -4,6 +4,7 @@
 
 #include "AbstractGnss.hpp"
 #include "NtpClient.hpp"
+#include "ace/spinlockguard.hpp"
 
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -69,17 +70,18 @@ private:
         float longitude;
         float altitudeMeters;
         float geoidSeparationMeters;
-    } locationData;
+    };
 
-    ServerName newServerName;
+    SynchronizedValue<LocationData> locationData;
+    SynchronizedValue<ServerName> newServerName;
 
     TaskHandle_t staticTaskHandle = nullptr;
     TimerHandle_t sendTimerHandle = nullptr;
 
     RtcModule *rtc = nullptr;
     NtpClient ntpClient;
-    NtpTimeResult ntpTimeResult{0, 0};
-    int64_t ntpSlewUs = 0;
+    SynchronizedValue<NtpTimeResult> ntpTimeResult;
+    SynchronizedValue<int64_t> ntpSlewUs;
     bool wifiConnected = false;
 
     static void taskTrampoline(void *arg);

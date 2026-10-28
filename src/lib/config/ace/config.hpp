@@ -5,6 +5,7 @@
 #include "configstore.hpp"
 
 #include "ace/coreutils.hpp"
+#include "ace/spinlockguard.hpp"
 #include "ace/constants.hpp"
 #include "ace/basemodule.hpp"
 #include "ace/messages.hpp"
@@ -153,7 +154,7 @@ private:
     ConfigStore &binaryStore;
     const uint8_t *defaultConfig;
     SemaphoreHandle_t configMutex;
-    etl::optional<GATAS::DeviceAction> pendingDeviceAction;
+    SynchronizedValue<etl::optional<GATAS::DeviceAction>> pendingDeviceAction;
     // Private mutation helpers: the caller must hold configMutex.
     bool saveToFlash();
     void setValueBypath(const etl::string_view pathToValue, etl::string_view value);

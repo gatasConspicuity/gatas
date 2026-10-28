@@ -203,7 +203,8 @@ void GDLoverUDP::on_receive_unknown(const etl::imessage &msg)
 
 void GDLoverUDP::on_receive(const GATAS::AccessPointClientsMsg &msg)
 {
-    connectedClients = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), msg.msg);
+    auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
+    connectedClients = msg.msg;
 }
 
 void GDLoverUDP::on_receive(const GATAS::ConfigUpdatedMsg &msg)

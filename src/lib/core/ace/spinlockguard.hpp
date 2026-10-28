@@ -43,12 +43,12 @@ public:
         return value;
     }
 
-    template <typename F>
-    inline static auto withLock(spin_lock_t *lock, F &&fn)
-    {
-        SpinlockGuard guard(lock);
-        return etl::forward<F>(fn)();
-    }
+    // template <typename F>
+    // inline static auto withLock(spin_lock_t *lock, F &&fn)
+    // {
+    //     SpinlockGuard guard(lock);
+    //     return etl::forward<F>(fn)();
+    // }
 
     template <typename T1, typename T2>
     inline static auto copyWithLock(spin_lock_t *lock, const T1 &val1, const T2 &val2)

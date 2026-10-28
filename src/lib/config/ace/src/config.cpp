@@ -35,6 +35,7 @@ etl::string_view Config::loadLocationToString(LoadLocation location) const
 
 GATAS::PostConstruct Config::postConstruct()
 {
+    pendingDeviceAction.init(CoreUtils::sharedSpinLock());
     auto iStore = internalStore();
     if (iStore->magic != GATAS::BinaryStore::MAGIC)
     {
@@ -733,16 +734,13 @@ void Config::on_receive(const GATAS::SelectAircraftRequestMsg &msg)
 
 void Config::on_receive(const GATAS::DeviceActionRequestMsg &msg)
 {
-    if (auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()})
-    {
-        pendingDeviceAction = msg.action;
-    }
+    pendingDeviceAction.store(etl::optional<GATAS::DeviceAction>{msg.action});
 }
 
 void Config::on_receive(const GATAS::IdleMsg &msg)
 {
     (void)msg;
-    etl::optional<GATAS::DeviceAction> action = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), pendingDeviceAction);
+    auto action = pendingDeviceAction.load();
     if (!action)
     {
         return;
@@ -768,10 +766,10 @@ void Config::on_receive(const GATAS::IdleMsg &msg)
         break;
     }
 
-    SpinlockGuard::withLock(CoreUtils::sharedSpinLock(), [this, action]() {
-        if (pendingDeviceAction == action)
+    pendingDeviceAction.update([action](auto &pending) {
+        if (pending == action)
         {
-            pendingDeviceAction.reset();
+            pending.reset();
         }
     });
 }

@@ -44,7 +44,7 @@ public:
         {
             AIRCRAFT_POSITION_TYPE_V1 = 1,     // Deprecated BinaryMessage type of an aircraft other than our own, this can be injexted in the system to process and display
             AIRCRAFT_POSITION_REQUEST_V1 = 2,  // Binary message of a request for other aircraft from gatasConnect
-                                               //          AIRCRAFT_CONFIGURATIONS_V1 = 3,   // Deprecated, see AIRCRAFT_CONFIGURATIONS_V2 Current GATAS COnfiguration 1.0.0-prerelease
+                                               // AIRCRAFT_CONFIGURATIONS_V1 = 3,   // Deprecated, see AIRCRAFT_CONFIGURATIONS_V2 Current GATAS COnfiguration 1.0.0-prerelease
             SET_ICAO_ADDRESS_V1 = 4,           // Set a new aircraft configuration based on hexcode, this is like if you set from teh AI a other aircraft
             AIRCRAFT_CONFIGURATIONS_V2 = 5,    // Current GATAS COnfiguration V2
             GDL90_V1 = 6,                      // Packed GDL90 message for bridge transports
@@ -52,7 +52,7 @@ public:
             AIRCRAFT_POSITION_TYPE_V2 = 8,     // BinaryMessage type of an aircraft other than our own, this can be injexted in the system to process and display
             AIRCRAFT_POSITION_TYPE_V3 = 9,     // Aircraft position with pressure altitude and QNH
             AIRCRAFT_POSITION_REQUEST_V2 = 10, // Request aircraft positions using the versioned response format
-            OWNSHIP_PRESSURE_V1 = 11, // Ownship ambient pressure and QNH
+            OWNSHIP_PRESSURE_V1 = 11,          // Ownship ambient pressure and QNH
             DEVICE_ACTION_REQUEST_V1 = 12,     // Action and current 8-bit boot ID
         };
 

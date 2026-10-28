@@ -59,11 +59,7 @@ namespace GATAS
     // 216 byte are LORA ADSL-H Frames
     // Maximum size should be 0xC8 (200 bytes) which is ADSL TrafficUplink + 4 byte because we shift a byte
     // 607 for GatasCOnnect
-#if defined(PICO_RP2350)
-    using GlobalPoolConfiguration = MultiPoolAllocator<PoolSpec<32, 8>, PoolSpec<64, 4>, PoolSpec<0xD0 + 4, 4>, PoolSpec<612, 2>>;
-#else
-    using GlobalPoolConfiguration = MultiPoolAllocator<PoolSpec<32, 8>, PoolSpec<64, 4>, PoolSpec<0xD0 + 4, 4>, PoolSpec<608, 1>>;
-#endif
+    using GlobalPoolConfiguration = MultiPoolAllocator<PoolSpec<32, 8>, PoolSpec<64, 4>, PoolSpec<0xD0 + 4, 4>, PoolSpec<648, 2>>;
 
     enum class PinType : uint8_t;
     using PinTypeMap = etl::flat_map<PinType, uint8_t, 8>;

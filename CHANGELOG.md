@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Response to specific DeviceActions so the device can be restarted/data saved over BLE via cobs
 - Display pressure source and altitude on AircraftTracker monitoring page
 
+### Changed
+
+- Use of SynchronizedValue instead of copyWithLick at various places
+
 ### Fixed
 
 - PressureAltitude for OGN/FLARM/ADS-L when transmitted over GDL90

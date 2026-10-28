@@ -163,7 +163,7 @@ void Sx1262::on_receive(const GATAS::RadioControlMsg &msg)
 {
     if (msg.radioNo == radioNo)
     {
-        newRxRadioParameters = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), msg.radioParameters);
+        newRxRadioParameters.store(msg.radioParameters);
         xTaskNotify(taskHandle, TaskState::RX_CONFIG_PENDING, eSetBits);
     }
 }
@@ -846,7 +846,7 @@ void Sx1262::sx1262Task(void *arg)
         xTaskNotifyWait(pdFALSE, ULONG_MAX, &notifyValue, waitTicks);
         if (notifyValue & TaskState::RX_CONFIG_PENDING)
         {
-            rxRadioParameters = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), newRxRadioParameters);
+            rxRadioParameters = newRxRadioParameters.load();
             doListen = true;
         }
 

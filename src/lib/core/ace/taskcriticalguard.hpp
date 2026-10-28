@@ -36,14 +36,6 @@ public:
     TaskCriticalGuard(TaskCriticalGuard &&) = delete;
     TaskCriticalGuard &operator=(TaskCriticalGuard &&) = delete;
 
-    template <typename F>
-    inline static auto withLock(F &&fn)
-        -> decltype(etl::forward<F>(fn)())
-    {
-        TaskCriticalGuard guard{};
-        return etl::forward<F>(fn)();
-    }
-
     template <typename T>
     inline static T copyWithLock(const T &value)
     {

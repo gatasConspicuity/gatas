@@ -42,6 +42,28 @@ protected:
 
 GATAS::ThreadSafeBus<50> bus;
 
+// Match firmware startup: the configuration object exists before the shared
+// spinlock is claimed, and is initialized only afterwards.
+struct StartupConfigFixture
+{
+    uint8_t ram[4096] = {}, flash[4096] = {}, binary[4096] = {};
+    InMemoryStore ramStore{4096, ram}, flashStore{4096, flash}, binaryStore{4096, binary};
+    GATAS::ThreadSafeBus<8> localBus;
+    Config config{localBus, ramStore, flashStore, binaryStore, DEFAULT_GATAS_CONFIG};
+
+    StartupConfigFixture() { CoreUtils::init(); }
+};
+
+static StartupConfigFixture startupConfig;
+
+TEST_CASE_METHOD(SemaphoreMockScope, "Configuration initializes after the shared spinlock", "[device-actions]")
+{
+    REQUIRE(startupConfig.config.postConstruct() == GATAS::PostConstruct::OK);
+    startupConfig.config.start();
+    startupConfig.localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Restart});
+    REQUIRE(startupConfig.config.pendingDeviceAction.load() == GATAS::DeviceAction::Restart);
+}
+
 class FaultStore : public InMemoryStore
 {
 public:

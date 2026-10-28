@@ -23,6 +23,7 @@ OpenAce is a multi-protocol aviation conspicuity device (OGN, FLARM, ADS-L, FANE
 - Always use braces for control-flow bodies, even when the body is a single line.
 - Do not introduce trailing-underscore variable names by default. Prefer the existing local naming style unless a specific file or API already requires a different convention.
 - Do not add mutexes or spinlocks around standalone reads or assignments of naturally aligned scalar values up to 32 bits (including bool and 8/16/32-bit values). These accesses are atomic on the RP2040/RP2350. Protect related values together when they must remain consistent as a pair or group; this rule does not cover read-modify-write operations or values wider than 32 bits.
+- Prefer `SynchronizedValue` for small shared datasets that need synchronized snapshots or updates. Keep copies and updates short and non-blocking because they run under a spinlock.
 - Handle mutexes with RAII `SemaphoreGuard` scopes. Preferred pattern:
   ```cpp
   if (auto guard = SemaphoreGuard(1000, instance->mutex))
