@@ -5,7 +5,7 @@
 
 [<img src="doc/img/Discord-Logo-Blurple.png" height="45px">](https://discord.gg/J6mXTcWndS)
 
-[📋 Changelog](./CHANGELOG.md) | [🎯 Wiki](https://rvt.github.io/gatas-doc/)
+[📋 Changelog](./CHANGELOG.md) | [🎯 Wiki](https://gatasconspicuity.github.io/gatasDoc/)
 
 The GATAS Conspicuity device is designed for General Aviation pilots flying in areas where multiple
 protocols, such as OGN, Flarm, ADS-L and FANET, are used. It can transmit and receive multiple
