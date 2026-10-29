@@ -59,20 +59,32 @@ void GDLoverUDP::getConfigurationNoMutex(const Configuration &config)
 
 GATAS::PostConstruct GDLoverUDP::postConstruct()
 {
-    sendPcb = udp_new_ip_type(IPADDR_TYPE_ANY);
-    if (sendPcb == nullptr)
     {
-        return GATAS::PostConstruct::NETWORK_ERROR;
-    }
-    foreFlightPCB = udp_new_ip_type(IPADDR_TYPE_ANY);
-    if (foreFlightPCB == nullptr)
-    {
-        return GATAS::PostConstruct::NETWORK_ERROR;
-    }
+        LwipRAIILock lock;
+        sendPcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (sendPcb == nullptr)
+        {
+            return GATAS::PostConstruct::NETWORK_ERROR;
+        }
+        foreFlightPCB = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (foreFlightPCB == nullptr)
+        {
+            udp_remove(sendPcb);
+            sendPcb = nullptr;
+            return GATAS::PostConstruct::NETWORK_ERROR;
+        }
 
-    // https://www.foreflight.com/connect/spec/
-    udp_bind(foreFlightPCB, IP_ADDR_ANY, FOREFLIGHT_UDP_PORT);
-    udp_recv(foreFlightPCB, foreFlightListener, this);
+        // https://www.foreflight.com/connect/spec/
+        if (udp_bind(foreFlightPCB, IP_ADDR_ANY, FOREFLIGHT_UDP_PORT) != ERR_OK)
+        {
+            udp_remove(foreFlightPCB);
+            udp_remove(sendPcb);
+            foreFlightPCB = nullptr;
+            sendPcb = nullptr;
+            return GATAS::PostConstruct::NETWORK_ERROR;
+        }
+        udp_recv(foreFlightPCB, foreFlightListener, this);
+    }
 
     mutex = xSemaphoreCreateMutex();
     if (mutex == nullptr)
@@ -281,8 +293,6 @@ void GDLoverUDP::transmitBuffer()
     }
 
     auto data = part.value();
-    LwipRAIILock lock;
-
     // Send to the connect clients and the defined ports
     for (auto ip : connectedClientsSnapshot)
     {
@@ -329,7 +339,11 @@ void GDLoverUDP::sendTo(uint32_t ip, uint16_t port, etl::span<uint8_t> data)
         pbuf_free(pbuf);
         return;
     }
-    err_t err = udp_sendto(sendPcb, pbuf, &addr, port);
+    err_t err;
+    {
+        LwipRAIILock lock;
+        err = udp_sendto(sendPcb, pbuf, &addr, port);
+    }
     pbuf_free(pbuf);
 
     if (err == ERR_OK)
