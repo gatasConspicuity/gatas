@@ -63,11 +63,15 @@ This makes caller context part of every handler's contract: a timer sender runs 
 
   The local SDK's `lwip_freertos.c` maps the lwIP core lock to the CYW43 async-context lock. The project links `pico_cyw43_arch_lwip_sys_freertos`. This finding concerns raw APIs; pbuf/memory allocation has separate internal protection. See the [project build configuration](/Volumes/ext/source/OpenAce/src/pico/CMakeLists.txt:197) and the [official API guidance](https://www.nongnu.org/lwip/2_1_x/pitfalls.html).
 
-- [ ] **R4 · P1 · Make the GatasConnect software timer notify a worker.** Confirmed blocking work in a timer callback.
+- [x] **R4 · P1 · Make the GatasConnect software timer notify a worker.** Implementation complete; validation pending.
 
   Its callback serializes configuration and ownship, allocates from the mutex-protected global pool, and synchronously publishes to UDP and Bluetooth. The Bluetooth handler permits a 1,000-ms mutex wait. This runs in the shared timer daemon at priority 15, delaying other timers, including the tracker send timer and StaticGPS trigger. Adding missing lwIP locks alone would add another potential wait here.
 
   **Action:** Follow the existing tracker/StaticGPS pattern: the callback only notifies a task; task context performs serialization and transport work. Reuse an appropriate existing owner if practical.
+
+  **Local implementation (30 October 2026):** The timer now only sets a worker notification bit. A dedicated GatasConnect task sends configuration and ownship in order, coalescing pending timer ticks while busy. Configuration is still read synchronously in its update handler; related shared fields are copied under the same spinlock used for worker snapshots. Task and timer allocation failures are reported, and a failed timer start is logged.
+
+  **Local verification:** RP2040/Pico W Debug firmware build passed. All 28 executable desktop CTest checks passed; the cached suite also contains a stale `gatas_version_test` registration whose source file is absent. These tests do not exercise the new worker. Focused GatasConnect worker and failure-path desktop tests, hardware transport contention and tracker cadence, and worker stack high-water measurement remain outstanding.
 
   **Acceptance:** Timer callbacks contain no blocking lock or transport path. Hold a transport busy during testing and verify tracker timer notifications continue at their intended cadence.
 
