@@ -4,7 +4,7 @@ Reviewed 29 October 2026 against `acdd043` (`Use of SynchronizedValue`).
 
 Focus: normal operating paths, FreeRTOS scheduling, deadlocks, races, stack use, and bounded memory. Firmware source was reviewed without changing its behavior. P1 means fix first; P2 means worthwhile follow-up; P3 means lower-priority setup robustness. “Confirmed” means the source establishes the problem; it does not mean a failure was reproduced on hardware. Measurement items are explicitly marked.
 
-Check an item off after its acceptance check passes. For R3, the checkbox records completed implementation and local checks; outstanding hardware acceptance is tracked separately below. Suggested order: R2–R5, then the flight-path follow-ups and measurements. R1 and R9 belong to setup robustness. Item IDs are retained so existing references remain valid. Some fixes overlap; keep them small and avoid introducing a global message-bus lock.
+Check an item off after its acceptance check passes. For R2 and R3, the checkbox records completed implementation and local checks; outstanding hardware acceptance is tracked separately below. Suggested order: R2–R5, then the flight-path follow-ups and measurements. R1 and R9 belong to setup robustness. Item IDs are retained so existing references remain valid. Some fixes overlap; keep them small and avoid introducing a global message-bus lock.
 
 ## Operating assumptions
 
@@ -20,11 +20,26 @@ This makes caller context part of every handler's contract: a timer sender runs 
 
 ## Fix first
 
-- [ ] **R2 · P1 · Repair the ADS-L receive task's stack budget.** Compiler-backed stack risk.
+- [x] **R2 · P1 · Repair the ADS-L receive task's stack budget.** Implementation complete; hardware high-water validation pending.
 
-  `RxDataFrameQueue` receives a 512-word / 2,048-byte stack and synchronously invokes protocol decoders. An isolated RP2040 compilation with `-O2 -DNDEBUG -fstack-usage` reports 1,888 bytes for `ADSLAce::adsl_receivedUplinkTraffic` and 560 bytes for `ADSL::Protocol::handleRx`. Those two nested frames already exceed the allocation, before the queue task, routers, and downstream handlers. The existing debug flags report 2,016 and 528 bytes respectively. This is an ordinary uplink reception path.
+  **Original finding:** The review recorded a 512-word / 2,048-byte `RxDataFrameQueue` stack. An isolated RP2040 compilation with `-O2 -DNDEBUG -fstack-usage` reported 1,888 bytes for `ADSLAce::adsl_receivedUplinkTraffic` and 560 bytes for `ADSL::Protocol::handleRx`. Those two nested frames alone exceeded that allocation. The debug flags reported 2,016 and 528 bytes respectively. The current checkout already allocates 1,280 words / 5,120 bytes; that larger allocation predates this fix and is retained.
 
   **Action:** Reduce the large local position batch, or move scratch storage to a clearly owned context, and provide enough measured receive-task stack. Account for all nested bus handlers. Do not move scratch into a shared module member without first proving single ownership.
+
+  **Local implementation (30 October 2026):** Build the uplink targets directly in the owning `IngressAircraftPositionsMsg`, removing the separate ten-position vector and its copy during synchronous publication. The message gains an empty constructor; the existing copying constructor remains available to other producers. A compile-time check ensures the message can hold the protocol's maximum target count. No shared scratch storage, extra heap allocation, message-route change, or task-stack increase is introduced.
+
+  **Compiler verification:** Arm GNU 15.2.rel1, RP2040/Pico W. Recompiled the affected translation units with their actual `src/pico/build/compile_commands.json` commands plus `-fstack-usage -fcallgraph-info=su`. The Debug module commands use `-Og -g`; `main.cpp` and the FreeRTOS sources additionally end in `-O0`. The optimized comparison appends `-O2 -DNDEBUG`. All figures are bytes per individual function frame.
+
+  | Function | Debug before | Debug after | Optimized before | Optimized after |
+  | --- | ---: | ---: | ---: | ---: |
+  | ADS-L uplink receive callback | 2,016 | 1,208 | 1,888 | 1,080 |
+  | ADS-L protocol `handleRx` | 528 | 528 | 560 | 560 |
+  | RF queue task | 136 | 136 | 168 | 168 |
+  | Tracker batch ingress | 232 | 232 | 184 | 184 |
+
+  **Call-chain accounting:** The uplink path is queue trampoline → queue task → bus/ADS-L router → ADS-L receive handler → `handleRx` → uplink callback → bus/tracker router → tracker batch ingress. Tracker ingress synchronously updates antenna statistics and copies positions into its queue, then notifies its worker; tracker prediction and egress run later on the tracker task. Account for both nested bus dispatches, rather than summing only decoder frames. Conservative dispatcher allowances from the emitted functions are 232 bytes per pass in Debug and 120 optimized, using the largest emitted weak/template frame where translation units differ. The trampoline contributes 8 bytes, the ADS-L raw receive handler 24/8, and the longest known direct tracker subtree 464/368 including its ingress frame. Together with the queue task, protocol, and uplink callback this gives 2,832 Debug / 2,432 optimized bytes of known-frame accounting after the fix, leaving 2,288 / 2,688 bytes within the existing allocation for remaining runtime/context overhead. These are compiler accounting figures, not measured stack headroom or a complete bound on libc, assembly, indirect calls, or exceptional logging paths.
+
+  **Local checks:** New module tests encode full ten-target ADS-L packets, run them through the real protocol decoder and synchronous bus, verify all targets and their timestamps, repeat full packets, and check ownship filtering and suppression of empty output. All 372 assertions in two new cases, the 28 existing executable desktop checks, and the RP2040/Pico W Debug firmware build passed. The build enables `configCHECK_FOR_STACK_OVERFLOW = 2`; no firmware was flashed. The stale version-script CTest entry described under R3 was excluded from this run. Receive-task hardware high-water measurement remains pending.
 
   **Acceptance:** Exercise full ADS-L uplink batches with stack checking enabled; record the minimum remaining stack under traffic. Confirm the actual build's call chain and stack report after the fix.
 
@@ -202,7 +217,7 @@ Task priorities are relative to `tskIDLE_PRIORITY = 0`. Stack bytes below come f
 | GNSS receive | 3 | 4,096 |
 | GDL UDP sender | 3 | 2,048 |
 | Tracker | 2 | 4,096 |
-| RF decoder queue | 2 | 2,048 |
+| RF decoder queue | 2 | 5,120 |
 | RX tuner / TX tuner, each | 2 | 2,048 |
 | FANET / GDL90 service, each | 2 | 2,048 |
 | Serial ADS-B | 2 | 1,024 |
@@ -221,7 +236,7 @@ An ARM size probe using the RP2040 build's headers and defines produced:
 | AircraftPositionInfo | 88 |
 | Global payload allocator | 2,776 |
 
-Selected GCC `-fstack-usage` results, bytes per individual function frame:
+Original review's GCC `-fstack-usage` results, bytes per individual function frame before R2's fix (the updated ADS-L figures are recorded under R2 above):
 
 | Function | Existing RP2040 debug command | Same command with `-O2 -DNDEBUG` |
 | --- | ---: | ---: |
@@ -239,8 +254,51 @@ These are isolated compilation measurements, not a full Release firmware build o
 
 Reviewed the message-bus delivery model, module startup, task/timer creation and priorities, tracker output, RF receive/tuner paths, ADS-L/FANET/ADS-B integration, GNSS task flow, Bluetooth buffering/lifecycle, companion UDP/COBS, GDL UDP, AirConnect/TCP, HTTP configuration/diagnostics, pool allocation, and watchdog feeding. Local Pico SDK and FreeRTOS sources were inspected to resolve lock and allocation behavior. Vendor files were not edited.
 
-No firmware was flashed and no concurrent hardware failure was reproduced. Desktop tests were not rerun: their mocks cannot validate these scheduler/lock interactions, and this change only adds the review document. This is a practical runtime review, not a claim that every protocol algorithm or hardware driver has been exhaustively validated.
+The original review did not flash firmware, reproduce concurrent hardware failures, or rerun desktop tests. Later implementation checks are recorded under R2 and R3 above; desktop mocks still cannot validate hardware scheduling and lock contention. Outstanding tests are consolidated below. This is a practical runtime review, not a claim that every protocol algorithm or hardware driver has been exhaustively validated.
 
 Existing strengths worth preserving: fixed-capacity ETL storage, owned pool payloads, task notifications for radio work, short `SynchronizedValue` snapshots, and the tracker/StaticGPS timer callbacks that only notify workers. Standalone aligned scalar accesses are not checklist items; synchronization is proposed where ownership, compound state, or container integrity requires it.
 
 One suspected parser race was excluded after checking the SDK: UDP callbacks and BTstack callbacks use the same CYW43 async-context lock in this build, so separate callback tasks do not by themselves establish concurrent COBS parser entry. Preserve that serialization contract if input processing is moved to a worker.
+
+## Consolidated test checklist
+
+These boxes track outstanding validation independently of the implementation checkboxes above. R2, R3, R6, and R7 have local fixes ready for hardware validation. Tests for other fixes should run after their implementation and any required instrumentation are ready. Fault injection, latency tracing, and pool/queue counters may need diagnostic firmware support before a hardware session; preparing that support is a code task, not a manual testing prerequisite for the device operator.
+
+For each completed test, record the date, firmware commit plus any local changes, board, configuration, workload, duration/repetition count, measurements, logs, and pass/fail result. Record actual observations before checking a box; a successful build or absence of a visible crash alone does not establish timing, stack, or memory margins.
+
+### Prepare the test build
+
+- [ ] **Diagnostic configuration.** Use a Debug firmware candidate and verify it enables `GATAS_DEBUG == 1`, the lwIP core-lock hooks, and `configCHECK_FOR_STACK_OVERFLOW = 2`. Make per-task stack minimums and reset/assertion logs available. FreeRTOS stack high-water values are words; multiply by four for bytes on RP2040/RP2350. Identify any additional counters or fault-injection controls needed for the selected tests.
+- [ ] **Repeatable workload.** Prepare a source of repeated ten-target ADS-L uplinks, other representative RF/GNSS traffic, and active UDP/TCP/BLE clients. Record traffic rates and client counts so later runs can reproduce the load. Keep the web UI closed and configuration unchanged for normal-operation measurements. Label setup/configuration runs separately and record which board variants were actually tested.
+- [ ] **Local regression for the candidate.** Build the desktop tests and run the ADS-L uplink and TCP/AirConnect test executables explicitly, as well as the other registered executable tests. Build the target firmware. Capture failures separately from stale test registrations, including the missing version-script entry described under R3. These checks have passed locally for the fixes above; rerun them when preparing a changed candidate.
+
+### Normal-operation bench tests — web UI closed
+
+- [ ] **R2 · ADS-L receive stack.** Repeatedly receive full ten-aircraft uplinks alongside normal RF/Wi-Fi/BLE activity. Include ownship in some packets and exercise repeated full packets without it. Verify delivery of the expected remaining targets, record the minimum remaining stack for `RxDataFrameQueue`, and capture any stack-overflow assertion or reset. Compare the observed margin with the compiler accounting above; record a justified operating margin rather than treating any positive number as sufficient.
+- [ ] **R3 · lwIP entry points and Wi-Fi lifecycle.** Exercise boot, AP mode, client mode, AP/client transitions, DHCP lease acquisition/renewal, mDNS discovery, successful and failed DNS lookups, and reconnection after losing the network. Include both an uncached DNS lookup and cached resolution. Stream UDP and TCP traffic concurrently. Verify no core-lock assertion or stall, and confirm services and traffic recover after each transition.
+- [ ] **R6/R7 · AirConnect contention and TCP lifetime.** Stream GPS/traffic output while clients repeatedly connect and disconnect, including disconnects during writes/flushes and five-second cleanup. Exercise a full client list and a busy client-list mutex. Verify no blocking lock cycle, stale/null PCB use, invalid list access, or accumulating abandoned connections. Busy/full accepts may be rejected and retried by the peer; record those rejections and any counted skipped NMEA output rather than assuming every attempt must succeed.
+- [ ] **R4 · Timer callback isolation — after the worker fix.** Slow or block a transport while configuration/ownship broadcasts are active. Trace the GatasConnect timer callback and tracker timer notifications. Confirm the callback only notifies its worker, contains no blocking transport/lock work, and tracker notifications continue at their configured cadence. Record the largest notification gap.
+- [ ] **R5 · Bluetooth disconnect/reset race — after the lifecycle fix.** Repeatedly disconnect and reconnect BLE clients while GNSS, traffic, and automatic configuration broadcasts are active. Verify connection handles remain valid, queues reset consistently, and old connection data is not sent through a new connection. Capture buffer corruption, stale-handle errors, resets, and resource growth.
+- [ ] **R8 · RX/TX tuner recovery — after the reconfiguration fix.** Drive GPS-based zone changes under RF load. Inject a delayed pause acknowledgement and a pause timeout, including an acknowledgement arriving after the caller times out. Verify RX and TX resume and continue receiving/transmitting; neither worker may remain permanently blocked. Record the interruption and recovery times.
+- [ ] **R10 · Small-MTU NMEA and failed notifications — after the queue fix.** Use the baseline negotiated BLE MTU with a full-length NMEA sentence at the front of the queue and more sentences behind it. Inject a notification failure, then allow transmission to resume. Compare the received byte stream with the input: the leading sentence and later sentences must progress, and the failed attempt must not silently consume queued bytes. Verify retry handling remains bounded.
+
+### Scheduling, stack, and memory measurements
+
+- [ ] **R12 · Deadline baseline.** With combined RF/GNSS/BLE/Wi-Fi load, measure radio IRQ-to-service latency, receive-queue residence time, tracker output jitter, and the longest periodic handler. Record workload and sampling method. Compare with the configured deadlines and repeat the same workload before and after any priority or scheduling change.
+- [ ] **R13 · Stack minima across complete call chains.** Capture per-task minimum remaining stack during busy RF, maximum ADS-L uplinks, tracker output/uplink selection, COBS bursts over UDP and BLE, and GPS-driven RX/TX schedule changes. Include the decoder, tracker, tuner, transport, timer, and CYW43/lwIP contexts actually exercised. Store compiler flags and allocated stack sizes alongside the minimums. Distinguish RTOS task stacks from interrupt stacks and static RAM; document the retained margin for each task.
+- [ ] **R14 · Pool, queue, and heap pressure — once counters are available.** Record each payload pool's allocation failures and peak occupancy, RF/tracker/transport queue peaks and drops, minimum FreeRTOS heap, libc heap use, and lwIP pool errors during combined traffic. Include a slow client and a disconnected client. Explain observed drops from the counters, verify resource use recovers or reaches a stable bound, and record RAM cost before/after any capacity adjustment.
+- [ ] **R11 · Startup allocation failures — after failure handling is fixed.** Inject task/resource allocation failures in representative tracker, GNSS, and transport startup paths. Verify the module reports failure, no producer/subscription targets a missing worker, and cleanup releases the resources that were actually allocated. Record before/after resource counts. Use deterministic desktop injection where possible, then confirm representative device startup failures.
+
+### Ground setup tests — deferred, separate from normal-operation acceptance
+
+HTTP diagnostics remain lower-priority setup work. These tests are retained for completeness and do not form part of the flight-workload measurements above.
+
+- [ ] **R1 · Tracker diagnostics/AirConnect cycle — after the setup fix.** During a ground setup session, stream tracked traffic to an AirConnect client while repeatedly fetching tracker JSON. Verify both paths keep progressing and inspect the lock scopes for either lock being held while waiting for the other.
+- [ ] **R9 · Destination edits and diagnostics — after the snapshot fix.** Edit custom UDP destinations and ports while streaming to multiple clients and reading diagnostics. Verify destination snapshots and diagnostic output remain consistent, without invalid iterators or partially rebuilt lists.
+- [ ] **R8 · Overlapping configuration and schedule reads.** Apply overlapping protocol/configuration edits while reading schedules and receiving traffic. Verify callers serialize, diagnostic snapshots stay valid, and RX/TX continue after every update. Record this separately from GPS-driven reconfiguration with the UI closed.
+- [ ] **R12/R13 · Configuration/flash-save effects.** Measure user-requested flash-save duration and its effect on service latency. Capture configuration and HTTP task-stack minimums separately from steady normal operation; do not use these setup results to justify flight-path priority changes.
+- [ ] **R14 · Concurrent API capacity.** Exercise concurrent API requests alongside live traffic and record API/lwIP allocation failures and recovery. Keep the result separate from normal-operation pool demand; do not enlarge flight-path pools solely to accommodate diagnostic requests.
+
+### Optional recovery validation
+
+- [ ] **R15 · Existing watchdog contract.** Inject a blocked periodic bus handler, a blocked CYW43 path, and a stalled notified worker as separate bench tests. Record the reset reason and elapsed time against the configured watchdog timeout, whether feeding stopped, and which services ceased progressing. A notified-worker stall may behave differently from a blocked synchronous bus call; document the result before proposing any watchdog redesign.
