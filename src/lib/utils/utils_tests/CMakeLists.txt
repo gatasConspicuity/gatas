@@ -82,6 +82,18 @@ foreach( name ${ALL_EXAMPLE_TARGETS} )
       )
 endforeach()
 
+# Only these transport tests use raw-lwIP mocks that assert lock ownership.
+add_executable(tcpclient_test
+    tcpclient_test.cpp
+    ../../airconnect/ace/src/airconnect.cpp
+    ../../core/ace/src/basemodule.cpp
+    ../../core/ace/src/coreutils.cpp
+    ../../core/ace/src/models.cpp)
+target_include_directories(tcpclient_test BEFORE PRIVATE network_mocks)
+target_include_directories(tcpclient_test PRIVATE ..)
+target_link_libraries(tcpclient_test Catch2WithMain etl)
+list(APPEND ALL_EXAMPLE_TARGETS tcpclient_test)
+
 
 list(APPEND CATCH_WARNING_TARGETS ${ALL_EXAMPLE_TARGETS})
 set(CATCH_WARNING_TARGETS ${CATCH_WARNING_TARGETS} PARENT_SCOPE)

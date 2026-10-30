@@ -76,6 +76,7 @@ public:
 
     bool start()
     {
+        LwipRAIILock lock;
         if (state != State::Disconnected)
         {
             return false;
@@ -97,7 +98,6 @@ public:
         tcp_err(pcb, tcp_client_err);
         tcp_sent(pcb, tcp_client_sent);
 
-        LwipRAIILock lock;
         err_t err = tcp_connect(pcb, &remote_addr, ipPort.port, tcp_client_connected);
         if (err != ERR_OK)
         {
@@ -117,6 +117,7 @@ public:
 
     bool isConnected() const
     {
+        LwipRAIILock lock;
         return state == State::Connected && pcb != nullptr;
     }
 
@@ -132,6 +133,7 @@ public:
 
     bool write(etl::span<const uint8_t> data, bool flush = false)
     {
+        LwipRAIILock lock;
         if (state != State::Connected || !pcb)
         {
             if (autoReConnect && state == State::Disconnected)
@@ -141,7 +143,6 @@ public:
             return false;
         }
 
-        LwipRAIILock lock;
         if (tcp_sndbuf(pcb) < data.size())
         {
             TCP_LOG("Sendbuffer too small %u needed %u", tcp_sndbuf(pcb), data.size());
@@ -175,20 +176,20 @@ public:
     bool flush()
     {
         LwipRAIILock lock;
-        return tcp_output(pcb) == ERR_OK;
+        return state == State::Connected && pcb != nullptr && tcp_output(pcb) == ERR_OK;
     }
 
     uint32_t ip() const { return ipPort.ip; }
 
     void adopt(struct tcp_pcb *existing)
     {
+        LwipRAIILock lock;
         if (pcb)
         {
             stop();
         }
         pcb = existing;
 
-        LwipRAIILock lock;
         tcp_arg(pcb, this);
         tcp_recv(pcb, tcp_client_recv);
         tcp_err(pcb, tcp_client_err);
@@ -217,12 +218,11 @@ private:
     static void tcp_client_close(void *arg)
     {
         TcpClient *self = static_cast<TcpClient *>(arg);
+        LwipRAIILock lock;
         if (!self || !self->pcb)
         {
             return;
         }
-
-        LwipRAIILock lock;
 
         tcp_arg(self->pcb, nullptr);
         tcp_recv(self->pcb, nullptr);
@@ -329,7 +329,7 @@ private:
 class TcpListener
 {
 public:
-    using AcceptHandler = etl::delegate<void(struct tcp_pcb *pcb)>;
+    using AcceptHandler = etl::delegate<err_t(struct tcp_pcb *pcb)>;
 
 private:
     struct tcp_pcb *listenPcb;
@@ -349,6 +349,12 @@ public:
 
     bool start()
     {
+        LwipRAIILock lock;
+        if (listenPcb != nullptr)
+        {
+            return true;
+        }
+
         listenPcb = tcp_new_ip_type(IPADDR_TYPE_V4);
         if (!listenPcb)
         {
@@ -356,7 +362,6 @@ public:
             return false;
         }
 
-        LwipRAIILock lock;
         err_t err = tcp_bind(listenPcb, IP_ANY_TYPE, port);
         if (err != ERR_OK)
         {
@@ -385,12 +390,12 @@ public:
 
     void stop()
     {
+        LwipRAIILock lock;
         if (!listenPcb)
         {
             return;
         }
 
-        LwipRAIILock lock;
         err_t err = tcp_close(listenPcb);
         if (err != ERR_OK)
         {
@@ -411,8 +416,7 @@ private:
 
         if (self->onAccept.is_valid())
         {
-            self->onAccept(new_pcb);
-            return ERR_OK;
+            return self->onAccept(new_pcb);
         }
 
         return ERR_VAL;

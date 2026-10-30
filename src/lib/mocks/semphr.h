@@ -20,8 +20,10 @@ inline SemaphoreHandle_t xSemaphoreCreateRecursiveMutex()
 #define xSemaphoreGiveRecursive(xMutex) xQueueGiveMutexRecursive((QueueHandle_t)(xMutex))
 
 inline uint32_t xSemaphoreTakeValue = pdFALSE;
-inline uint32_t xSemaphoreTake(SemaphoreHandle_t, uint32_t)
+inline uint32_t xSemaphoreTakeWait = 0;
+inline uint32_t xSemaphoreTake(SemaphoreHandle_t, uint32_t wait)
 {
+    xSemaphoreTakeWait = wait;
     return xSemaphoreTakeValue;
 }
 

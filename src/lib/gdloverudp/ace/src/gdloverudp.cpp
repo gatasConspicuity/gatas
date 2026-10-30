@@ -59,20 +59,32 @@ void GDLoverUDP::getConfigurationNoMutex(const Configuration &config)
 
 GATAS::PostConstruct GDLoverUDP::postConstruct()
 {
-    sendPcb = udp_new_ip_type(IPADDR_TYPE_ANY);
-    if (sendPcb == nullptr)
     {
-        return GATAS::PostConstruct::NETWORK_ERROR;
-    }
-    foreFlightPCB = udp_new_ip_type(IPADDR_TYPE_ANY);
-    if (foreFlightPCB == nullptr)
-    {
-        return GATAS::PostConstruct::NETWORK_ERROR;
-    }
+        LwipRAIILock lock;
+        sendPcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (sendPcb == nullptr)
+        {
+            return GATAS::PostConstruct::NETWORK_ERROR;
+        }
+        foreFlightPCB = udp_new_ip_type(IPADDR_TYPE_ANY);
+        if (foreFlightPCB == nullptr)
+        {
+            udp_remove(sendPcb);
+            sendPcb = nullptr;
+            return GATAS::PostConstruct::NETWORK_ERROR;
+        }
 
-    // https://www.foreflight.com/connect/spec/
-    udp_bind(foreFlightPCB, IP_ADDR_ANY, FOREFLIGHT_UDP_PORT);
-    udp_recv(foreFlightPCB, foreFlightListener, this);
+        // https://www.foreflight.com/connect/spec/
+        if (udp_bind(foreFlightPCB, IP_ADDR_ANY, FOREFLIGHT_UDP_PORT) != ERR_OK)
+        {
+            udp_remove(foreFlightPCB);
+            udp_remove(sendPcb);
+            foreFlightPCB = nullptr;
+            sendPcb = nullptr;
+            return GATAS::PostConstruct::NETWORK_ERROR;
+        }
+        udp_recv(foreFlightPCB, foreFlightListener, this);
+    }
 
     mutex = xSemaphoreCreateMutex();
     if (mutex == nullptr)
@@ -315,6 +327,8 @@ void GDLoverUDP::transmitBuffer()
 
 void GDLoverUDP::sendTo(uint32_t ip, uint16_t port, etl::span<uint8_t> data)
 {
+    // transmitBuffer owns the core lock for the complete send batch.
+    cyw43_arch_lwip_check();
     ip_addr_t addr;
     ip4_addr_set_u32(&addr, ip);
 
