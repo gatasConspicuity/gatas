@@ -233,8 +233,11 @@ bool Bluetooth::createConnection(hci_con_handle_t handle, uint16_t mtu)
     auto it = instance->freeCtx();
     if (it != instance->connections.end())
     {
-        it->activate(handle, mtu);
-        return true;
+        if (auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex))
+        {
+            it->activate(handle, mtu);
+            return true;
+        }
     }
     return false;
 }
@@ -244,7 +247,10 @@ void Bluetooth::removeConnection(uint16_t hciHandle)
     auto it = instance->ctxByHandle(hciHandle);
     if (it != instance->connections.end())
     {
-        it->deactivate();
+        if (auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex))
+        {
+            it->deactivate();
+        }
     }
 }
 

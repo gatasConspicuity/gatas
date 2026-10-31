@@ -77,11 +77,11 @@ This makes caller context part of every handler's contract: a timer sender runs 
 
   **Evidence:** [timer callback](/Volumes/ext/source/OpenAce/src/lib/gatasconnect/ace/src/gatasconnect.cpp:160), [pool mutex](/Volumes/ext/source/OpenAce/src/lib/core/ace/poolallocator.hpp:169), [Bluetooth wait](/Volumes/ext/source/OpenAce/src/lib/bluetooth/ace/src/bluetooth.cpp:204), [timer priority](/Volumes/ext/source/OpenAce/src/lib/include/FreeRTOSConfig.h:134). [FreeRTOS explicitly requires callbacks not to block](https://github.com/FreeRTOS/FreeRTOS-Kernel-Book/blob/main/ch06.md).
 
-- [ ] **R5 · P1 · Synchronize Bluetooth connection reset with transmit producers.** Confirmed buffer race.
+- [x] **R5 · P1 · Synchronize Bluetooth connection reset with transmit producers.** Local fix implemented; hardware validation remains open below.
 
-  Transmit handlers use `bufferMutex` when appending to per-connection buffers. `createConnection`/`removeConnection` call `activate`/`deactivate` without that mutex; these clear the same queues and reset connection metadata. A disconnect during active traffic can clear a buffer while another core appends to it. `inUse` alone does not make the compound operation safe.
+  Transmit handlers use `bufferMutex` when appending to per-connection buffers. Previously, `createConnection`/`removeConnection` cleared the same queues without that mutex, allowing a reset to race with an append.
 
-  **Action:** Protect connection activation, deactivation, and buffer mutations with the same short mutex scope. Keep BTstack calls outside that scope because callbacks can be immediate. Recheck send-buffer lifetime across the unlocked notify call.
+  **Implementation:** Activation and deactivation use the same mutex as transmit producers. Connection slot lookup remains in the BLE task, and BTstack calls remain outside the mutex. The RP2040 firmware build passed. Send-buffer lifetime across the unlocked notify call remains to be verified.
 
   **Acceptance:** Repeatedly disconnect/reconnect while GPS, traffic, and configuration broadcasts are active; verify clean buffers and connection handles after every reconnect.
 
