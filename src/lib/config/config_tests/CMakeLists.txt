@@ -38,6 +38,7 @@ endif()
 
 add_executable(jsonallocator_test jsonallocator_test.cpp)
 target_link_libraries(jsonallocator_test PRIVATE Catch2WithMain ArduinoJson)
+add_test(NAME jsonallocator_test COMMAND jsonallocator_test)
 
 # These examples use the standard separate compilation
 set( SOURCES_IDIOMATIC_EXAMPLES
