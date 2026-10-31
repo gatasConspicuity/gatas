@@ -95,6 +95,8 @@ inline uint32_t ulTaskGenericNotifyTake(UBaseType_t uxIndexToWaitOn,
 #define ulTaskNotifyTakeIndexed(uxIndexToWaitOn, xClearCountOnExit, xTicksToWait) \
     ulTaskGenericNotifyTake((uxIndexToWaitOn), (xClearCountOnExit), (xTicksToWait))
 
+inline BaseType_t (*mockTaskNotifyWaitHook)(uint32_t *) = nullptr;
+inline TickType_t mockTaskNotifyWaitTicks = 0;
 inline BaseType_t xTaskNotifyWait(uint32_t ulBitsToClearOnEntry,
                                   uint64_t ulBitsToClearOnExit,
                                   uint32_t *pulNotificationValue,
@@ -102,7 +104,11 @@ inline BaseType_t xTaskNotifyWait(uint32_t ulBitsToClearOnEntry,
 {
     (void)ulBitsToClearOnEntry;
     (void)ulBitsToClearOnExit;
-    (void)xTicksToWait;
+    mockTaskNotifyWaitTicks = xTicksToWait;
+    if (mockTaskNotifyWaitHook != nullptr)
+    {
+        return mockTaskNotifyWaitHook(pulNotificationValue);
+    }
     if (pulNotificationValue != nullptr)
     {
         *pulNotificationValue = xTaskNotifyCalled ? xTaskNotifyulValue : 0;

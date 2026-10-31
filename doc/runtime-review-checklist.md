@@ -113,11 +113,19 @@ This makes caller context part of every handler's contract: a timer sender runs 
 
   **Evidence:** [write](/Volumes/ext/source/OpenAce/src/lib/utils/ace/tcpclient.hpp:133), [close](/Volumes/ext/source/OpenAce/src/lib/utils/ace/tcpclient.hpp:217), [error callback](/Volumes/ext/source/OpenAce/src/lib/utils/ace/tcpclient.hpp:247).
 
-- [ ] **R8 · P2 · Serialize tuner reconfiguration and guarantee recovery from a failed pause.** Confirmed protocol weakness; failure requires overlapping updates or a delayed worker.
+- [x] **R8 · P2 · Serialize tuner reconfiguration and guarantee recovery from a failed pause.** Pause-timeout recovery and RX protocol-update ordering fixed; remaining work deferred below.
 
-  GPS zone changes and configuration changes can reconfigure from different tasks. RX updates `configuredDatasources` before pausing its worker, although the worker reads that vector during periodic reassignment. The single shared acknowledgement bit does not identify which caller owns the pause. Both RX and TX return on pause timeout without ensuring the eventual BLOCK is undone, allowing a delayed worker to remain blocked. Separately, setup diagnostics traverse schedules while they are rebuilt; that reader race is a setup concern, not a flight-load concern.
+  **Original finding:** GPS zone changes and configuration changes can reconfigure from different tasks. RX updates `configuredDatasources` before pausing its worker, although the worker reads that vector during periodic reassignment. The single shared acknowledgement bit does not identify which caller owns the pause. Both RX and TX return on pause timeout without ensuring the eventual BLOCK is undone, allowing a delayed worker to remain blocked. Separately, setup diagnostics traverse schedules while they are rebuilt; that reader race is a setup concern, not a flight-load concern.
 
   **Action:** Give reconfiguration a single owner or serialize callers, pause before mutating shared schedules, and make timeout cleanup restore operation. Snapshot schedule diagnostics. Preserve short, bounded synchronization; avoid holding a spinlock while waiting for acknowledgement.
+
+  **Implemented — failed-pause recovery:** RX and TX now queue `UNBLOCK` before returning on a pause acknowledgement timeout. TX, like RX, processes `UNBLOCK` after `BLOCK`, so release wins when a delayed worker receives both notification bits together. Caller serialization, acknowledgement ownership, zone update ordering, and diagnostic snapshots are deferred to the TODO below.
+
+  **Implemented — RX protocol update ordering:** The configuration handler copies protocols locally, pauses the RX worker, and only then replaces `configuredDatasources`, clears traffic statistics, and rebuilds the schedule. A failed pause leaves the existing protocol list and traffic statistics unchanged.
+
+  - [ ] **TODO · Complete tuner reconfiguration serialization.** Serialize the full pause/update/rebuild/release transaction and associate acknowledgements with their caller. Also commit zone changes only with the corresponding schedule and snapshot schedule containers for diagnostics. Deferred by user decision: simultaneous protocol edits and GPS-driven zone changes are considered rare in the intended operating workflow. These remaining races are accepted for now, not resolved by the fixes above.
+
+  **Local verification:** Desktop tests compile both actual tuner workers and cover pause timeouts with separate/coalesced BLOCK/UNBLOCK delivery, plus RX configuration updates with successful and failed pauses; all 30 assertions passed. The RP2040/Pico W Debug firmware build passed. Hardware contention and overlapping callers have not been validated.
 
   **Acceptance:** Under flight-like traffic with the UI closed, exercise GPS-driven zone changes and an injected pause timeout; verify continued RX/TX. Separately, test overlapping protocol edits and schedule reads during ground setup.
 
