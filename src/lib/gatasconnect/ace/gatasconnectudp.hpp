@@ -8,6 +8,7 @@
 
 /* LwIP */
 #include "lwip/udp.h"
+#include "etl/optional.h"
 
 /* GaTas */
 #include "ace/constants.hpp"
@@ -60,7 +61,7 @@ private:
     void on_receive_unknown(const etl::imessage &msg);
 
     void getConfig(const Configuration &config);
-    bool resolveIP();
+    etl::optional<ip_addr_t> resolveIP();
     static void resolveGatasServerCallback(const char *name, const ip_addr_t *ipaddr, void *arg);
     static void receiveUdpMessage(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port);
 

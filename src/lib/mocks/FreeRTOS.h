@@ -1,6 +1,34 @@
 #pragma once
 
 #include <stdint.h>
+#include <cstdlib>
+
+inline bool mockPortMallocFail = false;
+inline size_t mockPortMallocCount = 0;
+inline size_t mockPortFreeCount = 0;
+
+inline void *pvPortMalloc(size_t size)
+{
+    if (mockPortMallocFail)
+    {
+        return nullptr;
+    }
+    auto *ptr = std::malloc(size);
+    if (ptr != nullptr)
+    {
+        ++mockPortMallocCount;
+    }
+    return ptr;
+}
+
+inline void vPortFree(void *ptr)
+{
+    if (ptr != nullptr)
+    {
+        ++mockPortFreeCount;
+        std::free(ptr);
+    }
+}
 
 #include "FreeRTOSconfig.h"
 

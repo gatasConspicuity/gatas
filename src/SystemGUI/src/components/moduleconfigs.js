@@ -238,7 +238,7 @@ class Gdl90ServiceConfig extends ModuleConfig {
       <h4>Configuration of the GDL90 Service</h4>
       <p>
         GDL90 requires pressure altitude for its ownship report. You can add a BMP280 pressure sensor;
-        see the <a href="https://rvt.github.io/gatas-doc/bmp280/" target="_blank" rel="noopener noreferrer">BMP280 setup guide</a>.
+        see the <a href="https://gatasconspicuity.github.io/gatasDoc/bmp280/" target="_blank" rel="noopener noreferrer">BMP280 setup guide</a>.
       </p>
       <form ref="form" autocomplete="off" novalidate="novalidate">
         <div class="page-section">

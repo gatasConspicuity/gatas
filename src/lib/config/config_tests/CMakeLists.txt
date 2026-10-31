@@ -34,6 +34,10 @@ if(${CMAKE_SOURCE_DIR} STREQUAL ${PROJECT_SOURCE_DIR})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/ArduinoJson ArduinoJson)
 endif()
 
+add_executable(jsonallocator_test jsonallocator_test.cpp)
+target_link_libraries(jsonallocator_test PRIVATE Catch2WithMain ArduinoJson)
+add_test(NAME jsonallocator_test COMMAND jsonallocator_test)
+
 # These examples use the standard separate compilation
 set( SOURCES_IDIOMATIC_EXAMPLES
    config_test.cpp

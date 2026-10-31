@@ -95,6 +95,9 @@ public:
 
     GATAS::PostConstruct postConstruct();
 
+    // Release resources allocated by postConstruct before start has been called.
+    void releaseUnstarted();
+
     void start() ;
     void stop() ;
 

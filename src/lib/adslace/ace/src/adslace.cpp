@@ -261,7 +261,11 @@ void ADSLAce::adsl_receivedUplinkTraffic(const ADSL::Header &header, etl::span<c
     (void)header;
     auto ownship = ownshipState.location.load();
 
-    etl::vector<GATAS::AircraftPositionInfo, ADSL::Protocol::MAX_UPLINK_TARGETS> positions;
+    static_assert(ADSL::Protocol::MAX_UPLINK_TARGETS <= GATAS::IngressAircraftPositionsMsg::MAX_POSITIONS);
+    // Build directly into the owning message: a separate vector would keep
+    // two full ten-aircraft batches on the receive task's stack during dispatch.
+    GATAS::IngressAircraftPositionsMsg aircraftPositions;
+    auto &positions = aircraftPositions.positions;
     statistics.uplinksPacketsReceived += 1;
     for (const auto &entry : entries)
     {
@@ -306,7 +310,7 @@ void ADSLAce::adsl_receivedUplinkTraffic(const ADSL::Header &header, etl::span<c
     if (!positions.empty())
     {
         statistics.receivedAircraftPositions += positions.size();
-        getBus().receive(GATAS::IngressAircraftPositionsMsg{positions});
+        getBus().receive(aircraftPositions);
     }
 }
 
