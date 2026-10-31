@@ -25,7 +25,7 @@ GATAS::PostConstruct RadioTunerRx::postConstruct()
         radioCtxList.emplace_back(this, 1);
     }
 
-    if (xTaskCreate(radioTuneTask, RadioTunerRx::NAME.cbegin(), configMINIMAL_STACK_SIZE + 384, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    if (xTaskCreate(radioTuneTask, RadioTunerRx::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
     {
         return GATAS::PostConstruct::TASK_ERROR;
     }

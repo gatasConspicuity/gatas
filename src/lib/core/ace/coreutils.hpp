@@ -20,6 +20,49 @@ namespace CoreUtils
 
     spin_lock_t *sharedSpinLock();
 
+    /** Resolve a traffic altitude in metres using the ownship pressure reference.
+     *
+     * Egress pressure | Ownship pressure | MSL fallback | Egress altitude
+     * Available       | Any              | Any          | Egress pressure
+     * Missing         | Available        | Any          | Ownship pressure + egress HAE - ownship HAE
+     * Missing         | Missing          | Enabled      | Egress HAE - ownship geoid separation
+     * Missing         | Missing          | Disabled     | Unavailable
+     *
+     * HAE values are assumed to be suitable for comparison. MSL fallback is a
+     * compatibility option and does not produce a measured pressure altitude.
+     */
+    inline etl::optional<int32_t> resolveTrafficAltitude(const GATAS::AircraftPositionInfo &position,
+                                                         const GATAS::OwnshipState &ownshipState,
+                                                         bool allowMslFallback)
+    {
+        if (position.isPressureAltitudeValid())
+        {
+            return position.pressureAlt;
+        }
+
+        const auto ownship = ownshipState.location.load();
+        // Use a wider intermediate so out-of-range inputs cannot overflow during subtraction.
+        int64_t altitudeMetres = position.ellipseHeight;
+        if (const auto ownshipPressureAltitude = ownshipState.calculatePressureAltitude())
+        {
+            altitudeMetres += static_cast<int32_t>(ownshipPressureAltitude.value()) - static_cast<int64_t>(ownship.ellipseHeight);
+        }
+        else if (allowMslFallback)
+        {
+            altitudeMetres -= ownship.geoidSeparation;
+        }
+        else
+        {
+            return etl::nullopt;
+        }
+
+        if (altitudeMetres < INT32_MIN || altitudeMetres > INT32_MAX)
+        {
+            return etl::nullopt;
+        }
+        return static_cast<int32_t>(altitudeMetres);
+    }
+
     /**
      * Get a timestamp in us aligned on PPS so that for example45000 is at the exact pps
      * This timestamp monotonically increases from power up

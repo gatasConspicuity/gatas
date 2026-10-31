@@ -40,6 +40,95 @@ public:
     }
 };
 
+TEST_CASE("AircraftTracker diagnostics contain one comma-separated row per aircraft", "[diagnostics]")
+{
+    CoreUtils::init();
+    GATAS::ThreadSafeBus<8> bus;
+    MockConfig config{bus};
+    GATAS::OwnshipState ownshipState;
+    ownshipState.init(CoreUtils::sharedSpinLock());
+    auto ownship = makeOwnship();
+    ownship.ellipseHeight = 1047;
+    ownshipState.location.store(ownship);
+    AircraftTracker tracker{bus, config, ownshipState};
+    tracker.trackedAircraftMutex = xSemaphoreCreateMutex();
+    time_us_Value = 0;
+
+    auto diagnostics = [&]()
+    {
+        etl::string<4096> output;
+        etl::string_stream stream(output);
+        tracker.getData(stream, "");
+        return output;
+    };
+
+    const auto empty = diagnostics();
+    REQUIRE(empty.find("\"aircraft:aoa\":[]") != etl::string<4096>::npos);
+    REQUIRE(empty.find("\"ownshipPressureSource\":\"None\"") != etl::string<4096>::npos);
+
+    GATAS::AircraftPositionInfo aircraft;
+    aircraft.address = 0x123ABC;
+    aircraft.dataSource = GATAS::DataSource::ADSB;
+    aircraft.distanceFromOwn = 42;
+    aircraft.pressureAlt = -100;
+    REQUIRE(tracker.trackedAircraft.insert(aircraft));
+
+    aircraft.address = 0x000012;
+    aircraft.dataSource = GATAS::DataSource::FLARM;
+    aircraft.distanceFromOwn = 1500;
+    aircraft.ellipseHeight = 1147;
+    aircraft.pressureAlt = GATAS::INVALID_BARO_ALTITUDE;
+    REQUIRE(tracker.trackedAircraft.insert(aircraft));
+
+    aircraft.address = 0xABC123;
+    aircraft.dataSource = GATAS::DataSource::OGN;
+    aircraft.distanceFromOwn = 0;
+    aircraft.pressureAlt = 0;
+    REQUIRE(tracker.trackedAircraft.insert(aircraft));
+
+    const auto output = diagnostics();
+    REQUIRE(output.find("\"aircraft:aoa\":[") != etl::string<4096>::npos);
+    REQUIRE(output.find("\"123ABC,ADSB,42,-100\"") != etl::string<4096>::npos);
+    REQUIRE(output.find("\"000012,Flarm,1500,\"") != etl::string<4096>::npos);
+    REQUIRE(output.find("\"ABC123,OGN,0,0\"") != etl::string<4096>::npos);
+    REQUIRE(output.back() == '}');
+
+    // FLARM has no reported pressure: resolve the +100 m height difference
+    // against the ownship pressure reference, just as the GDL90 output does.
+    ownshipState.updateBarometricPressure(GATAS::BarometricSource::Internal,
+                                         {1013.25f, GATAS::PressureSource::PressureSensor});
+    const auto withPressure = diagnostics();
+    REQUIRE(withPressure.find("\"ownshipPressureSource\":\"BMP280\"") != etl::string<4096>::npos);
+    REQUIRE(withPressure.find("\"000012,Flarm,1500,100\"") != etl::string<4096>::npos);
+    REQUIRE(withPressure.find("\"123ABC,ADSB,42,-100\"") != etl::string<4096>::npos);
+    REQUIRE(withPressure.find("\"ABC123,OGN,0,0\"") != etl::string<4096>::npos);
+
+    ownshipState.updateBarometricPressure(GATAS::BarometricSource::Internal,
+                                         {GATAS::INVALID_PRESSSURE_HPA, GATAS::PressureSource::PressureSensor});
+    const auto noPressure = diagnostics();
+    REQUIRE(noPressure.find("\"000012,Flarm,1500,\"") != etl::string<4096>::npos);
+    REQUIRE(noPressure.find("\"ownshipPressureSource\":\"None\"") != etl::string<4096>::npos);
+
+    ownshipState.updateBarometricPressure(GATAS::BarometricSource::External,
+                                         {1013.25f, GATAS::PressureSource::Calculated});
+    REQUIRE(diagnostics().find("\"ownshipPressureSource\":\"Server\"") != etl::string<4096>::npos);
+    ownshipState.updateBarometricPressure(GATAS::BarometricSource::External,
+                                         {1013.25f, GATAS::PressureSource::PressureSensor});
+    REQUIRE(diagnostics().find("\"ownshipPressureSource\":\"Mobile\"") != etl::string<4096>::npos);
+    ownshipState.updateBarometricPressure(GATAS::BarometricSource::Internal,
+                                         {1013.25f, GATAS::PressureSource::PressureSensor});
+    REQUIRE(diagnostics().find("\"ownshipPressureSource\":\"BMP280\"") != etl::string<4096>::npos);
+    ownshipState.updateBarometricPressure(GATAS::BarometricSource::Internal,
+                                         {GATAS::INVALID_PRESSSURE_HPA, GATAS::PressureSource::PressureSensor});
+    REQUIRE(diagnostics().find("\"ownshipPressureSource\":\"Mobile\"") != etl::string<4096>::npos);
+    ownshipState.updateBarometricPressure(GATAS::BarometricSource::External,
+                                         {GATAS::INVALID_PRESSSURE_HPA, GATAS::PressureSource::PressureSensor});
+    REQUIRE(diagnostics().find("\"ownshipPressureSource\":\"Server\"") != etl::string<4096>::npos);
+    ownshipState.updateBarometricPressure(GATAS::BarometricSource::External,
+                                         {GATAS::INVALID_PRESSSURE_HPA, GATAS::PressureSource::Calculated});
+    REQUIRE(diagnostics().find("\"ownshipPressureSource\":\"None\"") != etl::string<4096>::npos);
+}
+
 TEST_CASE("TrackerData filters expired output before maintenance including clock wrap", "[expiry]")
 {
     const uint32_t start = GENERATE(1'000'000U, UINT32_MAX - 5'000'000U);

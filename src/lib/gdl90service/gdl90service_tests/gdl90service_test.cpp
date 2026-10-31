@@ -20,6 +20,7 @@ class Test : public etl::message_router<Test, GATAS::GdlMsg>
 
 public:
     GATAS::GDLData msg;
+    GATAS::GDLData positionReport;
     etl::imessage_bus *bus;
     uint32_t numReceived = 0;
     Test(etl::imessage_bus *bus_) : bus(bus_)
@@ -36,6 +37,13 @@ public:
         printf("GdlMsg Received %u", numReceived);
         numReceived += 1;
         this->msg = msg.msg;
+        GDL90 gdl90;
+        GDL90::RawBytes unpacked;
+        if (gdl90.unpack(msg.msg, unpacked) && unpacked.size() == 28 &&
+            (unpacked[0] == 0x0A || unpacked[0] == 0x14))
+        {
+            positionReport = msg.msg;
+        }
     }
     void on_receive_unknown(const etl::imessage &msg)
     {
@@ -44,6 +52,32 @@ public:
 };
 
 GATAS::ThreadSafeBus<50> bus;
+
+namespace
+{
+    etl::optional<float> reportAltitudeFeet(const Test &receiver, uint8_t expectedId)
+    {
+        GDL90 gdl90;
+        GDL90::RawBytes unpacked;
+        REQUIRE(gdl90.unpack(receiver.positionReport, unpacked));
+        REQUIRE(unpacked.size() == 28);
+        REQUIRE(unpacked[0] == expectedId);
+        // Read the wire field independently: 25-foot steps, offset by 1000 feet.
+        const uint16_t encoded = (static_cast<uint16_t>(unpacked[11]) << 4) | (unpacked[12] >> 4);
+        if (encoded == 0xFFF)
+        {
+            return etl::nullopt;
+        }
+        return static_cast<float>(encoded) * 25.0f - 1000.0f;
+    }
+
+    void setPressureAltitude(GATAS::OwnshipState &state, float altitudeMetres)
+    {
+        const float pressureHpa = 1013.25f * powf(1.0f - altitudeMetres / 44330.0f, 1.0f / 0.190295f);
+        state.updateBarometricPressure(GATAS::BarometricSource::External,
+                                      {pressureHpa, GATAS::PressureSource::Calculated});
+    }
+}
 
 TEST_CASE("GDL90 callsigns are converted to uppercase", "[single-file]")
 {
@@ -300,18 +334,18 @@ TEST_CASE("GDL90 service geometric altitude uses ellipsoid height", "[gdl90]")
     REQUIRE(feet == Catch::Approx(position.ellipseHeight * M_TO_FT).margin(5.f));
 }
 
-TEST_CASE("GDL90 ownship and traffic reports prefer pressure altitude and fall back to MSL", "[gdl90]")
+TEST_CASE("GDL90 sends egress pressure regardless of ownship pressure and MSL fallback", "[gdl90]")
 {
     CoreUtils::init();
     GATAS::OwnshipState state;
     state.init(CoreUtils::sharedSpinLock());
     MockConfig mockConfig{bus};
     Gdl90Service service{bus, mockConfig, state};
-    service.mslAltFallback = true;
+    service.mslAltFallback = GENERATE(false, true);
     Test receiver{&bus};
     GDL90 gdl90;
 
-    const bool ownship = GENERATE(true, false);
+    const bool ownshipHasPressure = GENERATE(false, true);
     struct Case
     {
         int32_t meters;
@@ -321,62 +355,39 @@ TEST_CASE("GDL90 ownship and traffic reports prefer pressure altitude and fall b
     // Independent ICD values: feet are offset by 1000 and quantized in 25-foot steps.
     // Repeated reports exercise state updates and invalidation after a valid sample.
     const Case cases[] = {
-        {GATAS::INVALID_BARO_ALTITUDE, 0x0A, 0xB0},
         {500, 0x06, 0x90},
         {1000, 0x0A, 0xB0},
         {0, 0x02, 0x80},
         {-100, 0x01, 0xA0},
-        {GATAS::INVALID_BARO_ALTITUDE, 0x0A, 0xB0},
         {-400, 0xFF, 0xF0},
         {31000, 0xFF, 0xF0},
     };
     for (const auto &test : cases)
     {
         INFO(test.meters);
-        // Geometric height deliberately differs from pressure altitude.
-        // Traffic must also ignore the ownship pressure sample.
-        // Keep the generated pressure inside the expected whole-metre interval;
-        // an inverse float conversion at exactly -100 m may produce -99.999 m.
-        const float sampleAltitude = static_cast<float>(test.meters) +
-            (test.meters > 0 ? 0.5f : (test.meters < 0 ? -0.5f : 0.0f));
-        const float pressureHpa = ownship && test.meters != GATAS::INVALID_BARO_ALTITUDE
-            ? 1013.25f * powf(1.0f - sampleAltitude / 44330.0f, 1.0f / 0.190295f)
-            : GATAS::INVALID_PRESSSURE_HPA;
-        state.updateBarometricPressure(GATAS::BarometricSource::External,
-                                       {pressureHpa, GATAS::PressureSource::Calculated});
+        // Native traffic pressure wins over conflicting geometric height and ownship pressure.
+        if (ownshipHasPressure)
+        {
+            setPressureAltitude(state, 900.0f);
+        }
         const auto previousCount = receiver.numReceived;
         GATAS::OwnshipPositionInfo ownPosition{};
         ownPosition.ellipseHeight = 1047;
         ownPosition.geoidSeparation = 47;
         ownPosition.baroAlt = 7000;
         state.location.store(ownPosition);
-        if (ownship)
-        {
-            service.on_receive(GATAS::OwnshipPositionMsg{});
-        }
-        else
-        {
-            GATAS::AircraftPositionInfo position{};
-            position.ellipseHeight = 1047;
-            position.pressureAlt = test.meters;
-            service.on_receive(GATAS::EgressAircraftPositionMsg{position});
-        }
+        GATAS::AircraftPositionInfo position{};
+        position.dataSource = GATAS::DataSource::ADSB;
+        position.ellipseHeight = 1047;
+        position.pressureAlt = test.meters;
+        service.on_receive(GATAS::EgressAircraftPositionMsg{position});
         REQUIRE(receiver.numReceived == previousCount + 1);
         GDL90::RawBytes unpacked;
         REQUIRE(gdl90.unpack(receiver.msg, unpacked));
         REQUIRE(unpacked.size() == 28);
-        REQUIRE(unpacked[0] == (ownship ? 0x0A : 0x14));
-        // Ownship reports may use the configured MSL fallback. Traffic reports
-        // must not use the ownship state, so an unavailable pressure altitude
-        // remains encoded as unavailable.
-        const auto expectedHighByte = !ownship && test.meters == GATAS::INVALID_BARO_ALTITUDE
-            ? 0xFF
-            : test.highByte;
-        const auto expectedLowNibble = !ownship && test.meters == GATAS::INVALID_BARO_ALTITUDE
-            ? 0xF0
-            : test.lowNibble;
-        REQUIRE(unpacked[11] == expectedHighByte);
-        REQUIRE((unpacked[12] & 0xF0) == expectedLowNibble);
+        REQUIRE(unpacked[0] == 0x14);
+        REQUIRE(unpacked[11] == test.highByte);
+        REQUIRE((unpacked[12] & 0xF0) == test.lowNibble);
     }
 }
 
@@ -423,12 +434,165 @@ TEST_CASE("GDL90 ownship altitude policy is strict by default", "[gdl90]")
 
     service.mslAltFallback = true;
     service.on_receive(GATAS::OwnshipPositionMsg{});
-    REQUIRE(gdl90.unpack(receiver.msg, unpacked));
+    REQUIRE(gdl90.unpack(receiver.positionReport, unpacked));
     REQUIRE(gdl90.ownership_or_traffic_report_decode(
         unpacked, isOwnership, alertStatus, addressType, address, latitude, longitude, altitude, misc, nic, nacp,
         horizontalVelocity, verticalVelocity, track, emitter, callSign, emergencyPriority));
     REQUIRE(gdl90.altitude_decode(altitude, feet));
     REQUIRE(feet == Catch::Approx(1600.0f * M_TO_FT).margin(25.0f));
+}
+
+TEST_CASE("GDL90 traffic altitude selection follows pressure availability and MSL fallback", "[gdl90]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    MockConfig mockConfig{bus};
+    Gdl90Service service{bus, mockConfig, state};
+    service.mslAltFallback = GENERATE(false, true);
+    const bool ownshipHasPressure = GENERATE(false, true);
+    const bool trafficHasPressure = GENERATE(false, true);
+    Test receiver{&bus};
+
+    GATAS::OwnshipPositionInfo ownship{};
+    ownship.ellipseHeight = 1047;
+    ownship.geoidSeparation = 47;
+    state.location.store(ownship);
+    if (ownshipHasPressure)
+    {
+        setPressureAltitude(state, 900.0f);
+    }
+    GATAS::AircraftPositionInfo target{};
+    target.ellipseHeight = 1147;
+    target.pressureAlt = trafficHasPressure ? 500 : GATAS::INVALID_BARO_ALTITUDE;
+
+    service.on_receive(GATAS::OwnshipPositionMsg{});
+    const auto ownAltitude = reportAltitudeFeet(receiver, 0x0A);
+    if (ownshipHasPressure || service.mslAltFallback)
+    {
+        const float expectedOwnMetres = ownshipHasPressure ? 900.0f : 1000.0f;
+        REQUIRE(ownAltitude.has_value());
+        REQUIRE(ownAltitude.value() == Catch::Approx(expectedOwnMetres * M_TO_FT).margin(25.0f));
+    }
+    else
+    {
+        REQUIRE_FALSE(ownAltitude.has_value());
+    }
+
+    service.on_receive(GATAS::EgressAircraftPositionMsg{target});
+    const auto altitude = reportAltitudeFeet(receiver, 0x14);
+    if (trafficHasPressure || ownshipHasPressure || service.mslAltFallback)
+    {
+        // Native pressure wins; otherwise map the +100 m difference onto ownship pressure,
+        // or use target MSL only when neither pressure altitude is available and fallback is enabled.
+        const float expectedMetres = trafficHasPressure ? 500.0f : (ownshipHasPressure ? 1000.0f : 1100.0f);
+        REQUIRE(altitude.has_value());
+        REQUIRE(altitude.value() == Catch::Approx(expectedMetres * M_TO_FT).margin(25.0f));
+    }
+    else
+    {
+        REQUIRE_FALSE(altitude.has_value());
+    }
+    REQUIRE(target.pressureAlt == (trafficHasPressure ? 500 : GATAS::INVALID_BARO_ALTITUDE));
+}
+
+TEST_CASE("GDL90 maps ellipsoid separation onto ownship pressure with either fallback setting", "[gdl90]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    MockConfig mockConfig{bus};
+    Gdl90Service service{bus, mockConfig, state};
+    service.mslAltFallback = GENERATE(false, true);
+    Test receiver{&bus};
+    GATAS::OwnshipPositionInfo ownship{};
+    ownship.ellipseHeight = 1047;
+    ownship.geoidSeparation = 47;
+    state.location.store(ownship);
+    GATAS::AircraftPositionInfo target{};
+
+    for (const float anchor : {900.0f, 1200.0f})
+    {
+        setPressureAltitude(state, anchor);
+        service.on_receive(GATAS::OwnshipPositionMsg{});
+        const auto ownAltitude = reportAltitudeFeet(receiver, 0x0A);
+        REQUIRE(ownAltitude.has_value());
+        for (const int32_t separation : {100, -100, 0})
+        {
+            target.ellipseHeight = ownship.ellipseHeight + separation;
+            service.on_receive(GATAS::EgressAircraftPositionMsg{target});
+            const auto altitude = reportAltitudeFeet(receiver, 0x14);
+            REQUIRE(altitude.has_value());
+            REQUIRE(altitude.value() == Catch::Approx((anchor + separation) * M_TO_FT).margin(25.0f));
+            REQUIRE(altitude.value() - ownAltitude.value() ==
+                    Catch::Approx(static_cast<float>(separation) * M_TO_FT).margin(25.0f));
+        }
+    }
+}
+
+TEST_CASE("GDL90 altitude mapping accepts sea-level and negative heights", "[gdl90]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    MockConfig mockConfig{bus};
+    Gdl90Service service{bus, mockConfig, state};
+    service.mslAltFallback = GENERATE(false, true);
+    Test receiver{&bus};
+    GATAS::OwnshipPositionInfo ownship{};
+    ownship.ellipseHeight = 0;
+    state.location.store(ownship);
+    setPressureAltitude(state, -50.0f);
+    GATAS::AircraftPositionInfo target{};
+    target.ellipseHeight = GENERATE(-50, 0, 100);
+    service.on_receive(GATAS::EgressAircraftPositionMsg{target});
+    const auto altitude = reportAltitudeFeet(receiver, 0x14);
+    REQUIRE(altitude.has_value());
+    REQUIRE(altitude.value() == Catch::Approx((-50.0f + target.ellipseHeight) * M_TO_FT).margin(25.0f));
+}
+
+TEST_CASE("GDL90 altitude encoder rejects missing and out-of-range values", "[gdl90]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    MockConfig mockConfig{bus};
+    Gdl90Service service{bus, mockConfig, state};
+    REQUIRE(service.encodeAltitude(etl::nullopt) == 0xFFF);
+    REQUIRE(service.encodeAltitude(-305) == 0xFFF);
+    REQUIRE(service.encodeAltitude(-304) == 0);
+    REQUIRE(service.encodeAltitude(30'891) != 0xFFF);
+    REQUIRE(service.encodeAltitude(30'892) == 0xFFF);
+}
+
+TEST_CASE("Traffic altitude uses whole metre ownship pressure", "[gdl90]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    GATAS::OwnshipPositionInfo ownship{};
+    ownship.ellipseHeight = 1047;
+    state.location.store(ownship);
+    GATAS::AircraftPositionInfo target{};
+    target.ellipseHeight = 1147;
+
+    const float anchor = GENERATE(900.6f, -50.6f);
+    setPressureAltitude(state, anchor);
+    REQUIRE(CoreUtils::resolveTrafficAltitude(target, state, false).value() == static_cast<int32_t>(anchor) + 100);
+}
+
+TEST_CASE("Derived traffic altitude does not overflow integer metres", "[gdl90]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    GATAS::OwnshipPositionInfo ownship{};
+    GATAS::AircraftPositionInfo target{};
+    ownship.ellipseHeight = GENERATE(INT32_MIN, INT32_MAX);
+    target.ellipseHeight = ownship.ellipseHeight == INT32_MIN ? INT32_MAX : INT32_MIN;
+    state.location.store(ownship);
+    setPressureAltitude(state, 900.0f);
+    REQUIRE_FALSE(CoreUtils::resolveTrafficAltitude(target, state, false).has_value());
 }
 
 TEST_CASE("GDL90 unavailable values and signed encodings", "[gdl90]")
