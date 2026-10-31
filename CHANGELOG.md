@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -
 
-## [v3.6.0-rc1] - 2026-10-25
+## [v3.6.0-rc4] - 2026-10-31
 
 ### Added
 
@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Use of SynchronizedValue instead of copyWithLick at various places
+- Technical debt handled with stability improvements
 
 ### Fixed
 

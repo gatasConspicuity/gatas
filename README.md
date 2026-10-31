@@ -1,7 +1,7 @@
 # GATAS Conspicuity Device
 
 [![Build GaTas](https://github.com/rvt/openace/actions/workflows/ci.yml/badge.svg)](https://github.com/rvt/openace/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v3.6.0--rc1-green)
+![version](https://img.shields.io/badge/version-v3.6.0--rc4-green)
 
 [<img src="doc/img/Discord-Logo-Blurple.png" height="45px">](https://discord.gg/J6mXTcWndS)
 
