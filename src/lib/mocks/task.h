@@ -14,11 +14,15 @@ inline void vTaskDelay(uint32_t delayMs)
     printf("vTaskDelay %d ms\n", delayMs);
 }
 
+inline TaskHandle_t mockDeletedTask = nullptr;
 inline void vTaskDelete(TaskHandle_t pxTaskCode)
 {
+    mockDeletedTask = pxTaskCode;
     printf("vTaskDelete\n");
 }
 
+inline BaseType_t mockTaskCreateResult = pdPASS;
+inline TaskHandle_t mockCreatedTask = nullptr;
 inline BaseType_t xTaskCreate(TaskFunction_t pxTaskCode,
                               const char *const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                               const configSTACK_DEPTH_TYPE usStackDepth,
@@ -27,7 +31,11 @@ inline BaseType_t xTaskCreate(TaskFunction_t pxTaskCode,
                               TaskHandle_t *const pxCreatedTask)
 {
     printf("xTaskCreate %s\n", pcName);
-    return pdPASS;
+    if (mockTaskCreateResult == pdPASS && pxCreatedTask != nullptr)
+    {
+        *pxCreatedTask = mockCreatedTask;
+    }
+    return mockTaskCreateResult;
 }
 
 inline TaskHandle_t xTaskCreateStatic(TaskFunction_t pxTaskCode,

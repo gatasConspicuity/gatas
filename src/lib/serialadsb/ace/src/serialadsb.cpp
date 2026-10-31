@@ -8,14 +8,18 @@
 
 void SerialADSB::start()
 {
+    if (xTaskCreate(serialADSBTask, SerialADSB::NAME.cbegin(), configMINIMAL_STACK_SIZE, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    {
+        pioSerial.releaseUnstarted();
+        BaseModule::setModuleStatus(NAME, GATAS::PostConstruct::TASK_ERROR);
+        return;
+    }
     pioSerial.start();
-    xTaskCreate(serialADSBTask, SerialADSB::NAME.cbegin(), configMINIMAL_STACK_SIZE, this, tskIDLE_PRIORITY + 2, &taskHandle);
 };
 
 GATAS::PostConstruct SerialADSB::postConstruct()
 {
-    pioSerial.postConstruct();
-    return GATAS::PostConstruct::OK;
+    return pioSerial.postConstruct();
 }
 
 void SerialADSB::serialADSBTask(void *arg)

@@ -12,7 +12,11 @@ GATAS::PostConstruct AircraftTracker::postConstruct()
     {
         return GATAS::PostConstruct::MUTEX_ERROR;
     }
-    GATAS_REGISTER_MUTEX(trackedAircraftMutex, "AircraftTracker_mutex");
+    if (xTaskCreate(aircraftTrackerTrampoline, AircraftTracker::NAME.cbegin(), configMINIMAL_STACK_SIZE + 768, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    {
+        vSemaphoreDelete(trackedAircraftMutex);
+        return GATAS::PostConstruct::TASK_ERROR;
+    }
 
     sendTimerHandle = xTimerCreate(AircraftTracker::NAME.cbegin(),
                                    TASK_DELAY_MS(1000 / TIMESLICES),
@@ -21,15 +25,17 @@ GATAS::PostConstruct AircraftTracker::postConstruct()
                                    sendTimerCallback);
     if (sendTimerHandle == nullptr)
     {
+        vTaskDelete(taskHandle);
+        vSemaphoreDelete(trackedAircraftMutex);
         return GATAS::PostConstruct::TIMER_ERROR;
     }
 
+    GATAS_REGISTER_MUTEX(trackedAircraftMutex, "AircraftTracker_mutex");
     return GATAS::PostConstruct::OK;
 }
 
 void AircraftTracker::start()
 {
-    xTaskCreate(aircraftTrackerTrampoline, AircraftTracker::NAME.cbegin(), configMINIMAL_STACK_SIZE + 768, this, tskIDLE_PRIORITY + 2, &taskHandle);
     if (xTimerStart(sendTimerHandle, portMAX_DELAY) != pdPASS)
     {
         GATAS_WARN("AircraftTracker: failed to start send timer");

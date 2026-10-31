@@ -10,8 +10,15 @@
 
 GATAS::PostConstruct WifiService::postConstruct()
 {
+    if (xTaskCreate(wifiTaskTrampoline, WifiService::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY, &taskHandle) != pdPASS)
+    {
+        return GATAS::PostConstruct::TASK_ERROR;
+    }
+    // The worker waits for postStart; reserve it before initializing shared networking.
     if (cyw43_arch_init())
     {
+        vTaskDelete(taskHandle);
+        taskHandle = nullptr;
         return GATAS::PostConstruct::HARDWARE_NOT_FOUND;
     }
     return GATAS::PostConstruct::OK;
@@ -29,8 +36,8 @@ void WifiService::postStart()
         mdns_resp_init();
     }
 #endif
-    xTaskCreate(wifiTaskTrampoline, WifiService::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY, &taskHandle);
     getBus().subscribe(*this);
+    xTaskNotify(taskHandle, 1, eSetBits);
 }
 
 bool WifiService::setData(const etl::string_view data, const etl::string_view path)
@@ -71,6 +78,8 @@ void WifiService::on_receive(const GATAS::WifiModeRequestMsg &msg)
 void WifiService::wifiTaskTrampoline(void *arg)
 {
     WifiService *wifiService = (WifiService *)arg;
+    uint32_t notification = 0;
+    xTaskNotifyWait(0, UINT32_MAX, &notification, portMAX_DELAY);
     wifiService->wifiTask();
 }
 

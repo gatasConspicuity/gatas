@@ -32,6 +32,7 @@ inline void * pvTimerGetTimerID( const TimerHandle_t xTimer )
     return nullptr;
 }
 
+inline TimerHandle_t mockTimerCreateResult = nullptr;
 inline TimerHandle_t xTimerCreate( const char * const pcTimerName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
                                    const TickType_t xTimerPeriodInTicks,
                                    const BaseType_t xAutoReload,
@@ -39,7 +40,7 @@ inline TimerHandle_t xTimerCreate( const char * const pcTimerName, /*lint !e971 
                                    TimerCallbackFunction_t pxCallbackFunction )
 {
     printf("xTimerCreate %s\n", pcTimerName);
-    return nullptr;
+    return mockTimerCreateResult;
 }
 
 

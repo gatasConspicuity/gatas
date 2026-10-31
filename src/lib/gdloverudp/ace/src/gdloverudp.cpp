@@ -83,17 +83,29 @@ GATAS::PostConstruct GDLoverUDP::postConstruct()
             sendPcb = nullptr;
             return GATAS::PostConstruct::NETWORK_ERROR;
         }
-        udp_recv(foreFlightPCB, foreFlightListener, this);
     }
 
     mutex = xSemaphoreCreateMutex();
     if (mutex == nullptr)
     {
+        LwipRAIILock lock;
+        udp_remove(foreFlightPCB);
+        udp_remove(sendPcb);
         return GATAS::PostConstruct::MUTEX_ERROR;
     }
+    if (xTaskCreate(gdlOverUDPTask, GDLoverUDP::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 3, &taskHandle) != pdPASS)
+    {
+        vSemaphoreDelete(mutex);
+        LwipRAIILock lock;
+        udp_remove(foreFlightPCB);
+        udp_remove(sendPcb);
+        return GATAS::PostConstruct::TASK_ERROR;
+    }
     GATAS_REGISTER_MUTEX(mutex, "GDLoverUDP_mutex");
-    xTaskCreate(gdlOverUDPTask, GDLoverUDP::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 3, &taskHandle);
-
+    {
+        LwipRAIILock lock;
+        udp_recv(foreFlightPCB, foreFlightListener, this);
+    }
     return GATAS::PostConstruct::OK;
 }
 

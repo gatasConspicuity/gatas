@@ -98,3 +98,10 @@ list(APPEND ALL_EXAMPLE_TARGETS tcpclient_test)
 list(APPEND CATCH_WARNING_TARGETS ${ALL_EXAMPLE_TARGETS})
 set(CATCH_WARNING_TARGETS ${CATCH_WARNING_TARGETS} PARENT_SCOPE)
 
+
+# Exercise the embedded PIO allocation path against isolated hardware mocks.
+add_executable(picopio_test picopio_test.cpp ../ace/src/picopio.cpp)
+target_include_directories(picopio_test BEFORE PRIVATE pio_mocks)
+target_compile_definitions(picopio_test PRIVATE PICO_RP2040=1)
+target_link_libraries(picopio_test PRIVATE Catch2WithMain)
+add_custom_command(TARGET picopio_test POST_BUILD COMMAND picopio_test)

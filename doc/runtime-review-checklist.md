@@ -139,6 +139,20 @@ This makes caller context part of every handler's contract: a timer sender runs 
 
   **Action:** Check task creation consistently and propagate failure through the existing module lifecycle. Only enable producers/subscriptions after the consumer exists. Unwind resources for failed construction deliberately; do not enable the loader's commented-out `delete` until module cleanup is correct.
 
+  **Local progress (31 October 2026):** Task creation failures are checked for the tracker, GNSS, GDL-over-UDP, FANET, GDL90 service, Idle, serial ADS-B, Wi-Fi, and the bootstrap tasks. The loader publishes module success after `start()` and preserves a reported start failure. Wi-Fi reserves its task before dependent modules load and starts it in `postStart()`. Failed tracker and UDP transport allocations release their associated task, timer, mutex, or PCB resources as applicable; GNSS and serial ADS-B release PIO resources before interrupts are enabled. StaticGPS stops its worker if GNSS task creation fails. The loader still intentionally retains failed module objects pending a broader ownership/destructor audit.
+
+  **Local verification:** The RP2040/Pico W Debug build passed and all 28 executable desktop CTest checks passed; a stale cached `gatas_version_test` registration was excluded because its source is absent. New desktop tests inject tracker task and timer allocation failures and GDL90 service task allocation failure. GNSS, GDL-over-UDP, Wi-Fi, bootstrap failure injection and recovered-resource counts remain untested, as do all device-level failures.
+
+  **Code review findings — fixed:**
+
+  - [x] **P1 · Preserve startup failures when registering modules.** Read the live status after `start()` through `startAndRegister()`.
+  - [x] **P1 · Keep shared networking intact on Wi-Fi worker allocation failure.** Reserve the waiting worker before CYW43 initialization.
+  - [x] **P1 · Avoid cleanup of partially allocated PIO resources.** Publish handles only after the state machine and program are acquired.
+
+  **Review fixes (31 October 2026):** The loader now calls `BaseModule::startAndRegister()`, which reads the live registry after `start()` so an earlier registry snapshot cannot overwrite a reported failure. Wi-Fi allocates its waiting worker before CYW43 initialization; worker allocation failure does not initialize or tear down shared networking, and CYW43 initialization failure deletes the reserved worker. PIO allocation now claims a state machine before loading a program and publishes handles only on success, leaving a null PIO on every allocation failure so serial cleanup cannot use partial handles.
+
+  **Review-fix verification:** The RP2040/Pico W Debug build and 28 executable desktop CTest checks passed (the stale version-script registration was excluded). Two new persistent test executables passed 35 assertions covering live startup status and PIO capacity/state-machine exhaustion, fallback, and success. A temporary isolated harness compiled the production Wi-Fi `postConstruct()` method and passed worker failure, CYW43 failure cleanup, and success cases; this does not exercise the CYW43 runtime or scheduler. Device-level failure injection and the other validation gaps above remain open.
+
   **Acceptance:** Inject allocation failures into representative tracker, GNSS, and transport startup paths; status reports failure and no callback targets an absent task. Recovered memory matches the resources actually created.
 
   **Evidence:** [tracker start](/Volumes/ext/source/OpenAce/src/lib/aircrafttracker/ace/src/aircrafttracker.cpp:32), [GNSS start](/Volumes/ext/source/OpenAce/src/lib/gps/ace/src/AbstractGnss.cpp:73), [release hooks](/Volumes/ext/source/OpenAce/src/lib/include/FreeRTOSConfig.h:118), [loader failure](/Volumes/ext/source/OpenAce/src/pico/main.cpp:323).

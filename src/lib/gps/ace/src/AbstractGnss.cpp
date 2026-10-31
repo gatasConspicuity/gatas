@@ -38,6 +38,10 @@ GATAS::PostConstruct AbstractGnss::postConstruct()
     AbstractGnss_rtc = static_cast<RtcModule *>(moduleByName(*this, RtcModule::NAME));
     if (AbstractGnss_rtc == nullptr)
     {
+        if (usePioSerial)
+        {
+            pioSerial.releaseUnstarted();
+        }
         return GATAS::PostConstruct::DEP_NOT_FOUND;
     }
 
@@ -59,6 +63,16 @@ GATAS::PostConstruct AbstractGnss::postConstruct()
 
 void AbstractGnss::start()
 {
+    // Create the consumer before enabling the serial interrupt producer.
+    if (xTaskCreate(receiveTask, AbstractGnss::NAME.cbegin(), configMINIMAL_STACK_SIZE + 768, this, tskIDLE_PRIORITY + 3, &taskHandle) != pdPASS)
+    {
+        if (usePioSerial)
+        {
+            pioSerial.releaseUnstarted();
+        }
+        BaseModule::setModuleStatus(name(), GATAS::PostConstruct::TASK_ERROR);
+        return;
+    }
     if (usePioSerial)
     {
         pioSerial.start();
@@ -68,14 +82,18 @@ void AbstractGnss::start()
     {
         registerPinInterrupt(ppsPin, GPIO_IRQ_EDGE_RISE, pinIntrCallback_t::create<AbstractGnss_pps_callback>());
     }
-
-    // Needs a larger stack because GPS is part of a chain of events
-    xTaskCreate(receiveTask, AbstractGnss::NAME.cbegin(), configMINIMAL_STACK_SIZE + 768, this, tskIDLE_PRIORITY + 3, &taskHandle);
+    xTaskNotify(taskHandle, TaskState::START, eSetBits);
 };
 
 void AbstractGnss::receiveTask(void *arg)
 {
     AbstractGnss *abstractGnss = static_cast<AbstractGnss *>(arg);
+
+    uint32_t startupNotification = 0;
+    do
+    {
+        xTaskNotifyWait(0, UINT32_MAX, &startupNotification, portMAX_DELAY);
+    } while ((startupNotification & TaskState::START) == 0);
 
     //    Initialise and find the GPS
     while (!abstractGnss->configureGnss())
@@ -87,9 +105,6 @@ void AbstractGnss::receiveTask(void *arg)
     GATAS::NMEAString sentence;
     while (true)
     {
-
-        uint32_t notifyValue = 0;
-        xTaskNotifyWait(pdFALSE, ULONG_MAX, &notifyValue, portMAX_DELAY);
 
         while (abstractGnss->queue.pop(sentence))
         {
@@ -106,6 +121,8 @@ void AbstractGnss::receiveTask(void *arg)
                 }
             }
         }
+        uint32_t notifyValue = 0;
+        xTaskNotifyWait(pdFALSE, ULONG_MAX, &notifyValue, portMAX_DELAY);
     }
 }
 

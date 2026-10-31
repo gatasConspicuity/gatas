@@ -24,6 +24,10 @@ public:
         return GATAS::PostConstruct::OK;
     }
 
+    void releaseUnstarted()
+    {
+    }
+
     void start()
     {
     }
