@@ -131,7 +131,7 @@ This makes caller context part of every handler's contract: a timer sender runs 
 
   **Evidence:** [RX config handler](/Volumes/ext/source/OpenAce/src/lib/radiotuner/ace/src/radiotunerrx_v2.cpp:186), [RX pause](/Volumes/ext/source/OpenAce/src/lib/radiotuner/ace/src/radiotunerrx_v2.cpp:430), [TX pause](/Volumes/ext/source/OpenAce/src/lib/radiotuner/ace/src/radiotunertx_v2.cpp:220).
 
-- [ ] **R10 · P2 · Make Bluetooth NMEA progress at a small MTU and preserve failed sends.** Confirmed queue behavior.
+- [ ] **R10 · P2 · Make Bluetooth NMEA progress at a small MTU and preserve failed sends.** Confirmed queue behavior; deferred for now.
 
   `PacketBuffer::read(maxSize)` only removes complete sentences that fit. If the first sentence exceeds the negotiated send size, it returns a zero-length view without removing anything, so later sentences cannot progress. The baseline BLE MTU is much smaller than a typical NMEA sentence. Separately, a successful read removes entries before `att_server_notify`; a failed notification therefore loses those sentences. COBS already has a peek/accepted pattern.
 
@@ -177,11 +177,15 @@ This makes caller context part of every handler's contract: a timer sender runs 
 
   **Evidence:** [tracker task](/Volumes/ext/source/OpenAce/src/lib/aircrafttracker/ace/src/aircrafttracker.cpp:208), [egress publication](/Volumes/ext/source/OpenAce/src/lib/aircrafttracker/ace/src/aircrafttracker.cpp:258), [tracker diagnostics](/Volumes/ext/source/OpenAce/src/lib/aircrafttracker/ace/src/aircrafttracker.cpp:68), [NMEA route](/Volumes/ext/source/OpenAce/src/lib/dataport/ace/src/dataport.cpp:32), [TCP write](/Volumes/ext/source/OpenAce/src/lib/utils/ace/tcpclient.hpp:144), [HTTP dispatch](/Volumes/ext/source/OpenAce/src/lib/webserver/ace/src/webserver.cpp:253).
 
-- [ ] **R9 · P3 · Synchronize destination edits and diagnostics during setup.** Confirmed incomplete synchronization; interactive setup only.
+- [x] **R9 · P3 · Synchronize destination edits and diagnostics during setup.** Local fix implemented; hardware validation pending.
 
   `transmitBuffer` snapshots `connectedClients` and `udpPorts`, but iterates `customClients` directly twice. Configuration clears/rebuilds that ETL list under the shared spinlock. The transmit task never takes that lock around its list reads, so an ordinary configuration edit can invalidate its traversal. Diagnostics also iterate client/port containers without their writers' lock. The custom-client mutation requires a configuration edit, and the diagnostic reader requires `getData`; neither is part of the intended flight workload. Client discovery and Wi-Fi state changes remain normal runtime activity and should retain their existing synchronization.
 
   **Action:** Copy custom clients and related network settings into the bounded destination snapshot; format diagnostics from a snapshot. Keep network calls outside the spinlock.
+
+  **Local implementation (31 October 2026):** Configuration builds bounded destination containers before publishing them together under the shared spinlock. Transmission snapshots clients, ports, custom destinations, and Wi-Fi routing state together; diagnostics snapshot clients and ports. Access-point client replacement and Wi-Fi routing updates use the same lock. Network sends and diagnostic formatting happen outside the lock.
+
+  **Local verification:** RP2040/Pico W Debug firmware build and all 28 executable desktop CTest checks passed. The stale cached version-script test was excluded. No dedicated GDL-over-UDP concurrency test or hardware exercise was run.
 
   **Acceptance:** During ground setup, edit destinations while streaming to multiple clients and reading diagnostics; no invalid iterators or partially rebuilt destination lists.
 

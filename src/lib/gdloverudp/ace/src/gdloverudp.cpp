@@ -26,20 +26,19 @@ void GDLoverUDP::getConfiguration(const Configuration &config)
 
 void GDLoverUDP::getConfigurationNoMutex(const Configuration &config)
 {
-    auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
-    udpPorts.clear();
-    customClients.clear();
+    decltype(udpPorts) newPorts;
+    decltype(customClients) newClients;
 
     etl::string<16> path;
     for (uint8_t i = 0; i < GATAS_GDL90OVERUDP_MAX_PORTS; i++)
     {
-        if (!udpPorts.full())
+        if (!newPorts.full())
         {
             path.clear();
             etl::string_stream stream(path);
             stream << etl::make_string("defaultPorts/") << i;
             int32_t p = config.valueByPath(GDL90OVERUDP_DEFAULT_PORT, NAME, path);
-            udpPorts.insert(p);
+            newPorts.insert(p);
         }
     }
 
@@ -49,12 +48,15 @@ void GDLoverUDP::getConfigurationNoMutex(const Configuration &config)
         etl::string_stream stream(path);
         stream << etl::make_string("ips/") << i;
         auto ipPort = config.ipPortBypath(NAME, path);
-        if (ipPort.ip != IPADDR_NONE && !customClients.full())
+        if (ipPort.ip != IPADDR_NONE && !newClients.full())
         {
             // printf("GDLoverUDP %ld:%d\n",ipPort.ip, ipPort.port);
-            customClients.emplace_back(ipPort.ip, ipPort.port);
+            newClients.emplace_back(ipPort.ip, ipPort.port);
         }
     }
+    auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
+    udpPorts = newPorts;
+    customClients = newClients;
 }
 
 GATAS::PostConstruct GDLoverUDP::postConstruct()
@@ -186,22 +188,30 @@ void GDLoverUDP::foreFlightListener(void *arg, udp_pcb *pcb, pbuf *p, const ip_a
 void GDLoverUDP::getData(etl::string_stream &stream, const etl::string_view path) const
 {
     (void)path;
+    decltype(connectedClients) connectedClientsSnapshot;
+    decltype(udpPorts) udpPortsSnapshot;
+    if (auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()})
+    {
+        connectedClientsSnapshot = connectedClients;
+        udpPortsSnapshot = udpPorts;
+    }
+
     stream << "{";
     stream << "\"heartbeatTx:k\":" << statistics.heartbeatTx;
     stream << ",\"sendFailure:err\":" << statistics.sendFailureErr;
     stream << ",\"foreFlightBroadcasts:k\":" << statistics.foreFlightBroadcasts;
-    stream << ",\"currentAddressesInUse\":" << connectedClients.size();
-    stream << ",\"maxPorts\":" << udpPorts.max_size();
-    stream << ",\"currentPortsInUse\":" << udpPorts.size();
+    stream << ",\"currentAddressesInUse\":" << connectedClientsSnapshot.size();
+    stream << ",\"maxPorts\":" << udpPortsSnapshot.max_size();
+    stream << ",\"currentPortsInUse\":" << udpPortsSnapshot.size();
     stream << ",\"foreFlightClients\":[";
     bool firstClient = true;
-    for (const auto client : connectedClients)
+    for (const auto client : connectedClientsSnapshot)
     {
         ip4_addr_t ip(client);
         char ipStr[IP4ADDR_STRLEN_MAX];
         ip4addr_ntoa_r(&ip, ipStr, sizeof(ipStr));
 
-        for (const auto port : udpPorts)
+        for (const auto port : udpPortsSnapshot)
         {
             if (!firstClient)
             {
@@ -227,7 +237,8 @@ void GDLoverUDP::on_receive_unknown(const etl::imessage &msg)
 
 void GDLoverUDP::on_receive(const GATAS::AccessPointClientsMsg &msg)
 {
-    connectedClients = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), msg.msg);
+    auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
+    connectedClients = msg.msg;
 }
 
 void GDLoverUDP::on_receive(const GATAS::ConfigUpdatedMsg &msg)
@@ -270,18 +281,25 @@ void GDLoverUDP::on_receive(const GATAS::GdlMsg &msg)
 
 void GDLoverUDP::transmitBuffer()
 {
+    decltype(connectedClients) connectedClientsSnapshot;
+    decltype(udpPorts) udpPortsSnapshot;
+    decltype(customClients) customClientsSnapshot;
+    if (auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()})
+    {
+        connectedClientsSnapshot = connectedClients;
+        udpPortsSnapshot = udpPorts;
+        customClientsSnapshot = customClients;
+    }
+
     // When no network, don't send any UDP packages
     if (!wifiConnected)
     {
         return;
     }
 
-    auto [connectedClientsSnapshot, udpPortsSnapshot] =
-        SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), connectedClients, udpPorts);
-
     uint8_t totalpBufs = connectedClientsSnapshot.size() * udpPortsSnapshot.size() +
                          (gateWayClient ? udpPortsSnapshot.size() : 0);
-    for (const auto &client : customClients)
+    for (const auto &client : customClientsSnapshot)
     {
         if ((client.ip & 0xFFFFFF) == networkAddress)
         {
@@ -328,7 +346,7 @@ void GDLoverUDP::transmitBuffer()
     }
 
     // Custom clients can have any netmask and thus need to be tested if they are on the local net
-    for (const auto &client : customClients)
+    for (const auto &client : customClientsSnapshot)
     {
         if ((client.ip & 0xFFFFFF) == networkAddress)
         {

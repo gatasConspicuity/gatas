@@ -334,17 +334,18 @@ void Bluetooth::receiveNMEA(BtContext &ctx, uint8_t *buffer, uint16_t bufferSize
     etl::span<uint8_t> sentence;
     while (ctx.nmeaGulp.pop_into(sentence))
     {
-        if (sentence.empty())
-        {
-            continue;
-        }
-        instance->statistics.nmeaMsgReceived += 1;
-        GATAS::NMEAString nmeaSentence;
-        const auto length = etl::min(sentence.size(), static_cast<size_t>(GATAS::NMEA_MAX_LENGTH - 3));
-        const auto *begin = reinterpret_cast<const char *>(sentence.data());
-        nmeaSentence.assign(begin, begin + length);
-        GATAS_MEASURE("GATAS::DataPortMsg", 100);
-        instance->getBus().receive(GATAS::DataPortMsg{nmeaSentence});
+        GATAS_WARN("WE have received NMEA but don't process it");
+        // if (sentence.empty())
+        // {
+        //     continue;
+        // }
+        // instance->statistics.nmeaMsgReceived += 1;
+        // GATAS::NMEAString nmeaSentence;
+        // const auto length = etl::min(sentence.size(), static_cast<size_t>(GATAS::NMEA_MAX_LENGTH - 3));
+        // const auto *begin = reinterpret_cast<const char *>(sentence.data());
+        // nmeaSentence.assign(begin, begin + length);
+        // GATAS_MEASURE("GATAS::DataPortMsg", 100);
+        // instance->getBus().receive(GATAS::DataPortMsg{nmeaSentence});
     }
 }
 
