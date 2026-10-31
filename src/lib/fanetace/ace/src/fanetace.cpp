@@ -16,7 +16,13 @@
 
 void FanetAce::start()
 {
-    xTaskCreate(fanetAceTaskTrampoline, FanetAce::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle);
+    if (xTaskCreate(fanetAceTaskTrampoline, FanetAce::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    {
+        vSemaphoreDelete(mutex);
+        mutex = nullptr;
+        BaseModule::setModuleStatus(NAME, GATAS::PostConstruct::TASK_ERROR);
+        return;
+    }
     getBus().subscribe(*this);
 };
 

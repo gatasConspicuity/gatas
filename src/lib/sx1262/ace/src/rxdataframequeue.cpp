@@ -12,7 +12,9 @@
 GATAS::PostConstruct RxDataFrameQueue::postConstruct()
 {
     // Task must be lower compared to any SX1262 task
-    if (xTaskCreate(radioQueueTaskTrampoline, RxDataFrameQueue::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    // Includes synchronous protocol decoding, bus dispatch and tracker ingress.
+    // Stack depth is in words: 1280 words / 5120 bytes on RP2040/RP2350.
+    if (xTaskCreate(radioQueueTaskTrampoline, RxDataFrameQueue::NAME.cbegin(), configMINIMAL_STACK_SIZE + 1024, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
     {
         return GATAS::PostConstruct::TASK_ERROR;
     }

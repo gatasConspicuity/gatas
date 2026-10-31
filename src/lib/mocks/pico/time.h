@@ -14,6 +14,11 @@ inline bool add_repeating_timer_ms(int32_t, bool (*)(repeating_timer_t *), void 
     return true;
 }
 
+inline bool cancel_repeating_timer(repeating_timer_t *)
+{
+    return true;
+}
+
 inline uint64_t get_absolute_timeValue = 0;
 // us since boot
 inline uint64_t get_absolute_time()

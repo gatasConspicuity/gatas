@@ -72,7 +72,6 @@ GATAS::PostConstruct StaticGPS::postConstruct()
     const GATAS::PostConstruct result = AbstractGnss::postConstruct();
     if (result != GATAS::PostConstruct::OK)
     {
-        vTaskDelete(staticTaskHandle);
         return result;
     }
 
@@ -88,6 +87,12 @@ GATAS::PostConstruct StaticGPS::postConstruct()
 void StaticGPS::start()
 {
     AbstractGnss::start();
+    if (!receiveTaskReady())
+    {
+        vTaskDelete(staticTaskHandle);
+        staticTaskHandle = nullptr;
+        return;
+    }
 
     sendTimerHandle = xTimerCreate(NAME.cbegin(), TASK_DELAY_MS(SEND_INTERVAL_MS), pdTRUE, this, timerCallback);
     if (sendTimerHandle == nullptr || xTimerStart(sendTimerHandle, 0) != pdPASS)

@@ -1317,3 +1317,35 @@ TEST_CASE("Squawk display replaces callsign when squawk is known", "[single-file
     trackedAircraft.sendScheduled(callback, ownship);
     REQUIRE(handler.callCount == 2);
 }
+
+TEST_CASE("Tracker handles startup allocation failures", "[startup]")
+{
+    CoreUtils::init();
+    GATAS::ThreadSafeBus<50> testBus;
+    GATAS::OwnshipState ownship;
+    ownship.init(CoreUtils::sharedSpinLock());
+    MockConfig config(testBus);
+    AircraftTracker tracker(testBus, config, ownship);
+    const auto task = reinterpret_cast<TaskHandle_t>(0x1234);
+    mockCreatedTask = task;
+    mockDeletedTask = nullptr;
+    mockDeletedQueue = nullptr;
+    mockTimerCreateResult = nullptr;
+
+    SECTION("task allocation fails")
+    {
+        mockTaskCreateResult = -1;
+        REQUIRE(tracker.postConstruct() == GATAS::PostConstruct::TASK_ERROR);
+        REQUIRE(mockDeletedQueue == reinterpret_cast<QueueHandle_t>(xSemaphoreCreateMutexValue));
+        REQUIRE(mockDeletedTask == nullptr);
+    }
+    SECTION("timer allocation fails after task creation")
+    {
+        mockTaskCreateResult = pdPASS;
+        REQUIRE(tracker.postConstruct() == GATAS::PostConstruct::TIMER_ERROR);
+        REQUIRE(mockDeletedTask == task);
+        REQUIRE(mockDeletedQueue == reinterpret_cast<QueueHandle_t>(xSemaphoreCreateMutexValue));
+    }
+    mockTaskCreateResult = pdPASS;
+    mockCreatedTask = nullptr;
+}

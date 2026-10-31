@@ -763,3 +763,19 @@ TEST_CASE("GDL90 service does not publish failed packets", "[gdl90]")
     REQUIRE(service.statistics.packingFailureErr == 1);
 }
 #endif
+
+TEST_CASE("GDL90 service reports task allocation failure", "[startup]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    MockConfig config{bus};
+    BaseModule::registerModule(Gdl90Service::NAME, false);
+    Gdl90Service service{bus, config, state};
+    mockTaskCreateResult = -1;
+    service.start();
+    mockTaskCreateResult = pdPASS;
+    const auto &status = BaseModule::registeredModules().at(Gdl90Service::NAME);
+    REQUIRE(status.result == GATAS::PostConstruct::TASK_ERROR);
+    REQUIRE(status.module == nullptr);
+}

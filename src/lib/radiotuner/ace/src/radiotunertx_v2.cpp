@@ -91,16 +91,18 @@ void RadioTunerTx::radioTuneTask()
         uint32_t notifyValue = 0;
         xTaskNotifyWait(pdFALSE, ULONG_MAX, &notifyValue, TASK_DELAY_MS(nextDelayMs));
 
-        if (notifyValue & TaskState::UNBLOCK)
-        {
-            taskBlock = false;
-            eventSync.set(BIT_EVENT_DONE);
-        }
         if (notifyValue & TaskState::BLOCK)
         {
             taskBlock = true;
-            // Disable the tranceivers during reconfiguration
-            // For now it's always assumed that the RadioTunerRx will take care of this
+            // Disable the transceivers during reconfiguration.
+            // RadioTunerRx takes care of the actual radio configuration.
+            eventSync.set(BIT_EVENT_DONE);
+        }
+        // A timeout can queue UNBLOCK before a delayed BLOCK is consumed.
+        // Match RX: release must win when both notification bits are present.
+        if (notifyValue & TaskState::UNBLOCK)
+        {
+            taskBlock = false;
             eventSync.set(BIT_EVENT_DONE);
         }
 
@@ -227,6 +229,7 @@ void RadioTunerTx::assignDataSources(const etl::span<GATAS::DataSourceConfig> &n
     if (!eventSync.wait(BIT_EVENT_DONE, pdMS_TO_TICKS(200 * 10)))
     {
         GATAS_INFO("RadioTunerTx: Failed to wait for event sync");
+        xTaskNotify(taskHandle, TaskState::UNBLOCK, eSetBits);
         return;
     }
 

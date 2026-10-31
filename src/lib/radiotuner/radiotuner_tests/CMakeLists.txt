@@ -86,3 +86,12 @@ endforeach()
 list(APPEND CATCH_WARNING_TARGETS ${ALL_EXAMPLE_TARGETS})
 set(CATCH_WARNING_TARGETS ${CATCH_WARNING_TARGETS} PARENT_SCOPE)
 
+
+add_executable(tuner_pause_test
+    tuner_pause_test.cpp ${ACE_SOURCE_FILES}
+    ../ace/src/radiotunerrx_v2.cpp
+    ../ace/src/radiotunertx_v2.cpp)
+target_include_directories(tuner_pause_test PRIVATE ../../utils)
+target_link_libraries(tuner_pause_test PRIVATE Catch2WithMain etl)
+target_compile_features(tuner_pause_test PRIVATE cxx_std_20)
+add_custom_command(TARGET tuner_pause_test POST_BUILD COMMAND tuner_pause_test)

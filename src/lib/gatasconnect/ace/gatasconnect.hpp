@@ -5,6 +5,7 @@
 /* FreeRTOS */
 #include "FreeRTOS.h"
 #include "timers.h"
+#include "task.h"
 
 /* ETLCPP */
 #include "etl/message_bus.h"
@@ -34,6 +35,8 @@ class GatasConnect : public BaseModule, public etl::message_router<GatasConnect,
     uint64_t lastRadioTrafficUs = 0;
     uint8_t localConfigurationUpdateCnt = 0;
     TimerHandle_t requestTimer = nullptr;
+    TaskHandle_t workerTaskHandle = nullptr;
+    static constexpr uint32_t SEND_REQUEST = 1;
     const GATAS::GatasConnectOutput gatasConnectOutput = GATAS::GatasConnectOutput::UDPAndBluetooth;
     uint32_t lastUdpTrafficUs = 0;
     bool hasUdpTraffic = false;
@@ -67,7 +70,8 @@ private:
     void on_receive(const GATAS::GdlMsg &msg);
 
     static void requestTimerCallbackTrampoline(TimerHandle_t xTimer);
-    void requestTimerCallback(TimerHandle_t xTimer);
+    static void workerTaskTrampoline(void *arg);
+    void workerTask();
     void sendOwnshipPosition();
     void sendAircraftConfiguration();
 

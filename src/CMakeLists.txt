@@ -25,6 +25,7 @@ add_subdirectory(lib/aircrafttracker/aircrafttracker_tests)
 add_subdirectory(lib/config/config_tests)
 add_subdirectory(lib/gdl90service/gdl90service_tests)
 add_subdirectory(lib/gps/gps_tests)
+add_subdirectory(lib/adslace/adslace_tests)
 
 # Register every desktop test executable, including targets without a POST_BUILD
 # hook, and rerun them with CTest even when Ninja has nothing to rebuild.

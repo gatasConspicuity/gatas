@@ -109,7 +109,7 @@ set(FIRMWARE_LINK_OPTIONS
 
 pico_sdk_init()
 
-add_executable(${PROJECT_NAME} main.cpp IdleMemory.c)
+add_executable(${PROJECT_NAME} main.cpp IdleMemory.c lwip_core_lock.c)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../vendor vendorLib)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../lib globalLib)
 

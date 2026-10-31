@@ -15,10 +15,17 @@ uint8_t __uninitialized_ram(bootId);
 GATAS::PostConstruct GatasConnect::postConstruct()
 {
     bootId += 1;
+    if (xTaskCreate(workerTaskTrampoline, NAME, configMINIMAL_STACK_SIZE + 1024, this, tskIDLE_PRIORITY + 2, &workerTaskHandle) != pdPASS)
+    {
+        return GATAS::PostConstruct::TASK_ERROR;
+    }
+
     requestTimer = xTimerCreate(GatasConnect::NAME, TASK_DELAY_MS(1000), pdTRUE, this, requestTimerCallbackTrampoline);
 
     if (requestTimer == nullptr)
     {
+        vTaskDelete(workerTaskHandle);
+        workerTaskHandle = nullptr;
         return GATAS::PostConstruct::TIMER_ERROR;
     }
 
@@ -27,8 +34,11 @@ GATAS::PostConstruct GatasConnect::postConstruct()
 
 void GatasConnect::start()
 {
-    xTimerChangePeriod(requestTimer, TASK_DELAY_MS(1000), portMAX_DELAY);
     getBus().subscribe(*this);
+    if (xTimerStart(requestTimer, portMAX_DELAY) != pdPASS)
+    {
+        GATAS_WARN("GatasConnect: failed to start request timer");
+    }
 }
 
 void GatasConnect::getData(etl::string_stream &stream, const etl::string_view path) const
@@ -137,37 +147,47 @@ void GatasConnect::on_receive(const GATAS::GdlMsg &msg)
 
 void GatasConnect::getConfig(const Configuration &config)
 {
-    pinCode = static_cast<uint32_t>(config.valueByPath(0, NAME, "pinCode"));
-    pinCode = (pinCode == 0) ? 0 : etl::clamp(pinCode, static_cast<uint32_t>(1000), static_cast<uint32_t>(999999));
+    const uint32_t configuredPin = static_cast<uint32_t>(config.valueByPath(0, NAME, "pinCode"));
+    const uint32_t pinSnap = configuredPin == 0 ? 0 : etl::clamp(configuredPin, static_cast<uint32_t>(1000), static_cast<uint32_t>(999999));
     gdl90BridgeEnabled = config.valueByPath(false, NAME, "enableGdl90Bridge");
+    localConfigurationUpdateCnt = LOCALCONFIGURATIONCHANGE_HOLD_BACK;
 
     auto gatasConfig = config.gaTasConfig();
     const bool dirty = config.isDirty();
+    const uint64_t idSnap = config.internalStore()->gatasId;
     auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
+    pinCode = pinSnap;
     hasUdpTraffic = false;
-    localConfigurationUpdateCnt = LOCALCONFIGURATIONCHANGE_HOLD_BACK;
     icaoAddress = gatasConfig.conspicuity.icaoAddress;
     allIcaoAddresses = gatasConfig.allIcaoAddresses;
     groundStation = gatasConfig.conspicuity.groundStation;
-    gatasId = config.internalStore()->gatasId;
+    gatasId = idSnap;
     configurationDirty = dirty;
 }
 
-/**
- * Prepare a position request to the connected transport. The transport will
- * forward the COBS payload to the appropriate endpoint.
- */
-void GatasConnect::requestTimerCallback(TimerHandle_t xTimer)
+void GatasConnect::workerTaskTrampoline(void *arg)
 {
-    (void)xTimer;
-    sendAircraftConfiguration();
-    sendOwnshipPosition();
+    static_cast<GatasConnect *>(arg)->workerTask();
+}
+
+void GatasConnect::workerTask()
+{
+    while (true)
+    {
+        uint32_t notification = 0;
+        xTaskNotifyWait(0, UINT32_MAX, &notification, portMAX_DELAY);
+        if ((notification & SEND_REQUEST) != 0)
+        {
+            sendAircraftConfiguration();
+            sendOwnshipPosition();
+        }
+    }
 }
 
 void GatasConnect::sendOwnshipPosition()
 {
     bool groundStationSnap = false;
-    bool hasGpsFixSnap = false;
+    const bool hasGpsFixSnap = hasGpsFix;
     uint64_t lastRadioTrafficUsSnap = 0;
     auto ownshipSnap = ownshipState.location.load();
     GATAS::GatasConnectOutput outputSnap = GATAS::GatasConnectOutput::NOOP;
@@ -176,7 +196,6 @@ void GatasConnect::sendOwnshipPosition()
     {
         const uint32_t nowUs = CoreUtils::timeUs32();
         groundStationSnap = groundStation;
-        hasGpsFixSnap = hasGpsFix;
         lastRadioTrafficUsSnap = lastRadioTrafficUs;
         // In UDP + Bluetooth mode, prefer UDP while it is receiving traffic;
         // otherwise keep both transports active so Bluetooth provides fallback.
@@ -276,6 +295,6 @@ void GatasConnect::sendAircraftConfiguration()
 
 void GatasConnect::requestTimerCallbackTrampoline(TimerHandle_t xTimer)
 {
-    GatasConnect *taskCtx = (GatasConnect *)pvTimerGetTimerID(xTimer);
-    taskCtx->requestTimerCallback(xTimer);
+    auto *taskCtx = static_cast<GatasConnect *>(pvTimerGetTimerID(xTimer));
+    xTaskNotify(taskCtx->workerTaskHandle, SEND_REQUEST, eSetBits);
 }

@@ -66,7 +66,9 @@ namespace GATAS
     struct IngressAircraftPositionsMsg : public etl::message<33>
     {
         static constexpr size_t MAX_POSITIONS = 10;
-        etl::vector<GATAS::AircraftPositionInfo, 10> positions;
+        etl::vector<GATAS::AircraftPositionInfo, MAX_POSITIONS> positions;
+        IngressAircraftPositionsMsg() = default;
+
         IngressAircraftPositionsMsg(const etl::ivector<GATAS::AircraftPositionInfo> &positions_)
             : positions(positions_.begin(), positions_.begin() + etl::min(positions_.size(), MAX_POSITIONS))
         {

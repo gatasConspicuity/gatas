@@ -125,6 +125,9 @@ public:
     // Called after this module has been constructed successfully.
     virtual void start() = 0;
 
+    // Run start and publish success only if it did not report a failure.
+    GATAS::PostConstruct startAndRegister(const etl::string_view registeredName);
+
     /**
      * Called after start() has been called on every successfully initialised module.
      * The order in which module postStart() methods are called is unspecified.
