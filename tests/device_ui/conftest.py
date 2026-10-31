@@ -28,6 +28,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         help="Run tests that require a second GATAS transmitting radio traffic",
     )
+    group.addoption(
+        "--cobs-ble-address",
+        default=os.environ.get("OPENACE_BLE_ADDRESS"),
+        help="BLE address or macOS device UUID for the COBS stream test",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
