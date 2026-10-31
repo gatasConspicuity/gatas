@@ -233,8 +233,11 @@ bool Bluetooth::createConnection(hci_con_handle_t handle, uint16_t mtu)
     auto it = instance->freeCtx();
     if (it != instance->connections.end())
     {
-        it->activate(handle, mtu);
-        return true;
+        if (auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex))
+        {
+            it->activate(handle, mtu);
+            return true;
+        }
     }
     return false;
 }
@@ -244,7 +247,10 @@ void Bluetooth::removeConnection(uint16_t hciHandle)
     auto it = instance->ctxByHandle(hciHandle);
     if (it != instance->connections.end())
     {
-        it->deactivate();
+        if (auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex))
+        {
+            it->deactivate();
+        }
     }
 }
 
@@ -328,17 +334,18 @@ void Bluetooth::receiveNMEA(BtContext &ctx, uint8_t *buffer, uint16_t bufferSize
     etl::span<uint8_t> sentence;
     while (ctx.nmeaGulp.pop_into(sentence))
     {
-        if (sentence.empty())
-        {
-            continue;
-        }
-        instance->statistics.nmeaMsgReceived += 1;
-        GATAS::NMEAString nmeaSentence;
-        const auto length = etl::min(sentence.size(), static_cast<size_t>(GATAS::NMEA_MAX_LENGTH - 3));
-        const auto *begin = reinterpret_cast<const char *>(sentence.data());
-        nmeaSentence.assign(begin, begin + length);
-        GATAS_MEASURE("GATAS::DataPortMsg", 100);
-        instance->getBus().receive(GATAS::DataPortMsg{nmeaSentence});
+        GATAS_WARN("WE have received NMEA but don't process it");
+        // if (sentence.empty())
+        // {
+        //     continue;
+        // }
+        // instance->statistics.nmeaMsgReceived += 1;
+        // GATAS::NMEAString nmeaSentence;
+        // const auto length = etl::min(sentence.size(), static_cast<size_t>(GATAS::NMEA_MAX_LENGTH - 3));
+        // const auto *begin = reinterpret_cast<const char *>(sentence.data());
+        // nmeaSentence.assign(begin, begin + length);
+        // GATAS_MEASURE("GATAS::DataPortMsg", 100);
+        // instance->getBus().receive(GATAS::DataPortMsg{nmeaSentence});
     }
 }
 

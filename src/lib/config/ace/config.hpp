@@ -13,6 +13,7 @@
 #include "etl/to_arithmetic.h"
 
 #include "ArduinoJson.hpp"
+#include "jsonallocator.hpp"
 
 using namespace ArduinoJson;
 
@@ -143,7 +144,8 @@ private:
 
 private:
     friend class message_router;
-    JsonDocument doc;
+    FreeRTOSJsonAllocator jsonAllocator;
+    JsonDocument doc{&jsonAllocator};
     ConfigStore &volatileStore;
     ConfigStore &permanentStore;
     ConfigStore &binaryStore;

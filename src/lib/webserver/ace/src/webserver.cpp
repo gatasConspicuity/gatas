@@ -15,6 +15,7 @@
 
 /* GATAS. */
 #include "ace/coreutils.hpp"
+#include "ace/lwipraiilock.hpp"
 
 Webserver *webserver;
 
@@ -316,7 +317,10 @@ GATAS::PostConstruct Webserver::postConstruct()
 
 void Webserver::start()
 {
-    httpd_init();
+    {
+        LwipRAIILock lock;
+        httpd_init();
+    }
     getBus().subscribe(*this);
 };
 

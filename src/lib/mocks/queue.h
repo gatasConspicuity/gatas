@@ -58,9 +58,10 @@ inline BaseType_t xQueueReceive( QueueHandle_t xQueue,
     return pdTRUE;
 }
 
+inline QueueHandle_t mockDeletedQueue = nullptr;
 inline void vQueueDelete( QueueHandle_t xQueue )
 {
-    //printf("vQueueDelete\n");
+    mockDeletedQueue = xQueue;
 }
 
 inline void vQueueAddToRegistry(QueueHandle_t xQueue, const char *pcQueueName)

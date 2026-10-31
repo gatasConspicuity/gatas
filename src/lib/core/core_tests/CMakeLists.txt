@@ -37,6 +37,7 @@ endif()
 
 # These examples use the standard separate compilation
 set(SOURCES_IDIOMATIC_EXAMPLES # Tests
+    module_startup_test.cpp
     coreutils_test.cpp
     poolallocator_test.cpp
     antennaRadiationPattern_test.cpp

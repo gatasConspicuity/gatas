@@ -13,7 +13,11 @@ GATAS::PostConstruct Gdl90Service::postConstruct()
 
 void Gdl90Service::start()
 {
-    xTaskCreate(gdl90ServiceTask, Gdl90Service::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle);
+    if (xTaskCreate(gdl90ServiceTask, Gdl90Service::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    {
+        BaseModule::setModuleStatus(NAME, GATAS::PostConstruct::TASK_ERROR);
+        return;
+    }
     getBus().subscribe(*this);
 };
 
