@@ -426,6 +426,11 @@ namespace GATAS
         {
             address = address_;
         }
+
+        bool isPressureAltitudeValid() const 
+        {
+            return pressureAlt != INVALID_BARO_ALTITUDE;
+        }
     };
 
     enum class Modulation : uint8_t

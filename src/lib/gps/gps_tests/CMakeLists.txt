@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 project(gps_tests)
 include(FetchContent)
+include(${CMAKE_CURRENT_LIST_DIR}/../../../gatas_version.cmake)
 
 add_definitions(-DCATCH_CONFIG_NO_POSIX_SIGNALS)
 add_definitions(-DGATAS_MAXIMUM_TCP_CLIENTS=4)

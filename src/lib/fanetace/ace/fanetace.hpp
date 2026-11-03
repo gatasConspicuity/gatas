@@ -5,6 +5,7 @@
 #include "ace/constants.hpp"
 #include "ace/basemodule.hpp"
 #include "ace/coreutils.hpp"
+#include "ace/spinlockguard.hpp"
 #include "ace/messages.hpp"
 #include "ace/datasourcetimestatstable.hpp"
 
@@ -58,7 +59,7 @@ private:
     uint32_t distanceIgnore;
 
     const GATAS::OwnshipState &ownshipState;
-    GATAS::Config::GaTasConfiguration gaTasConfiguration;
+    SynchronizedValue<GATAS::Config::GaTasConfiguration> gaTasConfiguration;
     GATAS::RadioParameters radioParameters;
 
     GATAS::AircraftCategory mapAircraftCategory(FANET::TrackingPayload::AircraftType category) const;
@@ -67,9 +68,9 @@ private:
 public:
     static constexpr const etl::string_view NAME = "Fanet";
 
-    FanetAce(etl::imessage_bus &bus, const Configuration &config, const GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), protocol(this), distanceIgnore(DEFAULT_IGNORE_DISTANCE), ownshipState(ownshipState_), gaTasConfiguration(config.gaTasConfig())
+    FanetAce(etl::imessage_bus &bus, const Configuration &config, const GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), protocol(this), distanceIgnore(DEFAULT_IGNORE_DISTANCE), ownshipState(ownshipState_), gaTasConfiguration(CoreUtils::sharedSpinLock(), config.gaTasConfig())
     {
-        protocol.ownAddress(FANET::Address{gaTasConfiguration.conspicuity.icaoAddress});
+        protocol.ownAddress(FANET::Address{config.gaTasConfig().conspicuity.icaoAddress});
         uint32_t di = config.valueByPath(DEFAULT_IGNORE_DISTANCE, NAME, "distanceIgnore");
         distanceIgnore = etl::clamp(di, static_cast<uint32_t>(0), MAX_IGNORE_DISTANCE);
     }

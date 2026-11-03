@@ -16,7 +16,7 @@ env:
 jobs:
   Test:
     name: Run the unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout GATAS
         uses: actions/checkout@v4

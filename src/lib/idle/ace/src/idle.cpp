@@ -2,6 +2,7 @@
 #include "ace/coreutils.hpp"
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
+#include "pico/bootrom.h"
 
 void Idle::start()
 {
@@ -25,6 +26,31 @@ void Idle::on_receive(const GATAS::WifiConnectionStateMsg &wcs)
 {
     wifiMode = wcs.wifiMode;
     calculatePattern();
+}
+
+void Idle::on_receive(const GATAS::SystemActionMsg &msg)
+{
+    performSystemAction(msg.action);
+}
+
+void Idle::performSystemAction(GATAS::DeviceAction action)
+{
+    switch (action)
+    {
+    case GATAS::DeviceAction::Restart:
+        watchdog_reboot(0, 0, 0);
+        break;
+    case GATAS::DeviceAction::UsbBoot:
+        reset_usb_boot(0, 0);
+        break;
+    default:
+        return;
+    }
+
+    while (true)
+    {
+        tight_loop_contents();
+    }
 }
 
 void Idle::calculatePattern()

@@ -4,6 +4,7 @@
 
 #include "AbstractGnss.hpp"
 #include "NtpClient.hpp"
+#include "ace/spinlockguard.hpp"
 
 #include "FreeRTOS.h"
 #include "semphr.h"
@@ -36,6 +37,11 @@ private:
     // Re-discipline the software PPS often enough to limit RPXXXX crystal
     // drift while avoiding excessive traffic to the configured NTP server.
     static constexpr uint64_t NTP_REFRESH_INTERVAL_US = 5ULL * 60ULL * 1'000'000ULL;
+    // Confirm large corrections with three samples within 50 ms, retrying at
+    // the normal failure interval so a bad sample cannot immediately step time.
+    static constexpr int64_t NTP_LARGE_CHANGE_US = 100'000;
+    static constexpr int64_t NTP_CONFIRM_TOLERANCE_US = 50'000;
+    static constexpr uint8_t NTP_CONFIRM_SAMPLES = 3;
 
     enum TaskNotification : uint32_t
     {
@@ -54,6 +60,7 @@ private:
         uint32_t ntpErrors = 0;
         uint32_t ntpRoundTripRejected = 0;
         uint32_t invalidTime = 0;
+        uint32_t ntpLargeChanges = 0;
     } staticStatistics;
 
     struct Coordinate
@@ -69,18 +76,21 @@ private:
         float longitude;
         float altitudeMeters;
         float geoidSeparationMeters;
-    } locationData;
+    };
 
-    ServerName newServerName;
+    SynchronizedValue<LocationData> locationData;
+    SynchronizedValue<ServerName> newServerName;
 
     TaskHandle_t staticTaskHandle = nullptr;
     TimerHandle_t sendTimerHandle = nullptr;
 
     RtcModule *rtc = nullptr;
     NtpClient ntpClient;
-    NtpTimeResult ntpTimeResult{0, 0};
-    int64_t ntpSlewUs = 0;
+    SynchronizedValue<NtpTimeResult> ntpTimeResult;
+    SynchronizedValue<int64_t> ntpSlewUs;
     bool wifiConnected = false;
+    int64_t pendingNtpSlewUs = 0;
+    uint8_t pendingNtpSamples = 0;
 
     static void taskTrampoline(void *arg);
     static void timerCallback(TimerHandle_t timer);
@@ -92,7 +102,7 @@ private:
     void onNtpTime(const NtpTimeResult &result);
     void onNtpPps(int32_t offsetUs);
     void onNtpFailure(NtpClient::Failure failure);
-    void applyNtpResult();
+    bool applyNtpResult();
 
     void on_receive(const GATAS::WifiConnectionStateMsg &msg);
     void on_receive(const GATAS::ConfigUpdatedMsg &msg);

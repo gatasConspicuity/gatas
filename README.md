@@ -1,7 +1,7 @@
 # GATAS Conspicuity Device
 
 [![Build GaTas](https://github.com/rvt/openace/actions/workflows/ci.yml/badge.svg)](https://github.com/rvt/openace/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v3.5.1-green)
+![version](https://img.shields.io/badge/version-v3.6.0--rc4-green)
 
 [<img src="doc/img/Discord-Logo-Blurple.png" height="45px">](https://discord.gg/J6mXTcWndS)
 
@@ -191,3 +191,4 @@ compatibility or other reasons.
 >
 > By using GATAS, you agree to the terms of this disclaimer and acknowledge that you are using the
 > device and its software at your own risk.
+

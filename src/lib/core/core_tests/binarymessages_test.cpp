@@ -32,7 +32,7 @@ TEST_CASE("Aircraft position V1 decodes the Rust unsigned ellipsoid-height range
     REQUIRE(position->address == 0x010203U);
 }
 
-TEST_CASE("Aircraft configuration exposes wifi mode in reserved byte", "[binarymessages]")
+TEST_CASE("Aircraft configuration exposes WiFi mode and dirty state in flags", "[binarymessages]")
 {
     etl::array<uint32_t, 2> addresses = {0x010203, 0x040506};
     etl::span<uint32_t> addressSpan(addresses.data(), addresses.size());
@@ -40,11 +40,12 @@ TEST_CASE("Aircraft configuration exposes wifi mode in reserved byte", "[binarym
     uint8_t buffer[64] = {};
 
     etl::bit_stream_writer ncWriter(buffer, rawSize, etl::endian::big);
-    BinaryMessages::serializeAircraftConfigurationV2(ncWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::NC);
+    BinaryMessages::serializeAircraftConfigurationV2(ncWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::NC, 0xab, false);
     REQUIRE(buffer[0] == BinaryMessages::DataType(BinaryMessages::DataType::AIRCRAFT_CONFIGURATIONS_V2).get_value());
     REQUIRE((buffer[1] & BinaryMessages::AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK) == static_cast<uint8_t>(GATAS::WifiMode::NC));
     const uint8_t expected[] = {
-        5, 0, 1, 2, 3, 4, 10, 11, 12, 13, 5, 6, 7, 0, 0, 0, 0,
+        5, 0, 1, 2, 3, 4, 10, 11, 12, 13, 5, 6, 7,
+        GATAS::VERSION_MAJOR, GATAS::VERSION_MINOR, GATAS::VERSION_BUGFIX, 0xab,
         14, 15, 16, 0, 2, 1, 2, 3, 4, 5, 6,
     };
     REQUIRE(rawSize == sizeof(expected));
@@ -54,12 +55,47 @@ TEST_CASE("Aircraft configuration exposes wifi mode in reserved byte", "[binarym
     }
 
     etl::bit_stream_writer apWriter(buffer, rawSize, etl::endian::big);
-    BinaryMessages::serializeAircraftConfigurationV2(apWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::AP);
+    BinaryMessages::serializeAircraftConfigurationV2(apWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::AP, 0xab, false);
     REQUIRE((buffer[1] & BinaryMessages::AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK) == static_cast<uint8_t>(GATAS::WifiMode::AP));
 
     etl::bit_stream_writer clientWriter(buffer, rawSize, etl::endian::big);
-    BinaryMessages::serializeAircraftConfigurationV2(clientWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::CLIENT);
+    BinaryMessages::serializeAircraftConfigurationV2(clientWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::CLIENT, 0xab, true);
     REQUIRE((buffer[1] & BinaryMessages::AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK) == static_cast<uint8_t>(GATAS::WifiMode::CLIENT));
+
+    for (const auto mode : {GATAS::WifiMode::NC, GATAS::WifiMode::AP, GATAS::WifiMode::CLIENT})
+    {
+        for (const bool dirty : {false, true})
+        {
+            etl::bit_stream_writer writer(buffer, rawSize, etl::endian::big);
+            BinaryMessages::serializeAircraftConfigurationV2(writer, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, mode, 0xab, dirty);
+            REQUIRE(buffer[1] == (static_cast<uint8_t>(mode) | (dirty ? 0x04U : 0U)));
+        }
+    }
+}
+
+TEST_CASE("Framed aircraft configuration includes firmware version without shifting fields", "[binarymessages]")
+{
+    etl::array<uint32_t, 1> addresses = {0x010203};
+    uint8_t framed[64] = {};
+    uint8_t raw[64] = {};
+    const auto written = BinaryMessages::serializeAircraftConfigurationV2(
+        framed, sizeof(framed), 0x01020304, 0x050607,
+        etl::span<uint32_t>(addresses.data(), addresses.size()),
+        0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::CLIENT, 0xab, true);
+    REQUIRE(written > 0);
+    REQUIRE(decodeCOBS(framed, written, raw, sizeof(raw)) == BinaryMessages::serializeAircraftConfigurationSizeV2().items(addresses.size()));
+    REQUIRE(raw[1] == (static_cast<uint8_t>(GATAS::WifiMode::CLIENT) | 0x04U));
+    REQUIRE(raw[13] == GATAS::VERSION_MAJOR);
+    REQUIRE(raw[14] == GATAS::VERSION_MINOR);
+    REQUIRE(raw[15] == GATAS::VERSION_BUGFIX);
+    REQUIRE(raw[16] == 0xab);
+    REQUIRE(raw[17] == 0x0e);
+    REQUIRE(raw[18] == 0x0f);
+    REQUIRE(raw[19] == 0x10);
+    REQUIRE(raw[21] == addresses.size());
+    REQUIRE(raw[22] == 1);
+    REQUIRE(raw[23] == 2);
+    REQUIRE(raw[24] == 3);
 }
 
 TEST_CASE("WiFi mode control frame only accepts AP and CLIENT requests", "[binarymessages]")

@@ -10,5 +10,6 @@ gatas_add_module(
     TARGET_LINK_LIBS
         utils
     PICO_EXTRA_LIBS
+        pico_rand
         pico_cyw43_arch_lwip_sys_freertos
 )
