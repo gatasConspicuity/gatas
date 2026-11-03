@@ -140,12 +140,12 @@ void StaticGPS::task()
 
         if ((notification & NTP_RESULT) != 0)
         {
-            applyNtpResult();
-            nextNtpAttemptUs = nowUs + NTP_REFRESH_INTERVAL_US;
+            nextNtpAttemptUs = nowUs + (applyNtpResult() ? NTP_REFRESH_INTERVAL_US : NTP_RETRY_INTERVAL_US);
         }
 
         if ((notification & (NTP_FAILED | NTP_ROUND_TRIP_TOO_LONG)) != 0)
         {
+            pendingNtpSamples = 0;
             staticStatistics.ntpErrors += 1;
             nextNtpAttemptUs = nowUs + NTP_RETRY_INTERVAL_US;
         }
@@ -156,6 +156,7 @@ void StaticGPS::task()
 
         if ((notification & NTP_SERVER_UPDATED) != 0)
         {
+            pendingNtpSamples = 0;
             hasNewServerData = true;
             nextNtpAttemptUs = nowUs;
             // Handle the set of the ntp server right before we do the request for reliability
@@ -163,6 +164,7 @@ void StaticGPS::task()
 
         if ((notification & NETWORK_CHANGED) != 0)
         {
+            pendingNtpSamples = 0;
             if (wifiConnected)
             {
                 nextNtpAttemptUs = nowUs;
@@ -318,11 +320,7 @@ void StaticGPS::onNtpTime(const NtpTimeResult &result)
 
 void StaticGPS::onNtpPps(int32_t offsetUs)
 {
-#if MEASURE_NTP_OFFSET
     (void)offsetUs;
-#else
-    rtc->ppsEvent(offsetUs);
-#endif
 }
 
 void StaticGPS::onNtpFailure(NtpClient::Failure failure)
@@ -333,7 +331,7 @@ void StaticGPS::onNtpFailure(NtpClient::Failure failure)
     xTaskNotify(staticTaskHandle, notification, eSetBits);
 }
 
-void StaticGPS::applyNtpResult()
+bool StaticGPS::applyNtpResult()
 {
     const uint64_t nowUs = CoreUtils::monotonic();
 
@@ -346,14 +344,36 @@ void StaticGPS::applyNtpResult()
                                       : -static_cast<int64_t>((picoEpochMs - epochNowMs) * 1'000ULL))
                                : 0;
     ntpSlewUs.store(slewUs);
+    if (picoEpochMs >= 1'000'000'000'000ULL &&
+        (slewUs > NTP_LARGE_CHANGE_US || slewUs < -NTP_LARGE_CHANGE_US))
+    {
+        const int64_t difference = slewUs - pendingNtpSlewUs;
+        if (pendingNtpSamples == 0 || difference > NTP_CONFIRM_TOLERANCE_US || difference < -NTP_CONFIRM_TOLERANCE_US)
+        {
+            pendingNtpSlewUs = slewUs;
+            pendingNtpSamples = 1;
+        }
+        else
+        {
+            pendingNtpSamples += 1;
+        }
+        if (pendingNtpSamples < NTP_CONFIRM_SAMPLES)
+        {
+            staticStatistics.ntpLargeChanges += 1;
+            return false;
+        }
+    }
+    pendingNtpSamples = 0;
 #if MEASURE_NTP_OFFSET
     GATAS_INFO("NTP offset from GPS: %" PRId64 "us", slewUs);
 #else
+    rtc->ppsEvent(static_cast<int32_t>((epochNowMs % 1'000ULL) * 1'000ULL));
     CoreUtils::setOffsetMsSinceEpoch(epochNowMs);
 #endif
     staticStatistics.ntpSyncs += 1;
 
     setStatus(MEASURE_NTP_OFFSET ? "Measuring NTP" : "Configured");
+    return true;
 }
 
 void StaticGPS::on_receive(const GATAS::WifiConnectionStateMsg &msg)
@@ -387,12 +407,12 @@ void StaticGPS::getData(etl::string_stream &stream, const etl::string_view path)
     stream << ",\"ntpServer\":\"" << servername << "\"";
     stream << ",\"ntpSlew:usec\":" << currentNtpSlewUs;
     stream << ",\"status\":\"" << statistics.status << "\"";
-    stream << ",\"totalReceived:k\":" << statistics.totalReceived;
     stream << ",\"queueFullErr:k\":" << statistics.queueFullErr;
     stream << ",\"ntpRequests:k\":" << staticStatistics.ntpRequests;
     stream << ",\"ntpSyncs:k\":" << staticStatistics.ntpSyncs;
     stream << ",\"ntpErrors:err\":" << staticStatistics.ntpErrors;
     stream << ",\"ntpRoundTripsRejected:err\":" << staticStatistics.ntpRoundTripRejected;
+    stream << ",\"ntpLargeChangesHeld:err\":" << staticStatistics.ntpLargeChanges;
     stream << ",\"invalidTimeCycles:err\":" << staticStatistics.invalidTime;
     stream << "}";
 }
