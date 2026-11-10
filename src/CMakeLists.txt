@@ -23,3 +23,5 @@ add_subdirectory(lib/aircrafttracker/aircrafttracker_tests)
 add_subdirectory(lib/config/config_tests)
 add_subdirectory(lib/gdl90service/gdl90service_tests)
 add_subdirectory(lib/gps/gps_tests)
+
+add_subdirectory(lib/tranceiver/tranceiver_tests)

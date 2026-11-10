@@ -1,4 +1,4 @@
-#include "../../driver/src/sx126x_hal.h"
+#include "../../sx1262driver/src/sx126x_hal.h"
 
 #include "../sx1262.hpp"
 

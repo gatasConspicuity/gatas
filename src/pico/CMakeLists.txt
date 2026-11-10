@@ -176,7 +176,7 @@ target_link_libraries(
           rtc
           acespi
           bmp280
-          sx1262
+          tranceiver
           adslace
           flarmgatas
           fanetace

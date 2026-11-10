@@ -3,7 +3,7 @@ import { El } from "@frameable/el";
 let instance;
 
 export class GaTasStore {
-  availableHardware = [{ name: "-", hardware: "-" }, { name: "GATAS Custom", hardware: "PICO_2RADIO" }, { name: "GATAS Pulse", hardware: "WAVESHARE_LITE" }];
+  availableHardware = [{ name: "-", hardware: "-" }, { name: "GATAS Custom", hardware: "PICO_2RADIO" }, { name: "GATAS Pulse", hardware: "WAVESHARE_LITE" }, { name: "GATAS Dual LR2021", hardware: "GATAS_DUAL_LR2021" }];
 
   constructor() {
     if (instance) {

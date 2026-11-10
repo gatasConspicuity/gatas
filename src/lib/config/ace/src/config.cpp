@@ -47,6 +47,8 @@ GATAS::PostConstruct Config::postConstruct()
     }
 
     // Load a configuration in this order
+    // After starting the firmware, just safe a change and set back to false.
+    // after the restart change to the required device (yes, we should improve on this)
     auto loadDefaultConfig = false; // Only usefull for developers, this ensures the default config is always loaded when set to true
     if (loadDefaultConfig)
     {
@@ -56,6 +58,7 @@ GATAS::PostConstruct Config::postConstruct()
         // Don't store here yet, let the user save it for himself first
         //        serializeToPersistent();
         statistics.location = DEFAULT;
+        return GATAS::PostConstruct::OK;
     }
 
     volatileStore.rewind();

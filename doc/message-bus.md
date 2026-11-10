@@ -6,7 +6,12 @@ This document maps every message type to its sender(s) and receiver(s).
 
 > **How this was generated**: Senders were found by grepping `getBus().receive(` across all `.cpp` files. Receivers were found by grepping `void on_receive(const GATAS::` across all `.hpp` files. The class name was inferred from the enclosing file/class context.
 
-> **Direct handoff note**: Some important current flows are shown even though they are not plain bus publishes, notably `Dump1090Client -> ADSBDecoder` and `Sx1262 -> RxDataFrameQueue`.
+> **Direct handoff note**: Some important current flows are shown even though they are not plain bus publishes, notably `Dump1090Client -> ADSBDecoder` and `Sx1262 / Lr2021 -> RxDataFrameQueue`.
+
+Both radios inherit `AbstractTransceiver` and expose the same `_Radio_N` identity.
+Only one of `Sx1262_N` and `Lr2021_N` may be enabled for a slot. The common base
+handles radio control, TX frames, GPS gating and configuration updates; each chip
+implements the hardware operations. See [LR2021 setup](lr2021.md).
 
 ## Bus Semantics
 
@@ -34,7 +39,7 @@ rectangle "GPS Subsystem" {
 }
 
 rectangle "Radio Subsystem" {
-    [Sx1262]
+    [Sx1262 / Lr2021]
     [RxDataFrameQueue]
     [RadioTunerRx]
     [RadioTunerTx]
@@ -89,7 +94,7 @@ rectangle "Infrastructure" {
 [GpsDecoder] --> [DataPort] : OwnshipPositionMsg\nGpsStatsMsg
 [GpsDecoder] --> [GatasConnect] : OwnshipPositionMsg\nGpsStatsMsg
 [GpsDecoder] --> [PicoRtc] : UtcTimeMsg
-[Sx1262] --> [RxDataFrameQueue]
+[Sx1262 / Lr2021] --> [RxDataFrameQueue]
 [RxDataFrameQueue] --> [Ogn1] : RadioRxManchesterMsg
 [RxDataFrameQueue] --> [Flarm2024] : RadioRxManchesterMsg
 [RxDataFrameQueue] --> [ADSLAce] : RadioRxManchesterMsg\nRadioRxMsg
@@ -104,7 +109,7 @@ rectangle "Infrastructure" {
 [AircraftTracker] --> [DataPort] : EgressAircraftPositionMsg\nTrackerStatsMsg
 [AircraftTracker] --> [ADSLAce] : EgressAircraftPositionsMsg
 [AircraftTracker] --> [ADSBDecoder] : AdapativeRadiusMsg
-[RadioTunerRx] --> [Sx1262] : RadioControlMsg
+[RadioTunerRx] --> [Sx1262 / Lr2021] : RadioControlMsg
 [RadioTunerRx] --> [RadioTunerTx] : RadioControlMsg
 [RadioTunerTx] --> [Ogn1] : RadioTxPositionRequestMsg
 [RadioTunerTx] --> [Flarm2024] : RadioTxPositionRequestMsg
@@ -155,7 +160,7 @@ package "Consumers" {
     [DataPort]
     [GatasConnect]
     [Bluetooth]
-    [Sx1262]
+    [Sx1262 / Lr2021]
     [Idle]
 }
 
@@ -175,7 +180,7 @@ package "Consumers" {
 [GpsDecoder] --> [DataPort] : OwnshipPositionMsg\nGpsStatsMsg
 [GpsDecoder] --> [GatasConnect] : OwnshipPositionMsg\nGpsStatsMsg
 [GpsDecoder] --> [Bluetooth] : OwnshipPositionMsg
-[GpsDecoder] --> [Sx1262] : GpsStatsMsg
+[GpsDecoder] --> [Sx1262 / Lr2021] : GpsStatsMsg
 [GpsDecoder] --> [Idle] : GpsStatsMsg
 
 [GpsDecoder] --> [PicoRtc] : UtcTimeMsg
@@ -197,7 +202,7 @@ title Radio RX Flow
 left to right direction
 
 package "Radio" {
-    [Sx1262]
+    [Sx1262 / Lr2021]
     [RxDataFrameQueue]
     [RadioTunerRx]
 }
@@ -223,8 +228,8 @@ package "Monitoring" {
     [GatasConnect]
 }
 
-[RadioTunerRx] --> [Sx1262] : RadioControlMsg
-[Sx1262] --> [RxDataFrameQueue]
+[RadioTunerRx] --> [Sx1262 / Lr2021] : RadioControlMsg
+[Sx1262 / Lr2021] --> [RxDataFrameQueue]
 [RxDataFrameQueue] --> [Ogn1] : RadioRxManchesterMsg
 [RxDataFrameQueue] --> [Flarm2024] : RadioRxManchesterMsg
 [RxDataFrameQueue] --> [ADSLAce] : RadioRxManchesterMsg\nRadioRxMsg
@@ -317,10 +322,10 @@ package "Tracking" {
 }
 
 package "Radio Hardware" {
-    [Sx1262]
+    [Sx1262 / Lr2021]
 }
 
-[RadioTunerRx] --> [Sx1262] : RadioControlMsg
+[RadioTunerRx] --> [Sx1262 / Lr2021] : RadioControlMsg
 [RadioTunerRx] --> [RadioTunerTx] : RadioControlMsg
 [RadioTunerTx] --> [Ogn1] : RadioTxPositionRequestMsg
 [RadioTunerTx] --> [Flarm2024] : RadioTxPositionRequestMsg
@@ -328,10 +333,10 @@ package "Radio Hardware" {
 [RadioTunerTx] --> [FanetAce] : RadioTxPositionRequestMsg
 [RadioTunerTx] --> [AircraftTracker] : RadioTxPositionRequestMsg
 
-[Ogn1] --> [Sx1262] : RadioTxFrameMsg
-[Flarm2024] --> [Sx1262] : RadioTxFrameMsg
-[ADSLAce] --> [Sx1262] : RadioTxFrameMsg
-[FanetAce] --> [Sx1262] : RadioTxFrameMsg
+[Ogn1] --> [Sx1262 / Lr2021] : RadioTxFrameMsg
+[Flarm2024] --> [Sx1262 / Lr2021] : RadioTxFrameMsg
+[ADSLAce] --> [Sx1262 / Lr2021] : RadioTxFrameMsg
+[FanetAce] --> [Sx1262 / Lr2021] : RadioTxFrameMsg
 
 @enduml
 ```
@@ -383,7 +388,7 @@ package "Timer Consumers" {
 }
 
 package "Config Consumers" {
-    [Sx1262]
+    [Sx1262 / Lr2021]
     [GDLoverUDP]
     [Ogn1]
     [ADSLAce]
@@ -416,7 +421,7 @@ package "Wifi Consumers" {
 [Idle] --> [DataPort] : Every1SecMsg\nEvery30SecMsg
 [Idle] --> [Bmp280] : Every30SecMsg
 
-[Config] --> [Sx1262] : ConfigUpdatedMsg
+[Config] --> [Sx1262 / Lr2021] : ConfigUpdatedMsg
 [Config] --> [GDLoverUDP] : ConfigUpdatedMsg
 [Config] --> [Ogn1] : ConfigUpdatedMsg
 [Config] --> [ADSLAce] : ConfigUpdatedMsg
@@ -452,19 +457,19 @@ package "Wifi Consumers" {
 | `GPSSentenceMsg` | `AbstractGnss`, `StaticGPS` | `GpsDecoder`, `DataPort` | Raw or generated NMEA ingress. |
 | `OwnshipPositionMsg` | `GpsDecoder` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `ADSBDecoder`, `AircraftTracker`, `RadioTunerRx`, `RadioTunerTx`, `Gdl90Service`, `DataPort`, `GatasConnect` | Empty notification after `GpsDecoder` atomically replaces `OwnshipState::location`; subscribers load their own snapshot. On each position update, `Gdl90Service` selects fresh pressure samples through `OwnshipState::calculatePressureAltitude()` for report 10; geometric report 11 retains ellipsoid height. |
 | `UtcTimeMsg` | `GpsDecoder` | `PicoRtc` | RTC synchronization. |
-| `GpsStatsMsg` | `GpsDecoder` | `Ogn1`, `ADSLAce`, `Sx1262`, `Gdl90Service`, `DataPort`, `GatasConnect`, `Idle` | GPS fix and DOP status. |
+| `GpsStatsMsg` | `GpsDecoder` | `Ogn1`, `ADSLAce`, `Sx1262` / `Lr2021`, `Gdl90Service`, `DataPort`, `GatasConnect`, `Idle` | GPS fix and DOP status. |
 | `BarometricPressureMsg` | `Bmp280`, `GatasConnect` | `Ogn1` | Empty notification after updating a timestamped ambient-pressure sample in `OwnshipState` and releasing its lock. COBS type 11 is exactly 6 bytes: type u8, pressure u16 in 0.1 hPa (0xffff unavailable), QNH u16 in 0.1 hPa (consumed but ignored), source u8; multi-byte fields are big endian. Sources: Unavailable/Unknown=0, Calculated=1, PressureSensor=2. The existing map retains the accepted sample keyed by measured/calculated method, with 5-second expiry. The update function takes an internal/external parameter (not a model or wire field). BMP280 is internal and COBS is external. It rejects external updates while internal data is fresh; for the same origin it prefers measured over calculated, then unknown-method data. Equal-priority updates replace the sample; stale data may be replaced by the next lower-priority update. Rejected updates are not cached and do not refresh the accepted timestamp. Missing data may invalidate its own accepted origin/method; malformed frames do not update or notify. Pressure altitude is calculated locally using 1013.25 hPa, without QNH or a GPS/QNH fallback. |
-| `RadioRxManchesterMsg` | `RxDataFrameQueue` | `Ogn1`, `Flarm2024`, `ADSLAce` | Produced after `Sx1262` receive + Manchester decode. |
-| `RadioRxMsg` | `RxDataFrameQueue` | `ADSLAce`, `FanetAce` | Produced after `Sx1262` receive for non-Manchester frames. |
+| `RadioRxManchesterMsg` | `RxDataFrameQueue` | `Ogn1`, `Flarm2024`, `ADSLAce` | Produced after `Sx1262` / `Lr2021` receive + Manchester decode. |
+| `RadioRxMsg` | `RxDataFrameQueue` | `ADSLAce`, `FanetAce` | Produced after `Sx1262` / `Lr2021` receive for non-Manchester frames. |
 | `IngressAircraftPositionMsg` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `ADSBDecoder` | `AircraftTracker`, `RadioTunerRx`, `GatasConnect` | Single aircraft decoded from any protocol. |
 | `IngressAircraftPositionsMsg` | `ADSLAce` | `AircraftTracker` | Batched ADS-L uplink traffic. |
 | `EgressAircraftPositionMsg` | `AircraftTracker` | `Gdl90Service`, `DataPort` | Tracker-selected traffic for outputs. `Gdl90Service` uses `AircraftPositionInfo::pressureAlt` for report 20. Both ownship and traffic pressure-altitude fields use `0xFFF` when unavailable or outside the encoding range; no MSL/ellipsoid fallback is used. |
 | `EgressAircraftPositionsMsg` | `AircraftTracker` | `ADSLAce` | Tracker-selected batch for ADS-L transmit. |
 | `TrackerStatsMsg` | `AircraftTracker` | `DataPort` | Current number of tracked aircraft after tracker maintenance. |
 | `AdapativeRadiusMsg` | `AircraftTracker` | `ADSBDecoder` | Decoder radius feedback. |
-| `RadioControlMsg` | `RadioTunerRx` | `Sx1262`, `RadioTunerTx` | Current receive slot / radio assignment. |
+| `RadioControlMsg` | `RadioTunerRx` | `Sx1262` / `Lr2021`, `RadioTunerTx` | Current receive slot / radio assignment. |
 | `RadioTxPositionRequestMsg` | `RadioTunerTx` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `AircraftTracker` | Triggers per-protocol transmit preparation. |
-| `RadioTxFrameMsg` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce` | `Sx1262` | Final frame sent to RF hardware. |
+| `RadioTxFrameMsg` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce` | `Sx1262` / `Lr2021` | Final frame sent to RF hardware. |
 | `DataPortMsg` | `DataPort`, `Bluetooth` | `AirConnect`, `Bluetooth` | NMEA-compatible egress and BLE NMEA ingress. |
 | `GdlMsg` | `Gdl90Service` | `GDLoverUDP`, `GatasConnect` | Packed GDL90 bytes for network and bridge outputs. |
 | `GatasConnectTx` | `GatasConnect` | `GatasConnectUDP`, `Bluetooth` | Framed binary output, transport-agnostic. |
@@ -473,7 +478,7 @@ package "Wifi Consumers" {
 | `WifiConnectionStateMsg` | `WifiService` | `Dump1090Client`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP`, `DataPort`, `AirConnect`, `StaticGPS`, `Idle` | Shared network state. |
 | `AccessPointClientsMsg` | `WifiService` | `GDLoverUDP` | AP client list for UDP output policy. |
 | `Every1SecMsg` | `Idle` | `DataPort` | PFLAU heartbeat. |
-| `ConfigUpdatedMsg` | `Config` | `GpsDecoder`, `StaticGPS`, `Bmp280`, `Sx1262`, `Ogn1`, `ADSLAce`, `FanetAce`, `ADSBDecoder`, `AircraftTracker`, `RadioTunerRx`, `RadioTunerTx`, `Gdl90Service`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP` | Runtime config propagation. |
+| `ConfigUpdatedMsg` | `Config` | `GpsDecoder`, `StaticGPS`, `Bmp280`, `Sx1262` / `Lr2021`, `Ogn1`, `ADSLAce`, `FanetAce`, `ADSBDecoder`, `AircraftTracker`, `RadioTunerRx`, `RadioTunerTx`, `Gdl90Service`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP` | Runtime config propagation. |
 | `Every5SecMsg` | `Idle` | `WifiService`, `AirConnect`, `ADSBDecoder`, `AircraftTracker` | Periodic maintenance. |
 | `Every30SecMsg` | `Idle` | `Bmp280`, `DataPort` | Slow periodic maintenance. |
 
@@ -489,7 +494,7 @@ package "Wifi Consumers" {
 ## Important Non-Bus Paths
 
 - `Dump1090Client -> ADSBDecoder` is a direct call through `BinaryReceiver::receiveBinary(...)`, not a bus message.
-- `Sx1262 -> RxDataFrameQueue` uses an internal queue/task handoff before frames become `RadioRxManchesterMsg` or `RadioRxMsg`.
+- `Sx1262 / Lr2021 -> RxDataFrameQueue` uses an internal queue/task handoff before frames become `RadioRxManchesterMsg` or `RadioRxMsg`.
 - `Bluetooth` can inject `DataPortMsg` and `GatasConnectRx` into the bus from BLE characteristics.
 - `Webserver`, `AceSpi`, and `SerialADSB` are loaded modules, but they are not meaningful bus routers in the current topology.
 

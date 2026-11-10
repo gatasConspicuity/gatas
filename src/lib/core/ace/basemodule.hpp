@@ -82,6 +82,17 @@ public:
         BaseModule::moduleLoaderMap[moduleName].module = nullptr;
     }
 
+    /**
+     * Temporary opt-in for safe deletion after postConstruct() fails, before start().
+     * Some modules are not yet safe to destroy after partial initialisation.
+     * Remove this function and delete failed modules unconditionally once all modules
+     * support deletion. This does not indicate support for unloading a running module.
+     */
+    virtual bool canDelete() const
+    {
+        return false;
+    }
+
     static BaseModule *moduleByName(const BaseModule &that, const etl::string_view requesting);
 
     static void registerModule(const etl::string_view name, bool hwCheck)

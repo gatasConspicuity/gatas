@@ -45,6 +45,7 @@
 #include "ace/acespi.hpp"
 #include "ace/bmp280.hpp"
 #include "ace/sx1262.hpp"
+#include "ace/lr2021.hpp"
 #include "ace/radiotunerrx_v2.hpp"
 #include "ace/rxdataframequeue.hpp"
 #include "ace/radiotunertx_v2.hpp"
@@ -95,6 +96,8 @@ void registerModules()
     BaseModule::registerModule(PicoRtc::NAME, false);
     BaseModule::registerModule(Sx1262::NAMES[0], true);
     BaseModule::registerModule(Sx1262::NAMES[1], true);
+    BaseModule::registerModule(Lr2021::NAMES[0], true);
+    BaseModule::registerModule(Lr2021::NAMES[1], true);
     BaseModule::registerModule(RadioTunerTx::NAME, false);
     BaseModule::registerModule(RadioTunerRx::NAME, false);
     BaseModule::registerModule(RxDataFrameQueue::NAME, false);
@@ -139,6 +142,10 @@ void disabled(etl::string_view name, Configuration &config)
     }
     if (name == Sx1262::NAMES[1]) {
         Sx1262::enterDisabledState(1, config);
+    }
+    for (uint8_t i = 0; i < GATAS_MAX_RADIOS; ++i)
+    {
+        if (name == Lr2021::NAMES[i]) { Lr2021::enterDisabledState(i, config); }
     }
     // clang-format on
 }
@@ -192,10 +199,19 @@ BaseModule *loadModule(etl::string_view name, etl::imessage_bus &bus, Configurat
         return new RadioTunerTx(bus, config, ownshipState);
     if (name == RxDataFrameQueue::NAME)
         return new RxDataFrameQueue(bus, config);
-    if (name == Sx1262::NAMES[0])
-        return new Sx1262(bus, config, 0);
-    if (name == Sx1262::NAMES[1])
-        return new Sx1262(bus, config, 1);
+    for (uint8_t i = 0; i < GATAS_MAX_RADIOS; ++i)
+    {
+        if (name == Sx1262::NAMES[i] || name == Lr2021::NAMES[i])
+        {
+            if (config.isModuleEnabled(Sx1262::NAMES[i]) && config.isModuleEnabled(Lr2021::NAMES[i]))
+            {
+                GATAS_WARN("Two transceivers enabled for radio %u", i);
+                return nullptr;
+            }
+            if (name == Sx1262::NAMES[i]) { return new Sx1262(bus, config, i); }
+            return new Lr2021(bus, config, i);
+        }
+    }
     if (name == PicoRtc::NAME)
         return new PicoRtc(bus, config);
     if (name == Webserver::NAME)
@@ -284,6 +300,18 @@ static void load(const etl::string_view str, etl::imessage_bus &bus, Configurati
 
     printf("\nLoading %s ... ", str.cbegin());
 
+    // for (uint8_t i = 0; i < GATAS_MAX_RADIOS; ++i)
+    // {
+    //     if ((str == Sx1262::NAMES[i] || str == Lr2021::NAMES[i]) &&
+    //         config.isModuleEnabled(Sx1262::NAMES[i]) && config.isModuleEnabled(Lr2021::NAMES[i]))
+    //     {
+    //         BaseModule::setModuleStatus(Sx1262::NAMES[i], GATAS::PostConstruct::CONFIG_ERROR);
+    //         BaseModule::setModuleStatus(Lr2021::NAMES[i], GATAS::PostConstruct::CONFIG_ERROR);
+    //         printf("conflicting transceivers for radio %u, skipping ", i);
+    //         return;
+    //     }
+    // }
+
     if (registeredModules[str].hwCheck && !hasHardwareConfiguration(str, config))
     {
         BaseModule::setModuleStatus(str, GATAS::PostConstruct::HARDWARE_NOT_CONFIGURED);
@@ -323,10 +351,13 @@ static void load(const etl::string_view str, etl::imessage_bus &bus, Configurati
     else
     {
         BaseModule::setModuleStatus(str, result);
-        printf("-> Unloading reason [%s] ", postConstructToString(result));
-        // TODO: Find out why deleting a module
-        // For some strange reason when deleting a module, I get a hard crash
-        // delete module;
+        if (module->canDelete())
+        {
+            printf("-> Deleting reason [%s] ", postConstructToString(result));
+            delete module;
+        } else {
+            printf("-> Unloading reason [%s] ", postConstructToString(result));
+        }
     }
 }
 
@@ -371,9 +402,22 @@ static void loadModules(void *arg)
     load(GatasConnectUDP::NAME, bus, config);
 
     load(RxDataFrameQueue::NAME, bus, config, true);
+    for (uint8_t i = 0; i < GATAS_MAX_RADIOS; ++i)
+    {
+        Sx1262::enterDisabledState(i, config);
+        Lr2021::enterDisabledState(i, config);
+    }
     for (uint8_t i = 0; i < GATAS_MAX_RADIOS; i++)
     {
-        load(Sx1262::NAMES[i], bus, config);
+        // Avoid disabled aliases manipulating the selected radio's CS pin.
+        if (config.isModuleEnabled(Lr2021::NAMES[i]))
+        {
+            load(Lr2021::NAMES[i], bus, config);
+        }
+        else
+        {
+            load(Sx1262::NAMES[i], bus, config);
+        }
     }
 
     // Loaded after Sx1262 for now due to conflict at startup (SPI bus is not locked at that time)

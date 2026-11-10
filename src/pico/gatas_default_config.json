@@ -227,7 +227,7 @@
       "_comment_dev": "This indicates the SPI Device number AceSpi_0",
       "dev": 0
     },
-    "_comment_AceSpi_1": "SPI Port",
+    "_comment_AceSpi_0": "SPI Port",
     "AceSpi_0": {
       "clk": 10,
       "mosi": 11,
@@ -244,5 +244,56 @@
       "cs": 21,
       "dev": 0
     }
-  }
+  },
+  "GATAS_DUAL_LR2021": {
+    "_comment_L76B": "Waveshare Pico-GPS-L76B https://www.waveshare.com/wiki/Pico-GPS-L76B. Requires PPS to be soldered",
+    "L76B": {
+      "tx": 0,
+      "rx": 1,
+      "busy": 16
+    },
+    "_comment_AceSpi_0": "SPI Port",
+    "AceSpi_0": {
+      "clk": 6,
+      "mosi": 7,
+      "miso": 4,
+      "_comment_spi": "This indicates the PICO's SPI number, not this device",
+      "spi": 0
+    },
+    "_comment_AceSpi_1": "SPI Port",
+    "AceSpi_1": {
+      "clk": 10,
+      "mosi": 11,
+      "miso": 12,
+      "_comment_rst": "Optional, but at least SPI device should perform the reset",
+      "rst": 15,
+      "_comment_spi": "This indicates the PICO's SPI number, not this device",
+      "spi": 1
+    },
+    "_comment_Lr2021_0": "Seed Studio https://www.seeedstudio.com/Seeed-Studio-Wio-LR2021-Wireless-module-868-915MHz-Tape-reel-p-6831.html",
+    "Lr2021_0": {
+      "cs": 5,
+      "busy": 8,
+      "dio1": 9,
+      "_comment_dev": "This indicates the SPI Device number AceSpi_0",
+      "dev": 0
+    },
+    "_comment_Lr2021_1": "Seed Studio https://www.seeedstudio.com/Seeed-Studio-Wio-LR2021-Wireless-module-868-915MHz-Tape-reel-p-6831.html",
+    "Lr2021_1": {
+      "cs": 3,
+      "busy": 2,
+      "dio1": 20,
+      "_comment_dev": "This indicates the SPI Device number AceSpi_0",
+      "dev": 1
+    },
+    "port5": {
+      "O0": 26
+    },
+    "Bmp280": {
+      "cs": 21,
+      "dev": 0
+    }
+  },
+  "Lr2021_0": {"txEnabled": false, "offset": 0, "irqDio": 7, "tcxoVoltage": -1, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1},
+  "Lr2021_1": {"txEnabled": false, "offset": 0, "irqDio": 7, "tcxoVoltage": -1, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1}
 }

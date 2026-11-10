@@ -70,6 +70,11 @@ public:
 
     virtual ~Bmp280() = default;
 
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual GATAS::PostConstruct postConstruct() override;
 
     virtual void start() override;

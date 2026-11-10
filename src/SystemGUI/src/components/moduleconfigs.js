@@ -258,10 +258,10 @@ class Gdl90ServiceConfig extends ModuleConfig {
             onchange=${(event) => { this.state.data.mslAltFallback = event.target.checked; }}
           />
           ${mslAltFallback
-            ? html`<div class="notice notice--warning">
+        ? html`<div class="notice notice--warning">
                 MSL altitude is not pressure altitude. Use this fallback for conspicuity only; do not rely on it for flying or vertical separation.
               </div>`
-            : ""}
+        : ""}
         </div>
         ${this.buttonArray(html)}
       </form>
@@ -807,7 +807,7 @@ class Dump1090ClientConfig extends ModuleConfig {
 }
 customElements.define("dump1090client-config", Dump1090ClientConfig);
 
-class SX1262 extends ModuleConfig {
+class TransceiverConfig extends ModuleConfig {
   created() {
     this._initForm(store.getModuleData(this.name));
   }
@@ -854,7 +854,7 @@ class SX1262 extends ModuleConfig {
 
   render(html) {
     return html`
-      <h4>Configuration of the ${this.name} LoRaWAN module</h4>
+      <h4>Configuration of the ${this.name} transceiver</h4>
 
       <form ref="form" autocomplete="off" novalidate="novalidate">
         <div class="page-section app-grid app-grid--2">
@@ -888,16 +888,17 @@ class SX1262 extends ModuleConfig {
   }
 }
 
-class Sx1262_0 extends SX1262 {
-  name = "Sx1262_0";
-}
-
-class Sx1262_1 extends SX1262 {
-  name = "Sx1262_1";
-}
+class Sx1262_0 extends TransceiverConfig { name = "Sx1262_0"; }
+class Sx1262_1 extends TransceiverConfig { name = "Sx1262_1"; }
 
 customElements.define("sx1262_0-config", Sx1262_0);
 customElements.define("sx1262_1-config", Sx1262_1);
+
+class Lr2021_0 extends TransceiverConfig { name = "Lr2021_0"; }
+class Lr2021_1 extends TransceiverConfig { name = "Lr2021_1"; }
+
+customElements.define("lr2021_0-config", Lr2021_0);
+customElements.define("lr2021_1-config", Lr2021_1);
 
 class BluetoothConfig extends ModuleConfig {
   created() {
