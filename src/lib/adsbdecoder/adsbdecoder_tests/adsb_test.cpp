@@ -241,3 +241,23 @@ TEST_CASE("Test descending aircraft", "[single-file]")
 
     REQUIRE(test.position.verticalSpeed == Catch::Approx(-3.0).margin(0.001));
 }
+
+TEST_CASE("failed ADSB decoder can be deleted without leaving a registered module", "[lifecycle]")
+{
+    BaseModule *module = new ADSBDecoder(bus, mockConfig, ownshipState);
+    const auto previousMutex = xSemaphoreCreateMutexValue;
+    xSemaphoreCreateMutexValue = nullptr;
+    const auto result = module->postConstruct();
+    xSemaphoreCreateMutexValue = previousMutex;
+
+    REQUIRE(result == GATAS::PostConstruct::MUTEX_ERROR);
+    REQUIRE(module->canDelete());
+    BaseModule::setModuleStatus(ADSBDecoder::NAME, result);
+    delete module;
+
+    const auto &status = BaseModule::registeredModules().at(ADSBDecoder::NAME);
+    REQUIRE(status.module == nullptr);
+    REQUIRE(status.result == GATAS::PostConstruct::MUTEX_ERROR);
+    // Failure must not leave a subscriber referring to the deleted decoder.
+    bus.receive(GATAS::AdapativeRadiusMsg{10'000'000});
+}

@@ -114,5 +114,12 @@ public:
         (void)config;
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // On failure the mutex is null and the TCP listener has not started.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~AirConnect() = default;
 };

@@ -104,6 +104,13 @@ public:
     static constexpr const etl::string_view NAME = "StaticGPS";
 
     StaticGPS(etl::imessage_bus &bus, const Configuration &config);
+    // Safe only after failed postConstruct(), before start().
+    // PIO is disabled; on failure no task exists and NtpClient removes its UDP callback.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     ~StaticGPS() override = default;
 
     GATAS::PostConstruct postConstruct() override;

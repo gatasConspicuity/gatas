@@ -117,6 +117,13 @@ public:
         groundStation = conspicuity.groundStation;
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Construction and postConstruct only initialise owned state.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~GpsDecoder() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

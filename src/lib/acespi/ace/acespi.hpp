@@ -67,6 +67,13 @@ public:
     {
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Failure precedes SPI setup and leaves no allocated mutex.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~AceSpi() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

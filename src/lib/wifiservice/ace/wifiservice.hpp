@@ -155,6 +155,13 @@ public:
     {
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Failed CYW43 initialisation has not registered any callbacks to this object.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~WifiService() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

@@ -51,6 +51,12 @@ public:
     {
         (void)config;
     }
+    // Failure means no task exists; the queue and its static mutex are member-owned.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~RxDataFrameQueue() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

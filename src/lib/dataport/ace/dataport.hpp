@@ -34,6 +34,13 @@ public:
         pflauEnabled = config.valueByPath(false, NAME, "pflauEnabled");
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Construction and postConstruct only initialise owned state.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~DataPort() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

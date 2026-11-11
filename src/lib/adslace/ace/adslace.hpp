@@ -78,6 +78,13 @@ public:
         protocol.crcCheckOnReceive = false;
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // The only failure is mutex allocation; protocol callbacks remain member-owned.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~ADSLAce() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

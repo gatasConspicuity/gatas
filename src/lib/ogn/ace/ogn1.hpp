@@ -112,6 +112,13 @@ public:
         distanceIgnore = etl::clamp(di, static_cast<uint32_t>(0), MAX_IGNORE_DISTANCE);
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // The packet-size check fails before any external resources are registered.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~Ogn1() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

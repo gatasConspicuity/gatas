@@ -78,5 +78,12 @@ public:
         getConfig(config);
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Failure means no request timer was created; subscriptions begin in start().
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~GatasConnect() = default;
 };

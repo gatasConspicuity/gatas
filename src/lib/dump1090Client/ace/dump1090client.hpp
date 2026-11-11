@@ -49,6 +49,13 @@ public:
         tcpClient.autoConnect(true);
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // The TCP client is not started until start(); failure retains no external callbacks.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~Dump1090Client() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

@@ -86,6 +86,13 @@ public:
         on_receive(GATAS::ConfigUpdatedMsg{config, Configuration::NAME});
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Construction and postConstruct only initialise owned state.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~Gdl90Service() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

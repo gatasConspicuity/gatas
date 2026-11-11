@@ -154,6 +154,13 @@ public:
     }
     virtual ~RadioTunerRx() = default;
 
+    // Safe only after failed postConstruct(), before start().
+    // Failure leaves no task; the member EventSync releases its event group.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual GATAS::PostConstruct postConstruct() override;
     virtual void start() override;
     virtual void getData(etl::string_stream &stream, const etl::string_view path) const override;

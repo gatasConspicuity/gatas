@@ -39,6 +39,13 @@ public:
         (void)config;
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Construction and postConstruct only initialise owned state.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~PicoRtc() = default;
 
     virtual void ppsEvent(int32_t offsetUs) override;

@@ -53,6 +53,13 @@ public:
         gaTasConfiguration = config.gaTasConfig();
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Construction and postConstruct only initialise owned state.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~Flarm2024() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;

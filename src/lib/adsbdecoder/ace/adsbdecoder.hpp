@@ -57,6 +57,13 @@ public:
         filterBelow = config.valueByPath(true, NAME, "filterBelow");
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Failure precedes decoder setup and leaves no allocated mutex.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~ADSBDecoder()
     {
     }

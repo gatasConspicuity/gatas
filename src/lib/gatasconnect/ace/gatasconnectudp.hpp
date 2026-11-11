@@ -71,5 +71,12 @@ public:
         getConfig(config);
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // Failure occurs before a UDP PCB or receive callback is registered.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~GatasConnectUDP() = default;
 };

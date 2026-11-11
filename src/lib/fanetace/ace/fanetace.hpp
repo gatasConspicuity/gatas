@@ -74,6 +74,13 @@ public:
         distanceIgnore = etl::clamp(di, static_cast<uint32_t>(0), MAX_IGNORE_DISTANCE);
     }
 
+    // Safe only after failed postConstruct(), before start().
+    // The only failure is mutex allocation; protocol callbacks remain member-owned.
+    bool canDelete() const override
+    {
+        return true;
+    }
+
     virtual ~FanetAce() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;
