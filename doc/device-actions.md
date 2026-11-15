@@ -74,6 +74,7 @@ Relevant decoded fields are:
 | 16 | 1 | 8-bit boot ID owned by GatasConnect. |
 
 GatasConnect increments its boot ID in `postConstruct()`;
+The serializer currently does not use the build-derived version constants for
 the ID is stored in uninitialized RAM, can wrap through zero and can repeat.
 It is not a globally unique identifier or an authentication token.
 

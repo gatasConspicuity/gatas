@@ -11,7 +11,7 @@
 #include <etl/to_arithmetic.h>
 #include "ace/cobs.hpp"
 #include "lib_crc.hpp"
-missing #include "constants.hpp"
+#include "constants.hpp"
 #include "coreutils.hpp"
 #include "models.hpp"
 #include "ace/measure.hpp"
