@@ -39,6 +39,7 @@ private:
 
     enum TaskState : uint32_t
     {
+        START = 1 << 0,
         NEW = 1 << 2,
     };
 
@@ -59,6 +60,11 @@ private:
     void processNewSentence(const etl::array_view<char> &sentence, bool fromISR);
 
 protected:
+    bool receiveTaskReady() const
+    {
+        return taskHandle != nullptr;
+    }
+
     PioSerial &getSerial()
     {
         return pioSerial;

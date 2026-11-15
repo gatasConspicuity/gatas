@@ -12,7 +12,11 @@ GATAS::PostConstruct AircraftTracker::postConstruct()
     {
         return GATAS::PostConstruct::MUTEX_ERROR;
     }
-    GATAS_REGISTER_MUTEX(trackedAircraftMutex, "AircraftTracker_mutex");
+    if (xTaskCreate(aircraftTrackerTrampoline, AircraftTracker::NAME.cbegin(), configMINIMAL_STACK_SIZE + 768, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    {
+        vSemaphoreDelete(trackedAircraftMutex);
+        return GATAS::PostConstruct::TASK_ERROR;
+    }
 
     sendTimerHandle = xTimerCreate(AircraftTracker::NAME.cbegin(),
                                    TASK_DELAY_MS(1000 / TIMESLICES),
@@ -21,15 +25,17 @@ GATAS::PostConstruct AircraftTracker::postConstruct()
                                    sendTimerCallback);
     if (sendTimerHandle == nullptr)
     {
+        vTaskDelete(taskHandle);
+        vSemaphoreDelete(trackedAircraftMutex);
         return GATAS::PostConstruct::TIMER_ERROR;
     }
 
+    GATAS_REGISTER_MUTEX(trackedAircraftMutex, "AircraftTracker_mutex");
     return GATAS::PostConstruct::OK;
 }
 
 void AircraftTracker::start()
 {
-    xTaskCreate(aircraftTrackerTrampoline, AircraftTracker::NAME.cbegin(), configMINIMAL_STACK_SIZE + 768, this, tskIDLE_PRIORITY + 2, &taskHandle);
     if (xTimerStart(sendTimerHandle, portMAX_DELAY) != pdPASS)
     {
         GATAS_WARN("AircraftTracker: failed to start send timer");
@@ -77,9 +83,25 @@ void AircraftTracker::getData(etl::string_stream &stream, const etl::string_view
     stream << ",\"numberOfObjectsTracking\":" << trackedAircraft.size();
     stream << ",\"positionsProcessed:k\":" << statistics.positionsProcessed;
     stream << ",\"adaptiveRadius:m\":" << trackedAircraft.radius();
-    stream << ",\"aircraft:aoa\":{";
-
-    stream << "\"hex\":[";
+    const char *pressureSource = "None";
+    if (const auto selected = ownshipState.selectedPressureAltitude())
+    {
+        if (selected->method == GATAS::PressureSource::PressureSensor)
+        {
+            pressureSource = selected->origin == GATAS::BarometricSource::Internal ? "BMP280" : "Mobile";
+        }
+        else if (selected->origin == GATAS::BarometricSource::External &&
+                 selected->method == GATAS::PressureSource::Calculated)
+        {
+            pressureSource = "Server";
+        }
+        else
+        {
+            pressureSource = "Unknown";
+        }
+    }
+    stream << ",\"ownshipPressureSource\":\"" << pressureSource << "\"";
+    stream << ",\"aircraft:aoa\":[";
     bool first = true;
     trackedAircraft.forEachPosition([&](const GATAS::AircraftPositionInfo &aircraft)
                                     {
@@ -90,30 +112,13 @@ void AircraftTracker::getData(etl::string_stream &stream, const etl::string_view
         first = false;
         stream << "\"";
         CoreUtils::streamIcaoAddress(stream, aircraft.address, aircraft.addressType);
+        stream << "," << GATAS::toString(aircraft.dataSource) << "," << aircraft.distanceFromOwn << ",";
+        if (const auto altitude = CoreUtils::resolveTrafficAltitude(aircraft, ownshipState, false))
+        {
+            stream << altitude.value();
+        }
         stream << "\""; });
-
-    stream << "],\"ds\":[";
-    first = true;
-    trackedAircraft.forEachPosition([&](const GATAS::AircraftPositionInfo &aircraft)
-                                    {
-        if (!first)
-        {
-            stream << ",";
-        }
-        first = false;
-        stream << "\"" << GATAS::toString(aircraft.dataSource) << "\""; });
-
-    stream << "],\"dis\":[";
-    first = true;
-    trackedAircraft.forEachPosition([&](const GATAS::AircraftPositionInfo &aircraft)
-                                    {
-        if (!first)
-        {
-            stream << ",";
-        }
-        first = false;
-        stream << aircraft.distanceFromOwn; });
-    stream << "]}";
+    stream << "]";
     stream << "}";
 }
 

@@ -5,6 +5,7 @@
 /* FreeRTOS */
 #include "FreeRTOS.h"
 #include "timers.h"
+#include "task.h"
 
 /* ETLCPP */
 #include "etl/message_bus.h"
@@ -34,6 +35,8 @@ class GatasConnect : public BaseModule, public etl::message_router<GatasConnect,
     uint64_t lastRadioTrafficUs = 0;
     uint8_t localConfigurationUpdateCnt = 0;
     TimerHandle_t requestTimer = nullptr;
+    TaskHandle_t workerTaskHandle = nullptr;
+    static constexpr uint32_t SEND_REQUEST = 1;
     const GATAS::GatasConnectOutput gatasConnectOutput = GATAS::GatasConnectOutput::UDPAndBluetooth;
     uint32_t lastUdpTrafficUs = 0;
     bool hasUdpTraffic = false;
@@ -44,6 +47,7 @@ class GatasConnect : public BaseModule, public etl::message_router<GatasConnect,
     uint32_t gatasIp = 0;
     uint32_t pinCode = 0;
     uint64_t gatasId = 0;
+    bool configurationDirty = false;
     bool groundStation = false;
     GATAS::WifiMode wifiMode = GATAS::WifiMode::NC;
 
@@ -66,14 +70,15 @@ private:
     void on_receive(const GATAS::GdlMsg &msg);
 
     static void requestTimerCallbackTrampoline(TimerHandle_t xTimer);
-    void requestTimerCallback(TimerHandle_t xTimer);
+    static void workerTaskTrampoline(void *arg);
+    void workerTask();
     void sendOwnshipPosition();
     void sendAircraftConfiguration();
 
     void getConfig(const Configuration &config);
 public:
     static constexpr const char *NAME = "GatasConnect";
-    GatasConnect(etl::imessage_bus &bus, Configuration &config, GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), ownshipState(ownshipState_), cobsStreamHandler(bus, config, ownshipState_)
+    GatasConnect(etl::imessage_bus &bus, Configuration &config, GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), ownshipState(ownshipState_), cobsStreamHandler(bus, ownshipState_)
     {
         getConfig(config);
     }

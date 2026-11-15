@@ -60,6 +60,18 @@ BaseModule::BaseModule(etl::imessage_bus &bus_, const etl::string_view name_) : 
     }
 }
 
+GATAS::PostConstruct BaseModule::startAndRegister(const etl::string_view registeredName)
+{
+    start();
+    const auto result = moduleLoaderMap[registeredName].result;
+    if (result == GATAS::PostConstruct::NA)
+    {
+        setModuleStatus(registeredName, this);
+        return GATAS::PostConstruct::OK;
+    }
+    return result;
+}
+
 BaseModule *BaseModule::moduleByName(const BaseModule &that, const etl::string_view requesting)
 {
     (void)that;
@@ -79,7 +91,7 @@ BaseModule *BaseModule::moduleByName(const BaseModule &that, const etl::string_v
         // Look for it's provider name eg: _SPI
         for (auto it = BaseModule::moduleLoaderMap.cbegin(); it != BaseModule::moduleLoaderMap.cend(); it++)
         {
-            if ((it->second.module != nullptr) && (it->second.module->name() == requesting))
+            if (it->second.result == GATAS::PostConstruct::OK && (it->second.module != nullptr) && (it->second.module->name() == requesting))
             {
                 return it->second.module;
             }

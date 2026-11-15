@@ -16,7 +16,13 @@
 
 void FanetAce::start()
 {
-    xTaskCreate(fanetAceTaskTrampoline, FanetAce::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle);
+    if (xTaskCreate(fanetAceTaskTrampoline, FanetAce::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    {
+        vSemaphoreDelete(mutex);
+        mutex = nullptr;
+        BaseModule::setModuleStatus(NAME, GATAS::PostConstruct::TASK_ERROR);
+        return;
+    }
     getBus().subscribe(*this);
 };
 
@@ -65,8 +71,9 @@ void FanetAce::on_receive(const GATAS::ConfigUpdatedMsg &msg)
 {
     if (msg.moduleName == Configuration::NAME)
     {
-        gaTasConfiguration = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), msg.config.gaTasConfig());
-        protocol.ownAddress(FANET::Address{gaTasConfiguration.conspicuity.icaoAddress});
+        const auto config = msg.config.gaTasConfig();
+        gaTasConfiguration.store(config);
+        protocol.ownAddress(FANET::Address{config.conspicuity.icaoAddress});
     }
 }
 
@@ -75,7 +82,7 @@ void FanetAce::on_receive(const GATAS::RadioTxPositionRequestMsg &msg)
     if (msg.radioParameters.config->isTxDataSource(GATAS::DataSource::FANET))
     {
         auto ownship = ownshipState.location.load();
-        auto gatasConfig = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), gaTasConfiguration);
+        auto gatasConfig = gaTasConfiguration.load();
 
         FANET::TrackingPayload payload;
         payload.latitude(ownship.lat)

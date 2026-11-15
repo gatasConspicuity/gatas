@@ -125,6 +125,9 @@ public:
     // Called after this module has been constructed successfully.
     virtual void start() = 0;
 
+    // Run start and publish success only if it did not report a failure.
+    GATAS::PostConstruct startAndRegister(const etl::string_view registeredName);
+
     /**
      * Called after start() has been called on every successfully initialised module.
      * The order in which module postStart() methods are called is unspecified.
@@ -317,6 +320,11 @@ public:
     virtual bool isModuleEnabled(const etl::string_view moduleName) const = 0;
 
     /**
+     * Returns whether the configuration has unsaved changes.
+     */
+    virtual bool isDirty() const = 0;
+
+    /**
      * Returns teh WIFI Service configuration
      */
     virtual const GATAS::Config::WifiServiceData wifiService() const = 0;
@@ -346,6 +354,4 @@ public:
      */
     virtual GATAS::CallSign getCallSignFromHex(uint32_t transponderId) const = 0;
 
-    virtual void setValueBypath(const etl::string_view pathToValue, etl::string_view value) = 0;
-    virtual void setValueBypath(const etl::string_view pathToValue, uint64_t value) = 0;
 };

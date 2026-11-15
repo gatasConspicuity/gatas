@@ -62,6 +62,11 @@ public:
         return true;
     }
 
+    virtual bool isDirty() const override
+    {
+        return false;
+    }
+
     // virtual const GATAS::Config::WifiNamePassword wifiClient() const override
     // {
     //     return GATAS::Config::WifiNamePassword
@@ -104,11 +109,4 @@ public:
         return "PH-XXX";
     }
 
-    virtual void setValueBypath(const etl::string_view pathToValue, etl::string_view value) override
-    {
-    }
-
-    virtual void setValueBypath(const etl::string_view pathToValue, uint64_t value) override
-    {
-    }
 };

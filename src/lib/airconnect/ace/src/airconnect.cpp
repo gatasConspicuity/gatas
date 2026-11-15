@@ -25,6 +25,7 @@ void AirConnect::getData(etl::string_stream &stream, const etl::string_view path
     stream << "{";
     stream << "\"connectedClients\":" << connectedClients.size();
     stream << ",\"toManyClients\":" << statistics.toManyClients;
+    stream << ",\"tcpWriteErr\":" << statistics.tcpWriteErr;
     stream << ",\"newClientConnection\":" << statistics.newClientConnection;
     stream << "}";
 }
@@ -34,11 +35,18 @@ void AirConnect::getData(etl::string_stream &stream, const etl::string_view path
  */
 void AirConnect::on_receive(const GATAS::DataPortMsg &msg)
 {
-    (void)msg;
-    auto guard = SemaphoreGuard<true>(10, mutex);
-    for (auto &connection : connectedClients)
+    // Bus delivery can also enter from a lwIP/BTstack callback. Never wait
+    // for this mutex while holding the shared CYW43/lwIP core lock.
+    if (auto guard = SemaphoreGuard(0, mutex))
     {
-        connection.write(msg.sentence);
+        for (auto &connection : connectedClients)
+        {
+            connection.write(msg.sentence);
+        }
+    }
+    else
+    {
+        statistics.tcpWriteErr++;
     }
 }
 
@@ -50,33 +58,45 @@ void AirConnect::on_receive_unknown(const etl::imessage &msg)
 void AirConnect::on_receive(const GATAS::Every5SecMsg &msg)
 {
     (void)msg;
-    auto guard = SemaphoreGuard<true>(5, mutex);
-
-    for (auto it = connectedClients.begin(); it != connectedClients.end();)
+    if (auto guard = SemaphoreGuard(0, mutex))
     {
-        if (it->isDisconnected())
+        for (auto it = connectedClients.begin(); it != connectedClients.end();)
         {
-            it = connectedClients.erase(it);
-        }
-        else
-        {
-            ++it;
+            if (it->isDisconnected())
+            {
+                // Wait for any final lwIP callback to finish before its
+                // TcpClient callback argument is destroyed with the entry.
+                it->tcpClient.stop();
+                it = connectedClients.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
         }
     }
 }
 
-void AirConnect::tcpAcceptHandler(struct tcp_pcb *pcb)
+err_t AirConnect::tcpAcceptHandler(struct tcp_pcb *pcb)
 {
+    // Returning an error lets lwIP dispose of the unadopted PCB. Waiting here
+    // would deadlock a producer holding mutex while entering TcpClient::write.
+    auto guard = SemaphoreGuard(0, mutex);
+    if (!guard)
+    {
+        return ERR_MEM;
+    }
+
     if (connectedClients.full())
     {
         statistics.toManyClients++;
-    } else {
-        auto guard = SemaphoreGuard<true>(1000, mutex);
-        auto &client = connectedClients.emplace_back(pcb, this);
-        (void)client;
-        client.write("AOK");
-        statistics.newClientConnection++;
+        return ERR_MEM;
     }
+
+    auto &client = connectedClients.emplace_back(pcb, this);
+    client.write("AOK");
+    statistics.newClientConnection++;
+    return ERR_OK;
 }
 
 /**

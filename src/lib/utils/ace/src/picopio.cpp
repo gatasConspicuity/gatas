@@ -1,28 +1,30 @@
 #include "../picopio.hpp"
+#include <initializer_list>
 
-/**
- * Find a free pio and state machine and load the program into it.
- * Returns false if this fails
- */
+/** Find a free PIO and state machine, publishing handles only on success. */
 bool add_pio_program(const pio_program_t *program, PIO *pio_hw, int *sm, uint *offset)
 {
+    *pio_hw = nullptr;
+    *sm = -1;
+    *offset = 0;
 #if defined(PICO_RP2040) || defined(PICO_RP2350)
-    *pio_hw = pio0;
-    if (!pio_can_add_program(*pio_hw, program))
+    for (auto candidate : {pio0, pio1})
     {
-        *pio_hw = pio1;
-        if (!pio_can_add_program(*pio_hw, program))
+        if (!pio_can_add_program(candidate, program))
         {
-            *offset = UINT8_MAX;
-            return false;
+            continue;
         }
-    }
-    *offset = pio_add_program(*pio_hw, program);
-    *sm = (int8_t)pio_claim_unused_sm(*pio_hw, false);
-    if (*sm < 0)
-    {
-        return false;
+        const int stateMachine = pio_claim_unused_sm(candidate, false);
+        if (stateMachine < 0)
+        {
+            continue;
+        }
+        const uint programOffset = pio_add_program(candidate, program);
+        *pio_hw = candidate;
+        *sm = stateMachine;
+        *offset = programOffset;
+        return true;
     }
 #endif
-    return true;
+    return false;
 }

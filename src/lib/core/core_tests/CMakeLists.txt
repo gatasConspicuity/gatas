@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 project(coreutils_tests)
 include(FetchContent)
+include(${CMAKE_CURRENT_LIST_DIR}/../../../gatas_version.cmake)
 
 message(STATUS "Building tests.")
 
@@ -37,11 +38,13 @@ endif()
 
 # These examples use the standard separate compilation
 set(SOURCES_IDIOMATIC_EXAMPLES # Tests
+    module_startup_test.cpp
     coreutils_test.cpp
     poolallocator_test.cpp
     antennaRadiationPattern_test.cpp
     models_test.cpp
     binarymessages_test.cpp
+    deviceactions_test.cpp
     ownship_pressure_test.cpp
     ownshipstate_test.cpp
     )
@@ -69,6 +72,7 @@ endforeach()
 
 target_sources(ownship_pressure_test PRIVATE ../../utils/ace/src/cobs.cpp)
 target_sources(binarymessages_test PRIVATE ../../utils/ace/src/cobs.cpp)
+target_sources(deviceactions_test PRIVATE ../../utils/ace/src/cobs.cpp)
 
 set(ALL_EXAMPLE_TARGETS ${TARGETS_IDIOMATIC_EXAMPLES})
 

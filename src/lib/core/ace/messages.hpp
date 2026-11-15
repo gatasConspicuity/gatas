@@ -4,6 +4,7 @@
 #include "basemodule.hpp"
 #include "models.hpp"
 #include "ownshipstate.hpp"
+#include "deviceactions.hpp"
 #include "poolallocator.hpp"
 #include "constants.hpp"
 
@@ -65,7 +66,9 @@ namespace GATAS
     struct IngressAircraftPositionsMsg : public etl::message<33>
     {
         static constexpr size_t MAX_POSITIONS = 10;
-        etl::vector<GATAS::AircraftPositionInfo, 10> positions;
+        etl::vector<GATAS::AircraftPositionInfo, MAX_POSITIONS> positions;
+        IngressAircraftPositionsMsg() = default;
+
         IngressAircraftPositionsMsg(const etl::ivector<GATAS::AircraftPositionInfo> &positions_)
             : positions(positions_.begin(), positions_.begin() + etl::min(positions_.size(), MAX_POSITIONS))
         {
@@ -352,5 +355,23 @@ namespace GATAS
 
         GatasConnectRx(PoolOwnedPtr<GATAS::GlobalPoolConfiguration, uint8_t> &&cobsMessage_, size_t length_, GATAS::GatasConnectTransport source_)
             : cobsMessage(etl::move(cobsMessage_)), length(length_), source(source_) {}
+    };
+    struct DeviceActionRequestMsg : public etl::message<39>
+    {
+        DeviceAction action;
+        explicit DeviceActionRequestMsg(DeviceAction action_) : action(action_) {}
+    };
+
+    struct SelectAircraftRequestMsg : public etl::message<42>
+    {
+        uint32_t icaoAddress;
+        explicit SelectAircraftRequestMsg(uint32_t address) : icaoAddress(address) {}
+    };
+
+    // Requests a platform reset from Idle.
+    struct SystemActionMsg : public etl::message<43>
+    {
+        DeviceAction action;
+        explicit SystemActionMsg(DeviceAction action_) : action(action_) {}
     };
 }

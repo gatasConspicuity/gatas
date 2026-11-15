@@ -10,8 +10,15 @@
 
 GATAS::PostConstruct WifiService::postConstruct()
 {
+    if (xTaskCreate(wifiTaskTrampoline, WifiService::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY, &taskHandle) != pdPASS)
+    {
+        return GATAS::PostConstruct::TASK_ERROR;
+    }
+    // The worker waits for postStart; reserve it before initializing shared networking.
     if (cyw43_arch_init())
     {
+        vTaskDelete(taskHandle);
+        taskHandle = nullptr;
         return GATAS::PostConstruct::HARDWARE_NOT_FOUND;
     }
     return GATAS::PostConstruct::OK;
@@ -24,10 +31,13 @@ void WifiService::start()
 void WifiService::postStart()
 {
 #if LWIP_MDNS_RESPONDER == 1
-    mdns_resp_init();
+    {
+        LwipRAIILock lock;
+        mdns_resp_init();
+    }
 #endif
-    xTaskCreate(wifiTaskTrampoline, WifiService::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY, &taskHandle);
     getBus().subscribe(*this);
+    xTaskNotify(taskHandle, 1, eSetBits);
 }
 
 bool WifiService::setData(const etl::string_view data, const etl::string_view path)
@@ -68,6 +78,8 @@ void WifiService::on_receive(const GATAS::WifiModeRequestMsg &msg)
 void WifiService::wifiTaskTrampoline(void *arg)
 {
     WifiService *wifiService = (WifiService *)arg;
+    uint32_t notification = 0;
+    xTaskNotifyWait(0, UINT32_MAX, &notification, portMAX_DELAY);
     wifiService->wifiTask();
 }
 
@@ -200,8 +212,11 @@ void WifiService::wifiTask()
             {
                 // NOTE: We must call these two, otherwise DHCP will 'keep' the IP of the previous and we
                 // won;t notify other services that the IP address has changed, like GDLoverUDP
-                dhcp_release_and_stop(&cyw43_state.netif[0]);
-                dhcp_start(&cyw43_state.netif[0]);
+                {
+                    LwipRAIILock lock;
+                    dhcp_release_and_stop(&cyw43_state.netif[0]);
+                    dhcp_start(&cyw43_state.netif[0]);
+                }
                 mDnsDeinit(CYW43_ITF_STA);
                 connectionState = ConnectionState::WIFISCAN; // STA already enabled, so just scan for clients
             }
@@ -285,16 +300,22 @@ void WifiService::startAccessPoint()
     IP4_ADDR(ip_2_ip4(&gw), 192, 168, 1, 1);
     IP4_ADDR(ip_2_ip4(&mask), 255, 255, 255, 0);
 
-    dhcp_server_init(&dhcp_server, &gw, &mask);
-    dns_server_init(&dns_server, &gw);
+    {
+        LwipRAIILock lock;
+        dhcp_server_init(&dhcp_server, &gw, &mask);
+        dns_server_init(&dns_server, &gw);
+    }
 
     wifiMode = GATAS::WifiMode::AP;
 }
 
 void WifiService::stopAccessPoint()
 {
-    dns_server_deinit(&dns_server);
-    dhcp_server_deinit(&dhcp_server);
+    {
+        LwipRAIILock lock;
+        dns_server_deinit(&dns_server);
+        dhcp_server_deinit(&dhcp_server);
+    }
     cyw43_arch_disable_ap_mode();
 }
 
@@ -424,8 +445,11 @@ void WifiService::disableClientMode()
 
 void WifiService::stopClient()
 {
-    dhcp_release_and_stop(&cyw43_state.netif[0]);
-    dhcp_start(&cyw43_state.netif[0]);
+    {
+        LwipRAIILock lock;
+        dhcp_release_and_stop(&cyw43_state.netif[0]);
+        dhcp_start(&cyw43_state.netif[0]);
+    }
     mDnsDeinit(CYW43_ITF_STA);
     cyw43_wifi_leave(&cyw43_state, 0);
     disableClientMode();
@@ -478,6 +502,7 @@ srv_txt(struct mdns_service *service, void *txt_userdata)
 void WifiService::mDnsInit(int itf)
 {
 #if LWIP_MDNS_RESPONDER == 1
+    LwipRAIILock lock;
     mdns_resp_add_netif(&cyw43_state.netif[itf], GATAS_MDNS_NAME);
     mdnsSlot = mdns_resp_add_service(&cyw43_state.netif[itf], GATAS_MDNS_NAME, "_http", DNSSD_PROTO_TCP, 80, srv_txt, NULL);
     mdns_resp_announce(&cyw43_state.netif[itf]);
@@ -487,6 +512,7 @@ void WifiService::mDnsInit(int itf)
 void WifiService::mDnsDeinit(int itf)
 {
 #if LWIP_MDNS_RESPONDER == 1
+    LwipRAIILock lock;
     if (mdnsSlot >= 0)
     {
         mdns_resp_del_service(&cyw43_state.netif[itf], mdnsSlot);

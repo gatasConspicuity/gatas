@@ -235,3 +235,51 @@ TEST_CASE("StaticGPS NMEA contract supports southern and western coordinates")
     REQUIRE(gll.latitude.value < 0);
     REQUIRE(gll.longitude.value < 0);
 }
+
+TEST_CASE("StaticGPS confirms large NTP corrections before changing time or PPS")
+{
+    class TestRtc : public RtcModule
+    {
+    public:
+        explicit TestRtc(etl::imessage_bus &bus) : RtcModule(bus) {}
+        GATAS::PostConstruct postConstruct() override { return GATAS::PostConstruct::OK; }
+        void start() override {}
+        void ppsEvent(int32_t offsetUs) override
+        {
+            lastOffset = offsetUs;
+            calls++;
+        }
+        int32_t lastOffset = 0;
+        unsigned calls = 0;
+    };
+
+    GATAS::ThreadSafeBus<4> bus;
+    StaticGpsConfig config(bus);
+    StaticGPS gps(bus, config);
+    TestRtc rtc(bus);
+    gps.rtc = &rtc;
+    time_us_64_SET(0);
+    constexpr uint64_t epoch = 1'787'769'125'000ULL;
+    CoreUtils::setOffsetMsSinceEpoch(epoch);
+
+    auto sample = [&](int64_t offsetMs)
+    {
+        gps.ntpTimeResult.store(NtpTimeResult{static_cast<uint64_t>(static_cast<int64_t>(CoreUtils::msSinceEpoch()) + offsetMs), CoreUtils::monotonic()});
+        return gps.applyNtpResult();
+    };
+
+    REQUIRE_FALSE(sample(200));
+    REQUIRE(CoreUtils::msSinceEpoch() == epoch);
+    REQUIRE(rtc.calls == 0);
+    REQUIRE_FALSE(sample(-200)); // A disagreement starts a new sequence.
+    REQUIRE_FALSE(sample(-220));
+    REQUIRE(sample(-210));
+    REQUIRE(CoreUtils::msSinceEpoch() == epoch - 210);
+    REQUIRE(rtc.calls == 1);
+    REQUIRE(rtc.lastOffset == 790'000);
+
+    REQUIRE_FALSE(sample(300));
+    REQUIRE(sample(20)); // A normal sample clears the pending jump.
+    REQUIRE_FALSE(sample(300));
+    REQUIRE(rtc.calls == 2);
+}

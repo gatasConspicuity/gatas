@@ -316,9 +316,15 @@ static void load(const etl::string_view str, etl::imessage_bus &bus, Configurati
     auto result = module->postConstruct();
     if (result == GATAS::PostConstruct::OK)
     {
-        BaseModule::setModuleStatus(str, module);
         printf("-> start() ");
-        module->start();
+        const auto startResult = module->startAndRegister(str);
+        if (startResult != GATAS::PostConstruct::OK)
+        {
+            printf("-> start failed [%s] ", postConstructToString(startResult));
+            // TODO: Find out why deleting a module
+            // For some strange reason when deleting a module, I get a hard crash
+            // delete module;
+        }
     }
     else
     {
@@ -633,12 +639,18 @@ void vLaunch(void)
 
     // Load all the modules
     TaskHandle_t task;
-    xTaskCreate(loadModules, "LoadModulesTask", configMINIMAL_STACK_SIZE + 768, NULL, tskIDLE_PRIORITY, &task);
+    if (xTaskCreate(loadModules, "LoadModulesTask", configMINIMAL_STACK_SIZE + 768, NULL, tskIDLE_PRIORITY, &task) != pdPASS)
+    {
+        panic("Failed to create module loader task");
+    }
     vTaskCoreAffinitySet(task, 1);
 
     // Dump some CPU diagnostics to terminal of all running tasks
 #if configGENERATE_RUN_TIME_STATS == 1 && configSHOW_RUN_TIME_STATS == 1
-    xTaskCreate(vDiagnosticsTask, "DiagTask", configMINIMAL_STACK_SIZE + 64, nullptr, tskIDLE_PRIORITY, nullptr);
+    if (xTaskCreate(vDiagnosticsTask, "DiagTask", configMINIMAL_STACK_SIZE + 64, nullptr, tskIDLE_PRIORITY, nullptr) != pdPASS)
+    {
+        printf("Failed to create diagnostics task\n");
+    }
 #endif
 
 #if NO_SYS && configUSE_CORE_AFFINITY && configNUMBER_OF_CORES > 1

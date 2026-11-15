@@ -16,19 +16,26 @@ class CobsStreamHandler
 {
 private:
     etl::imessage_bus &bus;
-    Configuration &config;
     GATAS::OwnshipState &ownshipState;
     // gulpBuffer needs to be at least the size of one array of length ending with DelimiterBitmap
     etl::vector<uint8_t, 64> gulpBuffer;
     Gulp gulp;
+    GATAS::GatasConnectTransport lastTransport = GATAS::GatasConnectTransport::UDP;
 
 public:
-    CobsStreamHandler(etl::imessage_bus &bus_, Configuration &config_, GATAS::OwnshipState &ownshipState_) : bus(bus_), config(config_), ownshipState(ownshipState_), gulp(gulpBuffer, DelimiterBitmap::Null())
+    CobsStreamHandler(etl::imessage_bus &bus_, GATAS::OwnshipState &ownshipState_) : bus(bus_), ownshipState(ownshipState_), gulp(gulpBuffer, DelimiterBitmap::Null())
     {
     }
 
-    void handle(float ownShipLat, float ownShipLon, etl::span<uint8_t> cobsBuffer)
+    void handle(float ownShipLat, float ownShipLon, etl::span<uint8_t> cobsBuffer, GATAS::GatasConnectTransport transport = GATAS::GatasConnectTransport::UDP, uint8_t bootId = 0, bool allowNonDeviceActionFrames = true)
     {
+        // Never finish a buffered frame using another transport.
+        // Bluetooth already assembles complete frames separately per connection.
+        if (lastTransport != transport)
+        {
+            gulp.erase();
+            lastTransport = transport;
+        }
         gulp.setRef(cobsBuffer);
         etl::vector<GATAS::AircraftPositionInfo, GATAS::IngressAircraftPositionsMsg::MAX_POSITIONS> positionMessages;
         auto addPosition = [&](const GATAS::AircraftPositionInfo &position)
@@ -64,6 +71,26 @@ public:
             data = data.first(decodedSize);
             uint8_t frameType = data[0];
             etl::bit_stream_reader reader(data, etl::endian::big);
+
+            if (frameType == BinaryMessages::DataType::DEVICE_ACTION_REQUEST_V1)
+            {
+                if (transport == GATAS::GatasConnectTransport::Bluetooth)
+                {
+                    if (const auto request = BinaryMessages::deserializeDeviceActionRequestV1(data))
+                    {
+                        if (request->bootId == bootId)
+                        {
+                            bus.receive(GATAS::DeviceActionRequestMsg{request->action});
+                        }
+                    }
+                }
+                continue;
+            }
+            // Device actions above bypass the configuration-update holdback.
+            if (!allowNonDeviceActionFrames)
+            {
+                continue;
+            }
 
             if (frameType == BinaryMessages::DataType::OWNSHIP_PRESSURE_V1)
             {
@@ -121,19 +148,7 @@ public:
                 auto icaoAddress = BinaryMessages::deserializeSetIcaoAddressV1(reader);
                 if (icaoAddress != 0)
                 {
-                    auto current = config.gaTasConfig();
-                    auto callSign = config.getCallSignFromHex(icaoAddress);
-                    if (!callSign.empty() && current.conspicuity.icaoAddress != icaoAddress)
-                    {
-                        config.setValueBypath("config/aircraftId", callSign);
-
-                        // Tell attached systems to load any new data
-                        bus.receive(
-                            GATAS::ConfigUpdatedMsg{
-                                config,
-                                Configuration::NAME,
-                            });
-                    }
+                    bus.receive(GATAS::SelectAircraftRequestMsg{icaoAddress});
                 }
             }
 
