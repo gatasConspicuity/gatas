@@ -31,23 +31,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 -
 
-## [v3.6.0-rc4] - 2026-10-31
+## [v3.6.0] - 2026-11-15
 
 ### Added
 
-- Added periodic device-state broadcasts with supported capabilities, boot IDs,
-  and unsaved-configuration status, without request IDs, results, or sessions.
-- Response to specific DeviceActions so the device can be restarted/data saved over BLE via cobs
-- Display pressure source and altitude on AircraftTracker monitoring page
+- Added GATAS Connect device actions over BLE for saving configuration, restarting,
+  and entering USB boot mode.
+- Added supported actions, the current boot ID, and unsaved-configuration status
+  to periodic GATAS Connect configuration broadcasts.
+- Added pressure source and altitude to the AircraftTracker monitoring page.
 
 ### Changed
 
-- Use of SynchronizedValue instead of copyWithLick at various places
-- Technical debt handled with stability improvements
+- Moved periodic GATAS Connect sends to a worker task to keep network work out
+  of FreeRTOS timer callbacks.
+- Static GPS now requires three consistent measurements before applying an NTP
+  correction greater than 100 ms after the clock has valid time.
 
 ### Fixed
 
-- PressureAltitude for OGN/FLARM/ADS-L when transmitted over GDL90
+- Corrected GDL90 pressure altitude for traffic received over OGN, FLARM, and ADS-L.
+- Configuration remains marked as unsaved when a flash write fails.
+- Improved runtime stability by fixing lwIP locking, Bluetooth connection reset
+  handling, and radio tuner reconfiguration. Modules now preserve startup errors
+  when task allocation fails.
 
 ## [v3.5.1] - 2026-10-15
 
