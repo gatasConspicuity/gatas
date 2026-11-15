@@ -70,11 +70,10 @@ Relevant decoded fields are:
 | --- | --- | --- |
 | 0 | 1 | `AIRCRAFT_CONFIGURATIONS_V2` = 5 |
 | 1 | 1 | FLAGS: bits 0–1 encode WiFi mode (NC/AP/CLIENT); bit 2 (`0x04`) is dirty; bits 3–7 are reserved. |
-| 13 | 3 | Major, minor and bugfix version bytes; currently hardcoded to `3, 6, 0` in the serializer. |
+| 13 | 3 | Major, minor and bugfix version bytes derived from the build's Git tag. Builds without a usable version tag report `0.0.0`. |
 | 16 | 1 | 8-bit boot ID owned by GatasConnect. |
 
-The serializer currently does not use the build-derived version constants for
-these three bytes. GatasConnect increments its boot ID in `postConstruct()`;
+GatasConnect increments its boot ID in `postConstruct()`;
 the ID is stored in uninitialized RAM, can wrap through zero and can repeat.
 It is not a globally unique identifier or an authentication token.
 

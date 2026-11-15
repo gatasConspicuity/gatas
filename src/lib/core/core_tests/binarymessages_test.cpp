@@ -51,6 +51,7 @@ TEST_CASE("Aircraft configuration exposes WiFi mode and dirty state in flags", "
     REQUIRE(rawSize == sizeof(expected));
     for (size_t i = 0; i < sizeof(expected); ++i)
     {
+        CAPTURE(i);
         REQUIRE(buffer[i] == expected[i]);
     }
 

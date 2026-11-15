@@ -11,6 +11,7 @@
 #include <etl/to_arithmetic.h>
 #include "ace/cobs.hpp"
 #include "lib_crc.hpp"
+missing #include "constants.hpp"
 #include "coreutils.hpp"
 #include "models.hpp"
 #include "ace/measure.hpp"
@@ -416,13 +417,11 @@ public:
         writer.write_unchecked(gatasIp, 32U);
         writer.write_unchecked(icaoAddressSnap, 24U);
 
-        writer.write_unchecked<uint8_t>(3); // GATAS::VERSION_MAJOR
-        writer.write_unchecked<uint8_t>(6); // GATAS::VERSION_MINOR
-        writer.write_unchecked<uint8_t>(0); // GATAS::VERSION_BUGFIX
+        writer.write_unchecked<uint8_t>(GATAS::VERSION_MAJOR);
+        writer.write_unchecked<uint8_t>(GATAS::VERSION_MINOR);
+        writer.write_unchecked<uint8_t>(GATAS::VERSION_BUGFIX);
         writer.write_unchecked<uint8_t>(bootId);
         writer.write_unchecked(pinCode, 24U); // gatasConnect Pincode
-
-//        GATAS_WARN("VERSION: %d %d %d", GATAS::VERSION_MAJOR, GATAS::VERSION_MINOR, GATAS::VERSION_BUGFIX);
 
         // options how to set the addres as a response
         // Examples could be:
