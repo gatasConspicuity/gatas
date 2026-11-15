@@ -8,8 +8,11 @@ This document maps every message type to its sender(s) and receiver(s).
 
 > **Direct handoff note**: Some important current flows are shown even though they are not plain bus publishes, notably `Dump1090Client -> ADSBDecoder` and `Sx1262 / Lr2021 -> RxDataFrameQueue`.
 
-Both radios inherit `AbstractTransceiver` and expose the same `_Radio_N` identity.
-Only one of `Sx1262_N` and `Lr2021_N` may be enabled for a slot. The common base
+Both radios inherit `AbstractTransceiver`. Successfully loaded radios receive consecutive
+`_Radio_N` identities starting at zero, independently of their configuration suffix.
+`Sx1262_0` and `Lr2021_0` can coexist with distinct wiring; failed loads consume no slot.
+Loading checks SX1262 then LR2021 for each configuration index and stops assigning
+slots at `GATAS_MAX_RADIOS`. The common base
 handles radio control, TX frames, GPS gating and configuration updates; each chip
 implements the hardware operations. See [LR2021 setup](lr2021.md).
 
@@ -76,6 +79,7 @@ rectangle "Infrastructure" {
     [Config]
     [WifiService]
     [Bmp280]
+    [Bmp580]
     [PicoRtc]
 }
 
@@ -99,6 +103,7 @@ rectangle "Infrastructure" {
 [RxDataFrameQueue] --> [Flarm2024] : RadioRxManchesterMsg
 [RxDataFrameQueue] --> [ADSLAce] : RadioRxManchesterMsg\nRadioRxMsg
 [RxDataFrameQueue] --> [FanetAce] : RadioRxMsg
+[RxDataFrameQueue] --> [ADSBDecoder] : RadioRxMsg (1090 MHz ADS-B)
 [Dump1090Client] ..> [ADSBDecoder] : ADS-B binary\n(direct receiveBinary)
 [Ogn1] --> [AircraftTracker] : IngressAircraftPositionMsg
 [Flarm2024] --> [AircraftTracker] : IngressAircraftPositionMsg
@@ -125,6 +130,7 @@ rectangle "Infrastructure" {
 [DataPort] --> [AirConnect] : DataPortMsg
 [Idle] --> [DataPort] : Every1SecMsg
 [Bmp280] --> [Ogn1] : BarometricPressureMsg
+[Bmp580] --> [Ogn1] : BarometricPressureMsg
 [GatasConnect] --> [Ogn1] : BarometricPressureMsg\nOwnship pressure altitude / QNH
 
 @enduml
@@ -234,6 +240,7 @@ package "Monitoring" {
 [RxDataFrameQueue] --> [Flarm2024] : RadioRxManchesterMsg
 [RxDataFrameQueue] --> [ADSLAce] : RadioRxManchesterMsg\nRadioRxMsg
 [RxDataFrameQueue] --> [FanetAce] : RadioRxMsg
+[RxDataFrameQueue] --> [ADSBDecoder] : RadioRxMsg (1090 MHz ADS-B)
 [Dump1090Client] ..> [ADSBDecoder] : ADS-B binary\n(direct receiveBinary)
 
 [Ogn1] --> [AircraftTracker] : IngressAircraftPositionMsg
@@ -351,6 +358,7 @@ title Sensor Data Flow
 left to right direction
 
 [Bmp280] --> [Ogn1] : BarometricPressureMsg
+[Bmp580] --> [Ogn1] : BarometricPressureMsg
 [GatasConnect] --> [Ogn1] : BarometricPressureMsg\nOwnship pressure altitude / QNH
 
 @enduml
@@ -384,6 +392,7 @@ package "Timer Consumers" {
     [AirConnect]
     [AircraftTracker]
     [Bmp280]
+    [Bmp580]
     [DataPort]
 }
 
@@ -419,7 +428,8 @@ package "Wifi Consumers" {
 [Idle] --> [AirConnect] : Every5SecMsg
 [Idle] --> [AircraftTracker] : Every5SecMsg
 [Idle] --> [DataPort] : Every1SecMsg\nEvery30SecMsg
-[Idle] --> [Bmp280] : Every30SecMsg
+[Idle] --> [Bmp280] : Every1SecMsg
+[Idle] --> [Bmp580] : Every1SecMsg
 
 [Config] --> [Sx1262 / Lr2021] : ConfigUpdatedMsg
 [Config] --> [GDLoverUDP] : ConfigUpdatedMsg
@@ -458,17 +468,17 @@ package "Wifi Consumers" {
 | `OwnshipPositionMsg` | `GpsDecoder` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `ADSBDecoder`, `AircraftTracker`, `RadioTunerRx`, `RadioTunerTx`, `Gdl90Service`, `DataPort`, `GatasConnect` | Empty notification after `GpsDecoder` atomically replaces `OwnshipState::location`; subscribers load their own snapshot. On each position update, `Gdl90Service` selects fresh pressure samples through `OwnshipState::calculatePressureAltitude()` for report 10; geometric report 11 retains ellipsoid height. |
 | `UtcTimeMsg` | `GpsDecoder` | `PicoRtc` | RTC synchronization. |
 | `GpsStatsMsg` | `GpsDecoder` | `Ogn1`, `ADSLAce`, `Sx1262` / `Lr2021`, `Gdl90Service`, `DataPort`, `GatasConnect`, `Idle` | GPS fix and DOP status. |
-| `BarometricPressureMsg` | `Bmp280`, `GatasConnect` | `Ogn1` | Empty notification after updating a timestamped ambient-pressure sample in `OwnshipState` and releasing its lock. COBS type 11 is exactly 6 bytes: type u8, pressure u16 in 0.1 hPa (0xffff unavailable), QNH u16 in 0.1 hPa (consumed but ignored), source u8; multi-byte fields are big endian. Sources: Unavailable/Unknown=0, Calculated=1, PressureSensor=2. The existing map retains the accepted sample keyed by measured/calculated method, with 5-second expiry. The update function takes an internal/external parameter (not a model or wire field). BMP280 is internal and COBS is external. It rejects external updates while internal data is fresh; for the same origin it prefers measured over calculated, then unknown-method data. Equal-priority updates replace the sample; stale data may be replaced by the next lower-priority update. Rejected updates are not cached and do not refresh the accepted timestamp. Missing data may invalidate its own accepted origin/method; malformed frames do not update or notify. Pressure altitude is calculated locally using 1013.25 hPa, without QNH or a GPS/QNH fallback. |
+| `BarometricPressureMsg` | `Bmp280`, `Bmp580`, `GatasConnect` | `Ogn1` | Empty notification after updating a timestamped ambient-pressure sample in `OwnshipState` and releasing its lock. COBS type 11 is exactly 6 bytes: type u8, pressure u16 in 0.1 hPa (0xffff unavailable), QNH u16 in 0.1 hPa (consumed but ignored), source u8; multi-byte fields are big endian. Sources: Unavailable/Unknown=0, Calculated=1, PressureSensor=2. The existing map retains the accepted sample keyed by measured/calculated method, with 5-second expiry. The update function takes an internal/external parameter (not a model or wire field). BMP280 and BMP580 are internal and COBS is external. It rejects external updates while internal data is fresh; for the same origin it prefers measured over calculated, then unknown-method data. Equal-priority updates replace the sample; stale data may be replaced by the next lower-priority update. Rejected updates are not cached and do not refresh the accepted timestamp. Missing data may invalidate its own accepted origin/method; malformed frames do not update or notify. Pressure altitude is calculated locally using 1013.25 hPa, without QNH or a GPS/QNH fallback. |
 | `RadioRxManchesterMsg` | `RxDataFrameQueue` | `Ogn1`, `Flarm2024`, `ADSLAce` | Produced after `Sx1262` / `Lr2021` receive + Manchester decode. |
-| `RadioRxMsg` | `RxDataFrameQueue` | `ADSLAce`, `FanetAce` | Produced after `Sx1262` / `Lr2021` receive for non-Manchester frames. |
+| `RadioRxMsg` | `RxDataFrameQueue` | `ADSLAce`, `FanetAce`, `ADSBDecoder` | Includes DF17 frames after the LR2021 driver decodes the 1090 MHz OOK chips. |
 | `IngressAircraftPositionMsg` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `ADSBDecoder` | `AircraftTracker`, `RadioTunerRx`, `GatasConnect` | Single aircraft decoded from any protocol. |
 | `IngressAircraftPositionsMsg` | `ADSLAce` | `AircraftTracker` | Batched ADS-L uplink traffic. |
 | `EgressAircraftPositionMsg` | `AircraftTracker` | `Gdl90Service`, `DataPort` | Tracker-selected traffic for outputs. `Gdl90Service` uses `AircraftPositionInfo::pressureAlt` for report 20. Both ownship and traffic pressure-altitude fields use `0xFFF` when unavailable or outside the encoding range; no MSL/ellipsoid fallback is used. |
 | `EgressAircraftPositionsMsg` | `AircraftTracker` | `ADSLAce` | Tracker-selected batch for ADS-L transmit. |
 | `TrackerStatsMsg` | `AircraftTracker` | `DataPort` | Current number of tracked aircraft after tracker maintenance. |
 | `AdapativeRadiusMsg` | `AircraftTracker` | `ADSBDecoder` | Decoder radius feedback. |
-| `RadioControlMsg` | `RadioTunerRx` | `Sx1262` / `Lr2021`, `RadioTunerTx` | Current receive slot / radio assignment. |
-| `RadioTxPositionRequestMsg` | `RadioTunerTx` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `AircraftTracker` | Triggers per-protocol transmit preparation. |
+| `RadioControlMsg` | `RadioTunerRx` | `Sx1262` / `Lr2021`, `RadioTunerTx` | Current receive slot on an RX-capable radio. TX uses this assignment as a preference. |
+| `RadioTxPositionRequestMsg` | `RadioTunerTx` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `AircraftTracker` | Triggers per-protocol transmit preparation when a loaded radio supports the TX profile and has transmission enabled. |
 | `RadioTxFrameMsg` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce` | `Sx1262` / `Lr2021` | Final frame sent to RF hardware. |
 | `DataPortMsg` | `DataPort`, `Bluetooth` | `AirConnect`, `Bluetooth` | NMEA-compatible egress and BLE NMEA ingress. |
 | `GdlMsg` | `Gdl90Service` | `GDLoverUDP`, `GatasConnect` | Packed GDL90 bytes for network and bridge outputs. |
@@ -477,16 +487,16 @@ package "Wifi Consumers" {
 | `WifiModeRequestMsg` | `GatasConnect` | `WifiService` | Companion-originated WiFi mode switch request derived from framed binary control traffic. |
 | `WifiConnectionStateMsg` | `WifiService` | `Dump1090Client`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP`, `DataPort`, `AirConnect`, `StaticGPS`, `Idle` | Shared network state. |
 | `AccessPointClientsMsg` | `WifiService` | `GDLoverUDP` | AP client list for UDP output policy. |
-| `Every1SecMsg` | `Idle` | `DataPort` | PFLAU heartbeat. |
+| `Every1SecMsg` | `Idle` | `DataPort`, `Bmp280`, `Bmp580` | PFLAU heartbeat and internal pressure sampling. |
 | `ConfigUpdatedMsg` | `Config` | `GpsDecoder`, `StaticGPS`, `Bmp280`, `Sx1262` / `Lr2021`, `Ogn1`, `ADSLAce`, `FanetAce`, `ADSBDecoder`, `AircraftTracker`, `RadioTunerRx`, `RadioTunerTx`, `Gdl90Service`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP` | Runtime config propagation. |
 | `Every5SecMsg` | `Idle` | `WifiService`, `AirConnect`, `ADSBDecoder`, `AircraftTracker` | Periodic maintenance. |
-| `Every30SecMsg` | `Idle` | `Bmp280`, `DataPort` | Slow periodic maintenance. |
+| `Every30SecMsg` | `Idle` | `DataPort` | Slow periodic maintenance. |
 
 ## Messages Currently Defined But Not Active In The Main Flow
 
 | Message | Current status |
 | --- | --- |
-| `ADSBMessageBinMsg` | Supported by `ADSBDecoder`, but the current `Dump1090Client` path calls `ADSBDecoder::receiveBinary(...)` directly instead of publishing to the bus. |
+| `ADSBMessageBinMsg` | Used as temporary frame storage by `Dump1090Client`, which calls `ADSBDecoder::receiveBinary(...)` directly. |
 | `Every15SecMsg` | Emitted by `Idle`, but there are no current subscribers. |
 | `Every300SecMsg` | Emitted by `Idle`, but there are no current subscribers. |
 | `IdleMsg` | Emitted by `Idle`, but there are no current subscribers. |

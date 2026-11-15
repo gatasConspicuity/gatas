@@ -70,6 +70,7 @@ public:
     };
 
     static constexpr uint8_t AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK = 0x03U;
+    static constexpr uint8_t AIRCRAFT_CONFIGURATION_PRIVACY_FLAG = 0x08U;
 
     static constexpr int32_t LEGACY_ELLIPSOID_HEIGHT_OFFSET_M = 100;
     static constexpr int32_t V3_ELLIPSOID_HEIGHT_OFFSET_M = 1000;
@@ -390,11 +391,12 @@ public:
         return getCOBSBufferSize(serializeOwnshipPositionSizeV2().items(1), true);
     }
 
-    static void serializeAircraftConfigurationV2(etl::bit_stream_writer &writer, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode)
+    static void serializeAircraftConfigurationV2(etl::bit_stream_writer &writer, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode, bool privacy)
     {
         writer.write_unchecked(DataType(DataType::AIRCRAFT_CONFIGURATIONS_V2).get_value(), 8U);
-        const uint8_t flags = static_cast<uint8_t>(wifiMode) & AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK;
-        writer.write_unchecked(flags, 8U); // Reserved bits, bits 0-1 encode WiFi mode: NC/AP/CLIENT
+        const uint8_t flags = (static_cast<uint8_t>(wifiMode) & AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK)
+            | (privacy ? AIRCRAFT_CONFIGURATION_PRIVACY_FLAG : 0U);
+        writer.write_unchecked(flags, 8U); // Bits 0-1 encode Wi-Fi mode, bit 3 keeps the sender out of the fleet.
         writer.write_unchecked(gatasId, 32U);
         writer.write_unchecked(gatasIp, 32U);
         writer.write_unchecked(icaoAddressSnap, 24U);
@@ -416,7 +418,7 @@ public:
         }
     }
 
-    static size_t serializeAircraftConfigurationV2(uint8_t *out, size_t outSize, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode)
+    static size_t serializeAircraftConfigurationV2(uint8_t *out, size_t outSize, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode, bool privacy)
     {
         const size_t rawSize = serializeAircraftConfigurationSizeV2().items(addresses.size());
         const size_t framedSize = serializeAircraftConfigurationFramedSizeV2(addresses.size());
@@ -427,7 +429,7 @@ public:
 
         uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
         etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
-        serializeAircraftConfigurationV2(writer, gatasId, icaoAddressSnap, addresses, gatasIp, pinCode, wifiMode);
+        serializeAircraftConfigurationV2(writer, gatasId, icaoAddressSnap, addresses, gatasIp, pinCode, wifiMode, privacy);
         return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
     }
 

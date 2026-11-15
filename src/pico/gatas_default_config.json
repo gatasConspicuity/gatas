@@ -89,12 +89,15 @@
   "Bmp280": {
     "compensation": 0
   },
+  "_comment_radioCapabilities": "Per-radio capabilities are comma-separated names. Ook1090 is receive-only.",
   "Sx1262_0": {
     "txEnabled": 1,
+    "capabilities": "Gfsk868,Lora868,Gfsk915",
     "offset": 0
   },
   "Sx1262_1": {
     "txEnabled": 1,
+    "capabilities": "Gfsk868,Lora868,Gfsk915",
     "offset": 0
   },
   "Flarm": {
@@ -237,6 +240,25 @@
       "_comment_spi": "This indicates the PICO's SPI number, not this device",
       "spi": 1
     },
+    "_comment_AceSpi_1": "GATASPulseLR2021 uses SPI0. GP15 reset is shared with the SX1262 and is managed by AceSpi_0.",
+    "AceSpi_1": {
+      "clk": 6,
+      "mosi": 7,
+      "miso": 4,
+      "spi": 0
+    },
+    "_comment_Lr2021_1": "GATASPulseLR2021 Wio-LR2021. GP22 connects to module DIO7 and must be free on the Waveshare SX1262 antenna-control selector.",
+    "Lr2021_1": {
+      "cs": 5,
+      "busy": 8,
+      "dio1": 22,
+      "dev": 1
+    },
+    "_comment_Bmp580": "GATASPulseLR2021 U3 on I2C1. Enabling Bmp580 reserves GP26 from the status LED.",
+    "Bmp580": {
+      "sda": 26,
+      "scl": 27
+    },
     "port5": {
       "O0": 26
     },
@@ -294,6 +316,6 @@
       "dev": 0
     }
   },
-  "Lr2021_0": {"txEnabled": false, "offset": 0, "irqDio": 7, "tcxoVoltage": -1, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1},
-  "Lr2021_1": {"txEnabled": false, "offset": 0, "irqDio": 7, "tcxoVoltage": -1, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1}
+  "Lr2021_0": {"txEnabled": false, "capabilities": "Gfsk868,Lora868,Gfsk915", "offset": 0, "irqDio": 7, "tcxoVoltage": -1, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1},
+  "Lr2021_1": {"txEnabled": false, "capabilities": "Gfsk868,Lora868,Gfsk915,Ook1090", "offset": 0, "irqDio": 7, "tcxoVoltage": 6, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1}
 }

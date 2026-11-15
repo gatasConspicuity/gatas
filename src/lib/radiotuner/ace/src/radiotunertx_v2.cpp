@@ -10,6 +10,11 @@
 
 GATAS::PostConstruct RadioTunerTx::postConstruct()
 {
+    for (size_t i = 0; i < radios.size(); ++i)
+    {
+        radios[i] = static_cast<Radio *>(moduleByName(*this, Radio::NAMES[i]));
+    }
+
     if (xTaskCreate(radioTuneTaskTrampoline, RadioTunerTx::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
     {
         return GATAS::PostConstruct::TASK_ERROR;
@@ -56,7 +61,16 @@ void RadioTunerTx::getData(etl::string_stream &stream, const etl::string_view pa
         uint16_t minT = isAirborne ? ds.slot->txMinTime : ds.slot->reducedTxMinTime;
         uint16_t maxT = isAirborne ? ds.slot->txMaxTime : ds.slot->reducedTxMaxTime;
 // #endif
-        stream << "{\"ds\":\"" << dsName << "\",\"min\":" << minT << ",\"max\":" << maxT << ",\"slots\":[";
+        stream << "{\"ds\":\"" << dsName << "\",\"min\":" << minT << ",\"max\":" << maxT << ",\"radio\":";
+        if (auto radio = selectRadio(ds.slot->radioConfig.dataSource(), ds.slot->rfConfig.capability))
+        {
+            stream << *radio;
+        }
+        else
+        {
+            stream << "null";
+        }
+        stream << ",\"slots\":[";
         bool firstSlot = true;
         for (const auto &ts : ds.slot->timeSlots)
         {
@@ -116,20 +130,20 @@ void RadioTunerTx::radioTuneTask()
                         continue;
                     }
 
-                    auto frequencyHz = CountryRegulations::getFrequency(ds.slot->rfConfig, channelTiming->channel);
-                    
-                    // GATAS_INFO("TX: DS: %s Freq:%lu radio:%d id:%u ms:%lu", GATAS::toString(ds.slot->radioConfig.dataSource()), frequencyHz, dataSourceToRadio[static_cast<uint8_t>(ds.slot->radioConfig.dataSource())], channelTiming->id, CoreUtils::timeMs32());
-                    
-                    GATAS_MEASURE("Request TX", 2000);
-                    getBus().receive(
-                        GATAS::RadioTxPositionRequestMsg{
-                            GATAS::RadioParameters{
-                                &ds.slot->radioConfig,
-                                &ds.slot->rfConfig,
-                                frequencyHz,
-                                channelTiming->id},
-                            dataSourceToRadio[static_cast<uint8_t>(ds.slot->radioConfig.dataSource())]});
-                    statistics.taskActivity += 1;
+                    if (auto radio = selectRadio(ds.slot->radioConfig.dataSource(), ds.slot->rfConfig.capability))
+                    {
+                        auto frequencyHz = CountryRegulations::getFrequency(ds.slot->rfConfig, channelTiming->channel);
+                        GATAS_MEASURE("Request TX", 2000);
+                        getBus().receive(
+                            GATAS::RadioTxPositionRequestMsg{
+                                GATAS::RadioParameters{
+                                    &ds.slot->radioConfig,
+                                    &ds.slot->rfConfig,
+                                    frequencyHz,
+                                    channelTiming->id},
+                                *radio});
+                        statistics.taskActivity += 1;
+                    }
 // #if GATAS_DEBUG == 1
                     // auto delayMs = CountryRegulations::nextRandomTxTime(false, *ds.slot);
 // #else
@@ -199,12 +213,38 @@ void RadioTunerTx::on_receive(const GATAS::ConfigUpdatedMsg &msg)
     }
 }
 
+etl::optional<uint8_t> RadioTunerTx::selectRadio(GATAS::DataSource source, GATAS::RadioCapability capability) const
+{
+    const auto preferred = preferredRadio[static_cast<uint8_t>(source)];
+    if (preferred != 0)
+    {
+        const auto *radio = radios[preferred - 1];
+        if (radio != nullptr && radio->supportsTx(capability))
+        {
+            return radio->radio();
+        }
+    }
+
+    for (const auto *radio : radios)
+    {
+        if (radio != nullptr && radio->supportsTx(capability))
+        {
+            return radio->radio();
+        }
+    }
+    return etl::nullopt;
+}
+
 void RadioTunerTx::on_receive(const GATAS::RadioControlMsg &msg)
 {
-    uint8_t dsId = static_cast<uint8_t>(msg.radioParameters.config->dataSource());
-    if (dsId < static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS))
+    if (msg.radioParameters.config == nullptr || msg.radioNo >= radios.size())
     {
-        dataSourceToRadio[dsId] = msg.radioNo;
+        return;
+    }
+    uint8_t dsId = static_cast<uint8_t>(msg.radioParameters.config->dataSource());
+    if (dsId < preferredRadio.size())
+    {
+        preferredRadio[dsId] = msg.radioNo + 1;
     }
     else
     {

@@ -15,7 +15,20 @@ class Config : public MockConfig
 public:
     using MockConfig::MockConfig;
     const GATAS::PinTypeMap pinMap(etl::string_view, etl::string_view = {}) const override { return pins(); }
-    int valueByPath(int fallback, etl::string_view, etl::string_view) const override { return fallback; }
+    GATAS::ConfigString capabilities = "Gfsk868,Lora868,Gfsk915";
+    int valueByPath(int fallback, etl::string_view name, etl::string_view key) const override
+    {
+        return name == "Lr2021_1" && key == "txEnabled" ? 1 : fallback;
+    }
+    const GATAS::ConfigString strValueByPath(etl::string_view fallback, etl::string_view name,
+                                            etl::string_view key) const override
+    {
+        if (name == "Lr2021_1" && key == "capabilities")
+        {
+            return capabilities;
+        }
+        return GATAS::ConfigString(fallback);
+    }
 };
 class Spi : public SpiModule
 {
@@ -38,6 +51,7 @@ class TestLr2021 : public Lr2021
 {
 public:
     using Lr2021::Lr2021;
+    using Lr2021::decodeOokFrame;
     void attach(SpiModule &spi) { spiHall = &spi; }
     void configure(const GATAS::RadioParameters &parameters, bool tx, uint8_t length)
     {
@@ -52,7 +66,7 @@ struct Fixture
     etl::message_bus<8> bus;
     Config config{bus};
     Spi spi{bus};
-    TestLr2021 radio{bus, config, 0};
+    TestLr2021 radio{bus, config, 0, 0};
     Fixture() { RadioTest::reset(); radio.attach(spi); xSemaphoreTakeValue = pdTRUE; }
 };
 const std::vector<uint8_t> &command(uint16_t opcode)
@@ -76,6 +90,47 @@ TEST_CASE("LR2021 reads use separate command and response CS transactions")
     REQUIRE(RadioTest::reads == std::vector<size_t>{1, 2});
     REQUIRE(data[0] == 0x12);
     REQUIRE(data[1] == 0x34);
+}
+
+TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
+{
+    Fixture f;
+    const GATAS::RfConfig rf{GATAS::Modulation::OOK, 1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
+    const GATAS::LinkLayerConfig adsb{10, GATAS::DataSource::ADSB, false, 14, 0, 0, 0, {}};
+    const GATAS::RadioParameters profile{&adsb, &rf, rf.baseFrequency, 0};
+    f.radio.configure(profile, false, 0);
+    REQUIRE_FALSE(f.radio.hasHalError());
+    REQUIRE(command(0x0281) == std::vector<uint8_t>{2, 0x81, 0, 0x1e, 0x84, 0x80, 0, 0, 0});
+    REQUIRE(command(0x0282) == std::vector<uint8_t>{2, 0x82, 0, 16, 0, 0, 27, 0});
+    REQUIRE(command(0x0284) == std::vector<uint8_t>{2, 0x84, 0, 0, 0, 0x95, 0x88});
+    REQUIRE(command(0x0288) == std::vector<uint8_t>{2, 0x88, 0x02, 0x85, 15, 0, 0});
+    RadioTest::writes.clear();
+    f.radio.configure(profile, false, 0);
+    REQUIRE(RadioTest::writes.empty());
+    f.radio.configure(profile, true, 14);
+    REQUIRE(f.radio.hasHalError());
+    REQUIRE(RadioTest::writes.empty());
+    f.radio.configure(parameters, false, 0);
+    REQUIRE_FALSE(f.radio.hasHalError());
+    REQUIRE(command(0x0105) == std::vector<uint8_t>{1, 5, 0xf3, 1, 0x50, 0, 0, 0, 0xff, 0, 0, 0, 0});
+}
+
+TEST_CASE("LR2021 reconstructs a DF17 frame from the OOK FIFO chips")
+{
+    etl::array<uint8_t, 28> data{0, 0xa6, 0x65, 0x55, 0x69, 0x59, 0x56, 0xa6,
+        0x66, 0x95, 0xa5, 0x5a, 0x95, 0x59, 0xa6, 0x69, 0x96, 0x55, 0xa5, 0x95,
+        0x99, 0xa5, 0x59, 0x95, 0x69, 0x5a, 0x99, 0x6a};
+    const uint8_t expected[]{0x8d, 0x40, 0x62, 0x1d, 0x58, 0xc3, 0x82, 0xd6, 0x90, 0xc8, 0xac, 0x28, 0x63, 0xa7};
+    SECTION("valid chip pairs")
+    {
+        REQUIRE(TestLr2021::decodeOokFrame(data.data()));
+        REQUIRE(etl::equal(data.begin(), data.begin() + sizeof(expected), expected));
+    }
+    SECTION("invalid chip pair")
+    {
+        data[2] = 0;
+        REQUIRE_FALSE(TestLr2021::decodeOokFrame(data.data()));
+    }
 }
 TEST_CASE("LR2021 direct FIFO read uses one transaction without dummy byte")
 {
@@ -174,8 +229,16 @@ public:
     int listens = 0;
     int sends = 0;
     std::vector<uint8_t> transmitted;
-    explicit FakeRadio(etl::imessage_bus &bus, Spi &spi)
-        : AbstractTransceiver(bus, pins(), 0, true, false, 0, "FakeRadio") { spiHall = &spi; }
+    explicit FakeRadio(etl::imessage_bus &bus, Spi &spi,
+                       uint8_t capabilities = GATAS::LEGACY_RADIO_CAPABILITIES,
+                       bool schedulerOnly = false)
+        : AbstractTransceiver(bus, pins(), 0, true, false, 0, "FakeRadio", capabilities, schedulerOnly)
+    {
+        if (!schedulerOnly)
+        {
+            spiHall = &spi;
+        }
+    }
     bool initializeRadio() override { return true; }
     void configureRadio(const GATAS::RadioParameters &value, RadioDirection, uint8_t) override { lastRadioParameters = value; }
     void listen() override { ++listens; }
@@ -220,6 +283,27 @@ TEST_CASE("shared transceiver gates TX on GPS and logical slot")
     enqueue(radio);
     REQUIRE(radio.queued() == 1);
 }
+
+TEST_CASE("scheduler-only radio advertises capabilities and discards radio requests")
+{
+    Fixture f;
+    FakeRadio radio(f.bus, f.spi, 1, true);
+    REQUIRE(radio.postConstruct() == GATAS::PostConstruct::OK);
+    REQUIRE(radio.supportsRx(GATAS::RadioCapability::Gfsk868));
+    REQUIRE(radio.supportsTx(GATAS::RadioCapability::Gfsk868));
+    radio.start();
+    radio.fix(true);
+    xTaskNotifyCalled = false;
+    f.bus.receive(GATAS::RadioControlMsg{parameters, 0});
+    enqueue(radio);
+    REQUIRE_FALSE(xTaskNotifyCalled);
+    REQUIRE(radio.queued() == 0);
+    REQUIRE(RadioTest::transfers.empty());
+    etl::string<1024> status;
+    etl::string_stream stream(status);
+    radio.getData(stream, "");
+    REQUIRE(status.find("\"schedulerOnly:b\":1") != status.npos);
+}
 TEST_CASE("shared task preserves Manchester encoding and retries IRQ acknowledgement once")
 {
     Fixture f;
@@ -236,6 +320,50 @@ TEST_CASE("shared task preserves Manchester encoding and retries IRQ acknowledge
     REQUIRE(radio.irqReads == 1);
     REQUIRE(radio.acknowledgements == 2);
     REQUIRE(radio.listens == 1);
+}
+
+TEST_CASE("transceiver capabilities use the physical name and apply to RX and TX")
+{
+    using GATAS::RadioCapability;
+    Fixture f;
+    f.config.capabilities = "Gfsk868, Lora868";
+    TestLr2021 radio(f.bus, f.config, 1, 0);
+    REQUIRE(radio.supportsRx(RadioCapability::Gfsk868));
+    REQUIRE(radio.supportsRx(RadioCapability::Lora868));
+    REQUIRE_FALSE(radio.supportsRx(RadioCapability::Gfsk915));
+    REQUIRE_FALSE(radio.supportsTx(RadioCapability::Gfsk915));
+    REQUIRE(radio.supportsTx(RadioCapability::Gfsk868));
+    REQUIRE(radio.supportsTx(RadioCapability::Lora868));
+
+    f.config.capabilities = "Gfsk868,Unknown";
+    TestLr2021 invalid(f.bus, f.config, 1, 0);
+    REQUIRE_FALSE(invalid.supportsRx(RadioCapability::Gfsk868));
+    REQUIRE_FALSE(invalid.supportsTx(RadioCapability::Gfsk868));
+}
+
+TEST_CASE("1090 MHz OOK is opt-in and receive only on LR2021")
+{
+    using GATAS::RadioCapability;
+    Fixture f;
+    REQUIRE_FALSE(f.radio.supportsRx(RadioCapability::Gfsk868));
+    REQUIRE_FALSE(f.radio.supportsRx(RadioCapability::Ook1090));
+    f.config.capabilities = "Ook1090,Gfsk868";
+    TestLr2021 radio(f.bus, f.config, 1, 0);
+    REQUIRE(radio.supportsRx(RadioCapability::Ook1090));
+    REQUIRE(radio.supportsRx(RadioCapability::Gfsk868));
+    REQUIRE_FALSE(radio.supportsTx(RadioCapability::Ook1090));
+}
+
+TEST_CASE("transceiver rejects unsupported RX and TX requests")
+{
+    Fixture f;
+    FakeRadio radio(f.bus, f.spi, static_cast<uint8_t>(GATAS::RadioCapability::Lora868));
+    radio.fix(true);
+    xTaskNotifyCalled = false;
+    radio.on_receive(GATAS::RadioControlMsg{parameters, 0});
+    REQUIRE_FALSE(xTaskNotifyCalled);
+    enqueue(radio);
+    REQUIRE(radio.queued() == 0);
 }
 
 #include "ace/sx1262.hpp"
@@ -290,9 +418,12 @@ TEST_CASE("failed transceivers can be deleted through BaseModule while preservin
     {
         module = new Sx1262(bus, GATAS::PinTypeMap{}, 0, false, false, 0);
     }
-    SECTION("LR2021")
+    if constexpr (!Lr2021::SCHEDULER_ONLY)
     {
-        module = new Lr2021(bus, config, 0);
+        SECTION("LR2021")
+        {
+            module = new Lr2021(bus, config, 0, 0);
+        }
     }
 
     const auto name = module->name();
@@ -303,4 +434,40 @@ TEST_CASE("failed transceivers can be deleted through BaseModule while preservin
     delete module;
     REQUIRE(BaseModule::registeredModules().at(name).module == nullptr);
     REQUIRE(BaseModule::registeredModules().at(name).result == result);
+}
+
+TEST_CASE("LR2021 scheduler-only switch bypasses hardware discovery")
+{
+    if constexpr (Lr2021::SCHEDULER_ONLY)
+    {
+        Fixture f;
+        RadioTest::busy = true;
+        REQUIRE(f.radio.postConstruct() == GATAS::PostConstruct::OK);
+        REQUIRE(RadioTest::transfers.empty());
+    }
+}
+
+TEST_CASE("mixed transceivers with matching configuration indices have distinct runtime identities")
+{
+    etl::message_bus<8> bus;
+    Config config(bus);
+    Sx1262 sx(bus, config, 0, 0);
+    Lr2021 lr(bus, config, 0, 1);
+    REQUIRE(sx.radio() == 0);
+    REQUIRE(lr.radio() == 1);
+    REQUIRE(BaseModule::moduleByName(config, Radio::NAMES[0]) == &sx);
+    REQUIRE(BaseModule::moduleByName(config, Radio::NAMES[1]) == &lr);
+}
+
+TEST_CASE("failed radio identity can be reused by a different transceiver configuration")
+{
+    etl::message_bus<8> bus;
+    Config config(bus);
+    auto *failed = new Sx1262(bus, GATAS::PinTypeMap{}, 0, false, false, 0);
+    REQUIRE(failed->postConstruct() == GATAS::PostConstruct::HARDWARE_NOT_CONFIGURED);
+    delete failed;
+    REQUIRE(BaseModule::moduleByName(config, Radio::NAMES[0]) == nullptr);
+    Lr2021 replacement(bus, config, 1, 0);
+    REQUIRE(replacement.radio() == 0);
+    REQUIRE(BaseModule::moduleByName(config, Radio::NAMES[0]) == &replacement);
 }

@@ -85,17 +85,18 @@ public:
     };
 
     // clang-format off
-    static constexpr GATAS::RfConfig Europe_m     {GATAS::Modulation::GFSK, 868'200'000, 200'000, 14, 234300, 100000, 50000,  5}; // 8868.200 / 868.400
-    static constexpr GATAS::RfConfig Europe_hdr   {GATAS::Modulation::GFSK, 869'525'000, 200'000, 27, 234300, 200000, 50000,  5}; // 869.525
-    static constexpr GATAS::RfConfig Europe_ldr   {GATAS::Modulation::GFSK, 869'525'000, 200'000, 27, 234300,  38400, 12500, 10}; // 869.525
-    static constexpr GATAS::RfConfig Europe_lora  {GATAS::Modulation::LORA, 868'200'000, 200'000, 22, 250000,      0,     0,  0}; // 868.200 / 868.400
+    static constexpr GATAS::RfConfig Europe_m     {GATAS::Modulation::GFSK,   868'200'000, 200'000, 14, 234300, 100000, 50000,  5, GATAS::RadioCapability::Gfsk868}; // 8868.200 / 868.400
+    static constexpr GATAS::RfConfig Europe_hdr   {GATAS::Modulation::GFSK,   869'525'000, 200'000, 27, 234300, 200000, 50000,  5, GATAS::RadioCapability::Gfsk868}; // 869.525
+    static constexpr GATAS::RfConfig Europe_ldr   {GATAS::Modulation::GFSK,   869'525'000, 200'000, 27, 234300,  38400, 12500, 10, GATAS::RadioCapability::Gfsk868}; // 869.525
+    static constexpr GATAS::RfConfig Europe_lora  {GATAS::Modulation::LORA,   868'200'000, 200'000, 22, 250000,      0,     0,  0, GATAS::RadioCapability::Lora868}; // 868.200 / 868.400
+    static constexpr GATAS::RfConfig Adsb1090     {GATAS::Modulation::OOK,  1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
 
     // Not validated
-    static constexpr GATAS::RfConfig NorthAmerica {GATAS::Modulation::GFSK, 902'200'000, 400'000, 30, 234300, 100000, 50000, 5};
-    static constexpr GATAS::RfConfig NewZealand   {GATAS::Modulation::GFSK, 869'250'000, 200'000, 10, 234300, 100000, 50000, 5};
-    static constexpr GATAS::RfConfig Australia    {GATAS::Modulation::GFSK, 917'000'000, 400'000, 30, 234300, 100000, 50000, 5};
-    static constexpr GATAS::RfConfig Israel       {GATAS::Modulation::GFSK, 916'200'000, 200'000, 22, 234300, 100000, 50000, 5};
-    static constexpr GATAS::RfConfig SouthAmerica {GATAS::Modulation::GFSK, 917'000'000, 400'000, 30, 234300, 100000, 50000, 5};
+    static constexpr GATAS::RfConfig NorthAmerica {GATAS::Modulation::GFSK, 902'200'000, 400'000, 30, 234300, 100000, 50000, 5, GATAS::RadioCapability::Gfsk915};
+    static constexpr GATAS::RfConfig NewZealand   {GATAS::Modulation::GFSK, 869'250'000, 200'000, 10, 234300, 100000, 50000, 5, GATAS::RadioCapability::Gfsk868};
+    static constexpr GATAS::RfConfig Australia    {GATAS::Modulation::GFSK, 917'000'000, 400'000, 30, 234300, 100000, 50000, 5, GATAS::RadioCapability::Gfsk915};
+    static constexpr GATAS::RfConfig Israel       {GATAS::Modulation::GFSK, 916'200'000, 200'000, 22, 234300, 100000, 50000, 5, GATAS::RadioCapability::Gfsk915};
+    static constexpr GATAS::RfConfig SouthAmerica {GATAS::Modulation::GFSK, 917'000'000, 400'000, 30, 234300, 100000, 50000, 5, GATAS::RadioCapability::Gfsk915};
 
     // First byte of the syncWord is the preamble for TX
     //                                                                  dataSource                             packetLength when 0 enables variable packet length mode, acts as a max packet length in variable mode
@@ -109,6 +110,7 @@ public:
     static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSL          { 4, GATAS::DataSource::ADSLM,      true,  25, 16, 48, 8, {0x55, 0x99, 0x95, 0xA6, 0x9A, 0x65}};                   // ADSL on normal 0xA9, 0x6A => 0x18 26Byte first byt elength = 25Byte
     static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSLO_HDR     { 5, GATAS::DataSource::ADSLO_HDR, false,   0, 16, 16, 0, {0x2D, 0xD4}};                                           // ADSL on O band HDR
     static constexpr GATAS::LinkLayerConfig PROTOCOL_FANET         { 7, GATAS::DataSource::FANET,     false, 200, 12,  8, 0, {0xF1}};                                                 // FANET
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSB          {10, GATAS::DataSource::ADSB,      false, 14, 0, 0, 0, {}};
 
     // Needs further research I did not get reliable reception yet
     static constexpr GATAS::LinkLayerConfig PROTOCOL_RX_ADSLFLARM  { 8, GATAS::DataSource::ADSLFLARM,  true,  29, 16, 16, 0, {0x96, 0xA5}};     // works to receive FLARM                                     // ADSL/FLARM RX Sync
@@ -117,6 +119,7 @@ public:
 
     // Europe
     static constexpr etl::array<ChannelTiming, 1> NOOP {ChannelTiming{Channel::CH00,      0, 1000, 0}};
+    static constexpr ProtocolRxTimeSlot ADSB_RX_TIMESLOT{CountryRegulations::Zone::enum_type::ZONE0, Adsb1090, PROTOCOL_ADSB, etl::span(NOOP)};
     static constexpr etl::array EU_FLARMT              {ChannelTiming{Channel::CH01,      0,  200, 0}, ChannelTiming{Channel::CH00, 400,  800, 0}, ChannelTiming{Channel::CH01, 800, 1000, 0}};
     static constexpr etl::array EU_OGNT                {ChannelTiming{Channel::CH00,      0,  200, 0}, ChannelTiming{Channel::CH01, 400,  800, 0}, ChannelTiming{Channel::CH00, 800, 1000, 0}};
     static constexpr etl::array EU_ADSLM               {ChannelTiming{Channel::CH00,    450,  800, 0}, ChannelTiming{Channel::CH01, 800, 1000, 0}};
@@ -409,6 +412,11 @@ public:
     static etl::vector<const ProtocolRxTimeSlot *, GATAS_MAX_SOURCE_PER_RADIO * GATAS_MAX_RADIOS> getProtocolRxTimingsForZone(Zone zone, const etl::span<const GATAS::DataSourceConfig> dataSources)
     {
         etl::vector<const ProtocolRxTimeSlot *, GATAS_MAX_SOURCE_PER_RADIO * GATAS_MAX_RADIOS> result;
+        if (etl::any_of(dataSources.begin(), dataSources.end(), [](const auto &config)
+                        { return config.dataSource == GATAS::DataSource::ADSB && config.isRx(); }))
+        {
+            result.push_back(&ADSB_RX_TIMESLOT);
+        }
         for (const auto &slot : protocolRxTimimgs)
         {
             auto isDs = etl::find_if(dataSources.cbegin(), dataSources.cend(), [slot](GATAS::DataSourceConfig ds)

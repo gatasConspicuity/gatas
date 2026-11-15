@@ -57,18 +57,20 @@ private:
     CountryRegulations::Zone currentZone = CountryRegulations::Zone::ZONE0;
     // True when groundspeed indicates we are airborne; default false (conservative: use static timing)
     bool isAirborne = false;
-    etl::array<uint8_t, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> dataSourceToRadio = {};
+    // Store slot + 1 so zero represents a protocol with no observed RX assignment.
+    etl::array<uint8_t, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> preferredRadio = {};
+    etl::array<const Radio *, GATAS_MAX_RADIOS> radios = {};
     static constexpr size_t MaxQueueSize = static_cast<size_t>(GATAS::DataSource::_TRANSPROTOCOLS);
     etl::vector<DataSourceTxEvent, CountryRegulations::MAX_PROTOCOL_TX_TIMINGS> dataSourceTxEvents;
     etl::vector<GATAS::DataSourceConfig, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> configuredDatasources;
 
     EventSync eventSync;
     TaskHandle_t taskHandle;
-    uint8_t numRadios = 0;
 
 private:
     static void radioTuneTaskTrampoline(void *arg);
     void radioTuneTask();
+    etl::optional<uint8_t> selectRadio(GATAS::DataSource source, GATAS::RadioCapability capability) const;
 
     // ******************** Message bus receive handlers ********************
     // Handle receiving of zone information
@@ -85,14 +87,14 @@ public:
     {
         (void)config;
     }
-    virtual ~RadioTunerTx() = default;
-
     // Safe only after failed postConstruct(), before start().
     // Failure means no task was created; subscriptions begin in start().
     bool canDelete() const override
     {
         return true;
     }
+
+    virtual ~RadioTunerTx() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;
     virtual void start() override;

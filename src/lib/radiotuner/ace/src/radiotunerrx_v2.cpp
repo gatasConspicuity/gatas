@@ -12,17 +12,16 @@
 
 GATAS::PostConstruct RadioTunerRx::postConstruct()
 {
-    if (moduleByName(*this, Radio::NAMES[0]))
+    for (size_t i = 0; i < GATAS_MAX_RADIOS; ++i)
     {
-        radioCtxList.emplace_back(this, 0);
+        if (auto *radio = static_cast<Radio *>(moduleByName(*this, Radio::NAMES[i])))
+        {
+            radioCtxList.emplace_back(this, *radio);
+        }
     }
-    else
+    if (radioCtxList.empty())
     {
         return GATAS::PostConstruct::DEP_NOT_FOUND;
-    }
-    if (moduleByName(*this, Radio::NAMES[1]))
-    {
-        radioCtxList.emplace_back(this, 1);
     }
 
     if (xTaskCreate(radioTuneTask, RadioTunerRx::NAME.cbegin(), configMINIMAL_STACK_SIZE + 384, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
@@ -36,6 +35,11 @@ GATAS::PostConstruct RadioTunerRx::postConstruct()
 void RadioTunerRx::start()
 {
     getBus().subscribe(*this);
+    if (etl::any_of(configuredDatasources.begin(), configuredDatasources.end(),
+                    [](const auto &config) { return config.dataSource == GATAS::DataSource::ADSB && config.isRx(); }))
+    {
+        assignDataSourcesWithTrafficBias();
+    }
 };
 
 void RadioTunerRx::getData(etl::string_stream &stream, const etl::string_view path) const
@@ -94,6 +98,11 @@ void RadioTunerRx::radioTuneTask(void *arg)
 
         for (auto &&ref : radioTunerRx->radioCtxList)
         {
+            if (ref.idlePending)
+            {
+                ref.idlePending = false;
+                radioTunerRx->getBus().receive(GATAS::RadioControlMsg{GATAS::RadioParameters{}, ref.radioNo});
+            }
             if (ref.protocolTimings.empty() || ref.maxTimeMs == 0)
             {
                 continue;
@@ -176,7 +185,6 @@ void RadioTunerRx::on_receive(const GATAS::OwnshipPositionMsg &)
 
 void RadioTunerRx::on_receive(const GATAS::IngressAircraftPositionMsg &msg)
 {
-    GATAS_ASSERT(msg.position.dataSource < GATAS::DataSource::_TRANSPROTOCOLS, "Invalid datasource");
     if (static_cast<uint8_t>(msg.position.dataSource) < slotReceive.size())
     {
         slotReceive[static_cast<uint8_t>(msg.position.dataSource)] += 1;
@@ -243,25 +251,41 @@ void RadioTunerRx::assignDataSourcesWithTrafficBias()
 
 void RadioTunerRx::assignDataSourcesImpl(etl::span<const uint8_t> receiveBoost)
 {
-    if (currentZone.value() == CountryRegulations::Zone::enum_type::ZONE0)
+    auto availableTimings = CountryRegulations::getProtocolRxTimingsForZone(currentZone.value(), configuredDatasources);
+    auto guard = BaseModule::lockSharedMutex();
+
+    const size_t radioCount = radioCtxList.size();
+    if (radioCount == 0)
     {
         return;
     }
 
-    auto availableTimings = CountryRegulations::getProtocolRxTimingsForZone(currentZone.value(), configuredDatasources);
-    auto guard = BaseModule::lockSharedMutex();
+    etl::vector<uint8_t, GATAS_MAX_SOURCE_PER_RADIO * GATAS_MAX_RADIOS> owners;
+    for (size_t i = 0; i < availableTimings.size(); ++i)
+    {
+        const auto *timing = availableTimings[i];
+        uint8_t owner = UINT8_MAX;
+        for (size_t offset = 0; offset < radioCount; ++offset)
+        {
+            const auto &candidate = radioCtxList[(i + offset) % radioCount];
+            if (candidate.radio.supportsRx(timing->rfConfig.capability))
+            {
+                owner = candidate.radioNo;
+                break;
+            }
+        }
+        owners.push_back(owner);
+    }
 
-    // Assign availableTimings evenly over the radios
-    size_t radioCount = radioCtxList.size();
-    size_t idx = 0;
     for (auto &ctx : radioCtxList)
     {
+        const bool hadSchedule = ctx.idlePending || !ctx.protocolTimings.empty();
         ctx.clear();
         uint16_t secondIndex = 0;
 
         for (size_t i = 0; i < availableTimings.size(); i++)
         {
-            if (i % radioCount == idx)
+            if (owners[i] == ctx.radioNo)
             {
                 const auto *timing = availableTimings[i];
                 const uint8_t extraCount = etl::min<uint8_t>(receiveBoost[static_cast<uint8_t>(timing->radioConfig.dataSource())], 2) + 1;
@@ -271,6 +295,7 @@ void RadioTunerRx::assignDataSourcesImpl(etl::span<const uint8_t> receiveBoost)
                 }
             }
         }
+        ctx.idlePending = hadSchedule && ctx.protocolTimings.empty();
 
         // Shuffle
         // TODO: We can optmisr htis properly bynot caling this
@@ -285,13 +310,11 @@ void RadioTunerRx::assignDataSourcesImpl(etl::span<const uint8_t> receiveBoost)
                 continue;
             }
             const uint16_t midMs = static_cast<uint16_t>((entry.start() + entry.end()) / 2);
-            if (!fillNoop(entry, midMs, availableTimings, radioCount, idx, true))
+            if (!fillNoop(entry, midMs, availableTimings, owners, ctx, true))
             {
-                fillNoop(entry, midMs, availableTimings, radioCount, idx, false);
+                fillNoop(entry, midMs, availableTimings, owners, ctx, false);
             }
         }
-
-        idx++;
     }
 }
 
@@ -384,13 +407,13 @@ bool RadioTunerRx::appendProtocolTimings(RadioProtocolCtx &ctx, const CountryReg
         while (prevRelEnd < slotRelStart && !ctx.protocolTimings.full())
         {
             const uint16_t fillRelEnd = etl::min(static_cast<uint16_t>(prevRelEnd + MAX_NOOP_MS), slotRelStart);
-            ctx.protocolTimings.emplace_back(nullptr, CountryRegulations::Channel::NOOP, prevRelEnd, fillRelEnd, secondIndex);
+            ctx.protocolTimings.push_back({nullptr, CountryRegulations::Channel::NOOP, prevRelEnd, fillRelEnd, secondIndex});
             prevRelEnd = fillRelEnd;
         }
         if (!ctx.protocolTimings.full())
         {
             const uint16_t cappedRelEnd = etl::min(slot.end, SECOND_END);
-            ctx.protocolTimings.emplace_back(timing, slot.channel, slotRelStart, cappedRelEnd, secondIndex);
+            ctx.protocolTimings.push_back({timing, slot.channel, slotRelStart, cappedRelEnd, secondIndex});
             prevRelEnd = cappedRelEnd;
         }
     }
@@ -398,7 +421,7 @@ bool RadioTunerRx::appendProtocolTimings(RadioProtocolCtx &ctx, const CountryReg
     while (prevRelEnd < SECOND_END && !ctx.protocolTimings.full())
     {
         const uint16_t fillRelEnd = etl::min(static_cast<uint16_t>(prevRelEnd + MAX_NOOP_MS), SECOND_END);
-        ctx.protocolTimings.emplace_back(nullptr, CountryRegulations::Channel::NOOP, prevRelEnd, fillRelEnd, secondIndex);
+        ctx.protocolTimings.push_back({nullptr, CountryRegulations::Channel::NOOP, prevRelEnd, fillRelEnd, secondIndex});
         prevRelEnd = fillRelEnd;
     }
 
@@ -407,12 +430,14 @@ bool RadioTunerRx::appendProtocolTimings(RadioProtocolCtx &ctx, const CountryReg
     return !ctx.protocolTimings.full();
 }
 
-bool RadioTunerRx::fillNoop(RxTiming &entry, uint16_t midMs, etl::span<const CountryRegulations::ProtocolRxTimeSlot *> timings, size_t radioCount, size_t radioIdx, bool sameRadio)
+bool RadioTunerRx::fillNoop(RxTiming &entry, uint16_t midMs,
+                           etl::span<const CountryRegulations::ProtocolRxTimeSlot *> timings,
+                           etl::span<const uint8_t> owners, const RadioProtocolCtx &ctx, bool sameRadio)
 {
     for (size_t si = 0; si < timings.size(); si++)
     {
-        bool isOwnRadio = (si % radioCount == radioIdx);
-        if (isOwnRadio != sameRadio)
+        const bool isOwnRadio = owners[si] == ctx.radioNo;
+        if (isOwnRadio != sameRadio || !ctx.radio.supportsRx(timings[si]->rfConfig.capability))
         {
             continue;
         }

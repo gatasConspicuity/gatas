@@ -40,7 +40,7 @@ TEST_CASE("Aircraft configuration exposes wifi mode in reserved byte", "[binarym
     uint8_t buffer[64] = {};
 
     etl::bit_stream_writer ncWriter(buffer, rawSize, etl::endian::big);
-    BinaryMessages::serializeAircraftConfigurationV2(ncWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::NC);
+    BinaryMessages::serializeAircraftConfigurationV2(ncWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::NC, false);
     REQUIRE(buffer[0] == BinaryMessages::DataType(BinaryMessages::DataType::AIRCRAFT_CONFIGURATIONS_V2).get_value());
     REQUIRE((buffer[1] & BinaryMessages::AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK) == static_cast<uint8_t>(GATAS::WifiMode::NC));
     const uint8_t expected[] = {
@@ -54,12 +54,17 @@ TEST_CASE("Aircraft configuration exposes wifi mode in reserved byte", "[binarym
     }
 
     etl::bit_stream_writer apWriter(buffer, rawSize, etl::endian::big);
-    BinaryMessages::serializeAircraftConfigurationV2(apWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::AP);
+    BinaryMessages::serializeAircraftConfigurationV2(apWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::AP, false);
     REQUIRE((buffer[1] & BinaryMessages::AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK) == static_cast<uint8_t>(GATAS::WifiMode::AP));
 
     etl::bit_stream_writer clientWriter(buffer, rawSize, etl::endian::big);
-    BinaryMessages::serializeAircraftConfigurationV2(clientWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::CLIENT);
+    BinaryMessages::serializeAircraftConfigurationV2(clientWriter, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::CLIENT, false);
     REQUIRE((buffer[1] & BinaryMessages::AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK) == static_cast<uint8_t>(GATAS::WifiMode::CLIENT));
+
+    etl::bit_stream_writer privateWriter(buffer, rawSize, etl::endian::big);
+    BinaryMessages::serializeAircraftConfigurationV2(privateWriter, 0x01020304, 0x050607,
+        addressSpan, 0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::CLIENT, true);
+    REQUIRE(buffer[1] == (BinaryMessages::AIRCRAFT_CONFIGURATION_PRIVACY_FLAG | 2U));
 }
 
 TEST_CASE("WiFi mode control frame only accepts AP and CLIENT requests", "[binarymessages]")

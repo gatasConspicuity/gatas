@@ -53,7 +53,10 @@ void Idle::getData(etl::string_stream &stream, const etl::string_view path) cons
 
 GATAS::PostConstruct Idle::postConstruct()
 {
-    add_repeating_timer_ms(1000 / 8, Idle::blinkCb, this, &timer);
+    if (ledStatusIndicatorPin >= 0)
+    {
+        add_repeating_timer_ms(1000 / 8, Idle::blinkCb, this, &timer);
+    }
     return GATAS::PostConstruct::OK;
 }
 

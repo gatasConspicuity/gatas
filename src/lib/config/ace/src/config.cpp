@@ -460,8 +460,17 @@ const GATAS::Config::GaTasConfiguration Config::gaTasConfig() const
     etl::vector<GATAS::DataSourceConfig, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> protocols;
     auto appendProtocol = [&](GATAS::DataSource dataSource, GATAS::DataSourceMode mode)
     {
-        if (dataSource == GATAS::DataSource::NONE || protocols.full())
+        if (dataSource >= GATAS::DataSource::_TRANSPROTOCOLS || protocols.full())
         {
+            return;
+        }
+
+        if (dataSource == GATAS::DataSource::ADSB)
+        {
+            if (mode != GATAS::DataSourceMode::TX)
+            {
+                protocols.push_back({dataSource, GATAS::DataSourceMode::RX});
+            }
             return;
         }
 
@@ -535,7 +544,8 @@ const GATAS::Config::GaTasConfiguration Config::gaTasConfig() const
             .heightAboveGps = groundStation ? hag : static_cast<int16_t>(0),
         },
         .protocols = protocols,
-        .allIcaoAddresses = allIcaoAddresses};
+        .allIcaoAddresses = allIcaoAddresses,
+        .privacy = aircraftConfig["privacy"]};
 };
 
 bool Config::isModuleEnabled(const etl::string_view moduleName) const

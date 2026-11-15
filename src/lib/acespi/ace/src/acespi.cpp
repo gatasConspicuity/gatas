@@ -10,10 +10,13 @@ GATAS::PostConstruct AceSpi::postConstruct()
     }
     GATAS_REGISTER_MUTEX(mutex, "AceSpi_mutex");
 
-    // Reset is active-low, so we'll initialise it to a driven-high state
-    gpio_init(rst);
-    gpio_set_dir(rst, GPIO_OUT);
-    gpio_put(rst, 1);
+    // Some SPI buses share a reset line managed by another instance.
+    if (rst != UINT8_MAX)
+    {
+        gpio_init(rst);
+        gpio_put(rst, 1);
+        gpio_set_dir(rst, GPIO_OUT);
+    }
 
     // Set default SPI bus frequency
     spi_init(spi ? spi1 : spi0, GATAS_SPI_DEFAULT_BUS_FREQUENCY * 1000 * 1000);

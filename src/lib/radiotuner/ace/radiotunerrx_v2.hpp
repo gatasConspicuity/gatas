@@ -67,14 +67,17 @@ private:
 
         RadioTunerRx *controller;
         uint8_t radioNo;
+        const Radio &radio;
 
         //
         TimeSlotVector protocolTimings = {};
         size_t currentProtocolIdx = std::numeric_limits<size_t>::max();
+        bool idlePending = false;
         uint32_t maxTimeMs;
 
         // Constructor
-        RadioProtocolCtx(RadioTunerRx *controller_, uint8_t radioNo_) : controller(controller_), radioNo(radioNo_), protocolTimings()
+        RadioProtocolCtx(RadioTunerRx *controller_, const Radio &device)
+            : controller(controller_), radioNo(device.radio()), radio(device), protocolTimings()
         {
             clear();
         }
@@ -152,14 +155,14 @@ public:
         configuredDatasources = config.gaTasConfig().protocols;
         currentZone.set(CountryRegulations::Zone::ZONE0);
     }
-    virtual ~RadioTunerRx() = default;
-
     // Safe only after failed postConstruct(), before start().
     // Failure leaves no task; the member EventSync releases its event group.
     bool canDelete() const override
     {
         return true;
     }
+
+    virtual ~RadioTunerRx() = default;
 
     virtual GATAS::PostConstruct postConstruct() override;
     virtual void start() override;
@@ -173,11 +176,6 @@ private:
     void assignDataSourcesWithTrafficBias();
     void assignDataSourcesImpl(etl::span<const uint8_t> receiveBoost);
     void spreadSecondIndex(RadioProtocolCtx &ctx);
-    bool belongsToRadio(size_t timingIndex, size_t radioIndex, size_t radioCount)
-    {
-        return (timingIndex % radioCount) == radioIndex;
-    }
-
     bool appendProtocolTimings(RadioProtocolCtx &ctx, const CountryRegulations::ProtocolRxTimeSlot *timing, uint16_t &secondIndex);
 
     /**
@@ -186,7 +184,9 @@ private:
     uint8_t hasReceived(GATAS::DataSource ds);
     void clearTrafficStats();
 
-    static bool fillNoop(RxTiming &entry, uint16_t midMs, etl::span<const CountryRegulations::ProtocolRxTimeSlot *> timings, size_t radioCount, size_t radioIdx, bool sameRadio);
+    static bool fillNoop(RxTiming &entry, uint16_t midMs,
+                         etl::span<const CountryRegulations::ProtocolRxTimeSlot *> timings,
+                         etl::span<const uint8_t> owners, const RadioProtocolCtx &ctx, bool sameRadio);
     bool blockTasks();
     void releaseTasks();
 };

@@ -41,6 +41,7 @@ class GatasConnect : public BaseModule, public etl::message_router<GatasConnect,
     bool gdl90BridgeEnabled = false;
 
     uint32_t icaoAddress = 0;
+    bool privacy = false;
     uint32_t gatasIp = 0;
     uint32_t pinCode = 0;
     uint64_t gatasId = 0;

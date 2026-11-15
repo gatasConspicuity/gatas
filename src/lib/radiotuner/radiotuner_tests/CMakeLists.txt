@@ -38,6 +38,7 @@ set( SOURCES_IDIOMATIC_EXAMPLES
    
    # Tests
    countryregulations2_test.cpp
+   radio_capabilities_test.cpp
    # radiotunerrx_test.cpp
 )
 
@@ -51,7 +52,6 @@ set( ACE_SOURCE_FILES
         ../../core/ace/src/models.cpp
 
         ../ace/src/countryregulations_v2.cpp
-#        ../ace/src/radiotunertx_v2.cpp
 )
 
 
@@ -66,6 +66,10 @@ foreach(name ${TARGETS_IDIOMATIC_EXAMPLES})
     POST_BUILD
     COMMAND ${UNIT_TEST})
 endforeach()
+
+target_sources(radio_capabilities_test PRIVATE
+  ../ace/src/radiotunerrx_v2.cpp
+  ../ace/src/radiotunertx_v2.cpp)
 
 set(ALL_EXAMPLE_TARGETS
   ${TARGETS_IDIOMATIC_EXAMPLES}

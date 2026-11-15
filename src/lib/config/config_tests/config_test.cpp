@@ -76,7 +76,7 @@ TEST_CASE("Fully Configured", "[single-file]")
         REQUIRE(static_cast<uint32_t>(12345678) == static_cast<uint32_t>(hwConfig.conspicuity.icaoAddress));
         REQUIRE(GATAS::AddressType::OGN == hwConfig.conspicuity.addressType);
         REQUIRE(GATAS::AircraftCategory::SMALL == hwConfig.conspicuity.category);
-        //        REQUIRE ( (hwConfig.privacy == 0) );
+        REQUIRE_FALSE(hwConfig.privacy);
         REQUIRE(4 == hwConfig.protocols.size());
         REQUIRE(GATAS::DataSource::OGN == hwConfig.protocols[0].dataSource);
         REQUIRE(GATAS::DataSourceMode::RX_TX == hwConfig.protocols[0].mode);
@@ -86,6 +86,30 @@ TEST_CASE("Fully Configured", "[single-file]")
         REQUIRE(GATAS::DataSourceMode::RX_TX == hwConfig.protocols[2].mode);
         REQUIRE(GATAS::DataSource::FLARM == hwConfig.protocols[3].dataSource);
         REQUIRE(GATAS::DataSourceMode::RX_TX == hwConfig.protocols[3].mode);
+    }
+
+    SECTION("Aircraft privacy follows the saved setting")
+    {
+        REQUIRE(config.setData(
+            R"=({"callSign":"XX-XXX","address":12345678,"addressType":"OGN","category":"Small","privacy":true})=",
+            "/api/Config/aircraft/XX-XXX.json"));
+        REQUIRE(config.gaTasConfig().privacy);
+
+        REQUIRE(config.setData(
+            R"=({"callSign":"XX-XXX","address":12345678,"addressType":"OGN","category":"Small","privacy":false})=",
+            "/api/Config/aircraft/XX-XXX.json"));
+        REQUIRE_FALSE(config.gaTasConfig().privacy);
+    }
+
+    SECTION("ADSB occupies an RX-only protocol slot")
+    {
+        REQUIRE(config.setData(
+            R"=({"callSign":"XX-XXX","address":12345678,"addressType":"OGN","category":"Small","protocols":["OGN","ADSL","FLARM","FANET",{"ADSB":{"mode":"RX_TX"}}]})=",
+            "/api/Config/aircraft/XX-XXX.json"));
+        const auto configured = config.gaTasConfig();
+        REQUIRE(configured.protocols.size() == 6);
+        REQUIRE(configured.protocols.back().dataSource == GATAS::DataSource::ADSB);
+        REQUIRE(configured.protocols.back().mode == GATAS::DataSourceMode::RX);
     }
 
     SECTION("Arrays")
@@ -103,6 +127,14 @@ TEST_CASE("Fully Configured", "[single-file]")
 
     SECTION("pinMap")
     {
+        SECTION("Bmp580 I2C pins")
+        {
+            const auto map = config.pinMap("Bmp580");
+            REQUIRE(map.size() == 2);
+            REQUIRE(map.at(GATAS::PinType::SDA) == 26);
+            REQUIRE(map.at(GATAS::PinType::SCL) == 27);
+        }
+
         SECTION("valid")
         {
             GATAS::PinTypeMap map = config.pinMap("Sx1262_1");

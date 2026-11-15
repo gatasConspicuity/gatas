@@ -76,7 +76,7 @@ private:
     etl::queue_spsc_atomic<Tx_Struct, 1, etl::memory_model::MEMORY_MODEL_SMALL> tXqueue;
 
     using ProtocolRadPattern = GATAS::AntennaRadiationPattern<GATAS_STATSCOLLECTOR_NUM_RADIALS>;
-    etl::array<ProtocolRadPattern, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> antennaRadiationPattern;
+    etl::array<ProtocolRadPattern, static_cast<uint8_t>(GATAS::DataSource::_RADIO)> antennaRadiationPattern;
     const GATAS::OwnshipState &ownshipState;
     bool ownshipPositionValid = false;
 

@@ -58,6 +58,8 @@ protected:
 
     const uint8_t device;
     const uint8_t radioNo;
+    const uint8_t capabilities;
+    const bool schedulerOnly;
     bool txEnabled;
     // We need to know if the current mode is ground station so the correct package length get's set
     bool groundStation;
@@ -86,6 +88,7 @@ protected:
     virtual RadioStatus acknowledgeIrq(uint32_t) = 0;
     virtual void receiveGFSKPacket() = 0;
     virtual void receiveLORAPacket() = 0;
+    virtual void receiveOOKPacket() {}
     virtual void sendPacket(const GATAS::RadioParameters &, const uint8_t *, uint8_t, uint32_t) = 0;
     RadioStatus sendQueuedPacket(const TxPacket &);
     static void taskTrampoline(void *);
@@ -93,13 +96,26 @@ protected:
 
 public:
     AbstractTransceiver(etl::imessage_bus &bus, const GATAS::PinTypeMap &pins, uint8_t number,
-                        bool transmit, bool ground, uint32_t offset, etl::string_view name)
+                        bool transmit, bool ground, uint32_t offset, etl::string_view name,
+                        uint8_t capabilities = GATAS::LEGACY_RADIO_CAPABILITIES,
+                        bool schedulerOnly = false)
         : Radio(bus, Radio::NAMES[number]), RadioHardware(pins), moduleName(name),
           device(CoreUtils::getPin(pins, GATAS::PinType::DEV, 0)), radioNo(number),
+          capabilities(capabilities), schedulerOnly(schedulerOnly),
           txEnabled(transmit), groundStation(ground), offsetHz(offset) {}
+    static uint8_t readCapabilities(const Configuration &, etl::string_view name,
+                                    uint8_t supported = GATAS::LEGACY_RADIO_CAPABILITIES);
     GATAS::PostConstruct postConstruct() override;
     void start() override;
     uint8_t radio() const override { return radioNo; }
+    bool supportsRx(GATAS::RadioCapability capability) const override
+    {
+        return (capabilities & static_cast<uint8_t>(capability)) != 0;
+    }
+    bool supportsTx(GATAS::RadioCapability capability) const override
+    {
+        return txEnabled && capability != GATAS::RadioCapability::Ook1090 && supportsRx(capability);
+    }
     void getData(etl::string_stream &, etl::string_view) const override;
     void on_receive(const GATAS::ConfigUpdatedMsg &);
     void on_receive(const GATAS::RadioTxFrameMsg &);

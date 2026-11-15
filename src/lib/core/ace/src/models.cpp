@@ -27,7 +27,9 @@ namespace GATAS
             {PinType::P2, "P2"},
             {PinType::AD0, "AD0"},
             {PinType::SPI, "SPI"},
-            {PinType::DEV, "DEV"}};
+            {PinType::DEV, "DEV"},
+            {PinType::SDA, "SDA"},
+            {PinType::SCL, "SCL"}};
 
     PinType stringToPinType(const char *str)
     {
@@ -137,6 +139,7 @@ namespace GATAS
     {
         {Modulation::GFSK, "Gfsk"},
         {Modulation::LORA, "Lora"},
+        {Modulation::OOK, "Ook"},
         {Modulation::NONE, "None"},
     };
 

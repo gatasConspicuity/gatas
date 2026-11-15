@@ -17,9 +17,9 @@
 
 ;
 
-void Sx1262::enterDisabledState(uint8_t radioNo, const Configuration &config)
+void Sx1262::enterDisabledState(uint8_t index, const Configuration &config)
 {
-    auto pinMap = config.pinMap(NAMES[radioNo]);
+    auto pinMap = config.pinMap(NAMES[index]);
     auto csPin = CoreUtils::getPin(pinMap, GATAS::PinType::CS, UINT8_MAX);
     if (csPin >= NUM_BANK0_GPIOS) { return; }
     gpio_init(csPin);

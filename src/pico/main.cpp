@@ -44,6 +44,7 @@
 #include "ace/gpsdecoder.hpp"
 #include "ace/acespi.hpp"
 #include "ace/bmp280.hpp"
+#include "ace/bmp580.hpp"
 #include "ace/sx1262.hpp"
 #include "ace/lr2021.hpp"
 #include "ace/radiotunerrx_v2.hpp"
@@ -89,15 +90,17 @@ void registerModules()
     BaseModule::registerModule(AceSpi::NAMES[0], true);
     BaseModule::registerModule(AceSpi::NAMES[1], true);
     BaseModule::registerModule(Bmp280::NAME, true);
+    BaseModule::registerModule(Bmp580::NAME, true);
     // BaseModule::registerModule(Config::NAME, true); // Uncomment if needed
     BaseModule::registerModule(Gdl90Service::NAME, false);
     BaseModule::registerModule(WifiService::NAME, false);
     BaseModule::registerModule(Webserver::NAME, false);
     BaseModule::registerModule(PicoRtc::NAME, false);
-    BaseModule::registerModule(Sx1262::NAMES[0], true);
-    BaseModule::registerModule(Sx1262::NAMES[1], true);
-    BaseModule::registerModule(Lr2021::NAMES[0], true);
-    BaseModule::registerModule(Lr2021::NAMES[1], true);
+    for (uint8_t i = 0; i < GATAS_MAX_RADIOS; ++i)
+    {
+        BaseModule::registerModule(Sx1262::NAMES[i], true);
+        BaseModule::registerModule(Lr2021::NAMES[i], !Lr2021::SCHEDULER_ONLY);
+    }
     BaseModule::registerModule(RadioTunerTx::NAME, false);
     BaseModule::registerModule(RadioTunerRx::NAME, false);
     BaseModule::registerModule(RxDataFrameQueue::NAME, false);
@@ -137,20 +140,17 @@ namespace
 void disabled(etl::string_view name, Configuration &config)
 {
     // clang-format off
-    if (name == Sx1262::NAMES[0]) {
-        Sx1262::enterDisabledState(0, config);
-    }
-    if (name == Sx1262::NAMES[1]) {
-        Sx1262::enterDisabledState(1, config);
-    }
     for (uint8_t i = 0; i < GATAS_MAX_RADIOS; ++i)
     {
+        if (name == Sx1262::NAMES[i]) { Sx1262::enterDisabledState(i, config); }
         if (name == Lr2021::NAMES[i]) { Lr2021::enterDisabledState(i, config); }
     }
     // clang-format on
 }
 
-BaseModule *loadModule(etl::string_view name, etl::imessage_bus &bus, Configuration &config)
+static int8_t ledStatusIndicatorPin = -1;
+
+BaseModule *loadModule(etl::string_view name, etl::imessage_bus &bus, Configuration &config, uint8_t runtimeRadio)
 {
     // clang-format off
     if (name == Ogn1::NAME)
@@ -203,13 +203,8 @@ BaseModule *loadModule(etl::string_view name, etl::imessage_bus &bus, Configurat
     {
         if (name == Sx1262::NAMES[i] || name == Lr2021::NAMES[i])
         {
-            if (config.isModuleEnabled(Sx1262::NAMES[i]) && config.isModuleEnabled(Lr2021::NAMES[i]))
-            {
-                GATAS_WARN("Two transceivers enabled for radio %u", i);
-                return nullptr;
-            }
-            if (name == Sx1262::NAMES[i]) { return new Sx1262(bus, config, i); }
-            return new Lr2021(bus, config, i);
+            if (name == Sx1262::NAMES[i]) { return new Sx1262(bus, config, i, runtimeRadio); }
+            return new Lr2021(bus, config, i, runtimeRadio);
         }
     }
     if (name == PicoRtc::NAME)
@@ -226,12 +221,16 @@ BaseModule *loadModule(etl::string_view name, etl::imessage_bus &bus, Configurat
     {
         return new Bmp280(bus, config, ownshipState);
     }
+    if (name == Bmp580::NAME)
+    {
+        return new Bmp580(bus, config, ownshipState);
+    }
     if (name == AceSpi::NAMES[0])
         return new AceSpi(bus, config, 0);
     if (name == AceSpi::NAMES[1])
         return new AceSpi(bus, config, 1);
     if (name == Idle::NAME)
-        return new Idle(bus, config);
+        return new Idle(bus, ledStatusIndicatorPin);
     // if (name == Config::NAME) return new Config(bus, FlashStore, DEFAULT_GATAS_CONFIG); // Uncomment if needed
     // clang-format on
 
@@ -269,7 +268,6 @@ static GATAS::ThreadSafeBus<24> bus;
 
 static Config config(bus, volatileStore, permanentStore, binaryStore, DEFAULT_GATAS_CONFIG);
 volatile static bool loadIndicator = false;
-volatile static int8_t ledStatusIndicatorPin = -1;
 
 static bool hasHardwareConfiguration(const etl::string_view moduleName, const Configuration &config)
 {
@@ -281,7 +279,7 @@ static bool hasHardwareConfiguration(const etl::string_view moduleName, const Co
     return !config.pinMap(moduleName).empty();
 }
 
-static void load(const etl::string_view str, etl::imessage_bus &bus, Configuration &config, bool force = false)
+static bool load(const etl::string_view str, etl::imessage_bus &bus, Configuration &config, bool force = false, uint8_t runtimeRadio = 0)
 {
     if (ledStatusIndicatorPin > -1)
     {
@@ -300,44 +298,32 @@ static void load(const etl::string_view str, etl::imessage_bus &bus, Configurati
 
     printf("\nLoading %s ... ", str.cbegin());
 
-    // for (uint8_t i = 0; i < GATAS_MAX_RADIOS; ++i)
-    // {
-    //     if ((str == Sx1262::NAMES[i] || str == Lr2021::NAMES[i]) &&
-    //         config.isModuleEnabled(Sx1262::NAMES[i]) && config.isModuleEnabled(Lr2021::NAMES[i]))
-    //     {
-    //         BaseModule::setModuleStatus(Sx1262::NAMES[i], GATAS::PostConstruct::CONFIG_ERROR);
-    //         BaseModule::setModuleStatus(Lr2021::NAMES[i], GATAS::PostConstruct::CONFIG_ERROR);
-    //         printf("conflicting transceivers for radio %u, skipping ", i);
-    //         return;
-    //     }
-    // }
-
     if (registeredModules[str].hwCheck && !hasHardwareConfiguration(str, config))
     {
         BaseModule::setModuleStatus(str, GATAS::PostConstruct::HARDWARE_NOT_CONFIGURED);
         printf("not configured for this device, skipping ");
-        return;
+        return false;
     }
 
     if (!(config.isModuleEnabled(str) || force))
     {
         printf("disabled ");
         disabled(str, config);
-        return;
+        return false;
     }
 
     if (!registeredModules.contains(str))
     {
         printf("-> not Found ");
-        return;
+        return false;
     }
 
-    auto *module = loadModule(str, bus, config);
+    auto *module = loadModule(str, bus, config, runtimeRadio);
 
     if (!module)
     {
         printf("-> out of memory ");
-        return;
+        return false;
     }
 
     printf("-> PostConstruct() ");
@@ -347,6 +333,7 @@ static void load(const etl::string_view str, etl::imessage_bus &bus, Configurati
         BaseModule::setModuleStatus(str, module);
         printf("-> start() ");
         module->start();
+        return true;
     }
     else
     {
@@ -359,6 +346,7 @@ static void load(const etl::string_view str, etl::imessage_bus &bus, Configurati
             printf("-> Unloading reason [%s] ", postConstructToString(result));
         }
     }
+    return false;
 }
 
 static void loadModules(void *arg)
@@ -369,6 +357,19 @@ static void loadModules(void *arg)
     ownshipState.init(CoreUtils::sharedSpinLock());
     config.postConstruct();
     config.start();
+
+    const int statusPin = config.valueByPath(26, "port5", "O0");
+    const auto bmp580Pins = config.pinMap(Bmp580::NAME);
+    const bool ledSharesI2cPin = config.isModuleEnabled(Bmp580::NAME) &&
+        (statusPin == CoreUtils::getPin(bmp580Pins, GATAS::PinType::SDA, 0xff) ||
+         statusPin == CoreUtils::getPin(bmp580Pins, GATAS::PinType::SCL, 0xff));
+    if (statusPin >= 0 && static_cast<uint>(statusPin) < NUM_BANK0_GPIOS && !ledSharesI2cPin)
+    {
+        ledStatusIndicatorPin = statusPin;
+        gpio_init(statusPin);
+        gpio_set_dir(statusPin, GPIO_OUT);
+        gpio_put(statusPin, 1);
+    }
 
     BaseModule::setModuleStatus(Configuration::NAME, &config);
 
@@ -407,21 +408,33 @@ static void loadModules(void *arg)
         Sx1262::enterDisabledState(i, config);
         Lr2021::enterDisabledState(i, config);
     }
-    for (uint8_t i = 0; i < GATAS_MAX_RADIOS; i++)
+    // Configuration suffixes identify physical modules, not runtime radio slots.
+    // Only successful loads consume a slot, including when mixing chip types.
+    uint8_t radioNo = 0;
+    for (uint8_t i = 0; i < GATAS_MAX_RADIOS; ++i)
     {
-        // Avoid disabled aliases manipulating the selected radio's CS pin.
-        if (config.isModuleEnabled(Lr2021::NAMES[i]))
+        for (const auto &name : {Sx1262::NAMES[i], Lr2021::NAMES[i]})
         {
-            load(Lr2021::NAMES[i], bus, config);
-        }
-        else
-        {
-            load(Sx1262::NAMES[i], bus, config);
+            if (!config.isModuleEnabled(name))
+            {
+                continue;
+            }
+            if (radioNo >= GATAS_MAX_RADIOS)
+            {
+                BaseModule::setModuleStatus(name, GATAS::PostConstruct::CONFIG_ERROR);
+                printf("\nSkipping %s: maximum radio count reached ", name.cbegin());
+                continue;
+            }
+            if (load(name, bus, config, false, radioNo))
+            {
+                ++radioNo;
+            }
         }
     }
 
     // Loaded after Sx1262 for now due to conflict at startup (SPI bus is not locked at that time)
     load(Bmp280::NAME, bus, config);
+    load(Bmp580::NAME, bus, config);
 
     // Other for these two are currently important to ensure configuration on TX is set before RX
     // see RadioTunerRx::enableDisableDatasources()
@@ -471,7 +484,10 @@ static void loadModules(void *arg)
 
         )=",
         static_cast<uint32_t>(config.internalStore()->gatasId));
-    gpio_put(ledStatusIndicatorPin, 1);
+    if (ledStatusIndicatorPin >= 0)
+    {
+        gpio_put(ledStatusIndicatorPin, 1);
+    }
 
     vTaskDelete(nullptr);
 }
@@ -662,13 +678,6 @@ void vDiagnosticsTask(void *pvParameters)
 
 void vLaunch(void)
 {
-    /*** Turn on LED ASAP to indicate that the device is on */
-    ledStatusIndicatorPin = config.valueByPath(26, "port5", "O0");
-    gpio_init(ledStatusIndicatorPin);
-    gpio_set_dir(ledStatusIndicatorPin, GPIO_OUT);
-    gpio_put(ledStatusIndicatorPin, 1); // Turn on LED to indicate booting
-    /*** Turn on LED ASAP to indicate that the device is on */
-
     // Bootstrap
     BaseModule::initBase();
     registerModules();

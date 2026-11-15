@@ -59,7 +59,9 @@ namespace GATAS
         P1,
         P2,
         AD0,
-        DEV
+        DEV,
+        SDA,
+        SCL
     };
 
     // PinType alias to uint8_t
@@ -211,8 +213,8 @@ namespace GATAS
         FANET = 3,
         OGN = 4,
         _RADIO = 5,          // ANything beflore Radio can only be received over hardware
-        _TRANSPROTOCOLS = 5, // Indicate maximum RADIO that can be received over low power (868MHZ etc..) used to limit array sizes
         ADSB = 5,
+        _TRANSPROTOCOLS = 6, // Number of protocols scheduled by the packet radios
         MLAT = 6,
         ADSLFLARM = 253, // Combination of ADSL/FLARM, not an acutal protocol but needed for RX of multiple protocols
         ADSLOGN = 254,   // Combination of ADSL/OGN, not an acutal protocol but needed for RX of multiple protocols
@@ -280,6 +282,7 @@ namespace GATAS
             Conspicuity conspicuity;
             etl::vector<GATAS::DataSourceConfig, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> protocols;
             etl::vector<uint32_t, GATAS::MAX_AIRCRAFT_CONFIG> allIcaoAddresses; // List of all configured hex codes of all aircraft
+            bool privacy = false;
         };
 
         /**
@@ -329,12 +332,14 @@ namespace GATAS
             NC = 0,
             AP = 1,
             CLIENT = 2,
+            NAP = 3
         };
 
         ETL_DECLARE_ENUM_TYPE(WifiMode, uint8_t)
         ETL_ENUM_TYPE(NC, "No Connection")
         ETL_ENUM_TYPE(AP, "Access Point Mode")
         ETL_ENUM_TYPE(CLIENT, "Client Mode")
+        ETL_ENUM_TYPE(NAP, "Not Applicable")
         ETL_END_ENUM_TYPE
     };
 
@@ -433,9 +438,24 @@ namespace GATAS
         NONE = 0,
         GFSK,
         LORA,
+        OOK,
     };
 
     const char *modulationToString(GATAS::Modulation mode);
+
+    // Internal flags for complete band and modulation pairs.
+    enum class RadioCapability : uint8_t
+    {
+        Gfsk868 = 1,
+        Lora868 = 2,
+        Gfsk915 = 4,
+        Ook1090 = 8,
+    };
+
+    constexpr uint8_t LEGACY_RADIO_CAPABILITIES =
+        static_cast<uint8_t>(RadioCapability::Gfsk868) |
+        static_cast<uint8_t>(RadioCapability::Lora868) |
+        static_cast<uint8_t>(RadioCapability::Gfsk915);
 
     struct RfConfig
     {
@@ -447,6 +467,7 @@ namespace GATAS
         uint32_t chipRate;
         uint16_t freqDiv;
         uint8_t gaussBt;
+        RadioCapability capability;
     };
 
     struct LinkLayerConfig
@@ -495,7 +516,7 @@ namespace GATAS
 
     struct RadioParameters
     {
-        static constexpr GATAS::RfConfig DEFAULT{GATAS::Modulation::GFSK, 868'200'000, 200'000, 14, 234300, 100000, 50000, 5}; // 868.2 / 868.4
+        static constexpr GATAS::RfConfig DEFAULT{GATAS::Modulation::GFSK, 868'200'000, 200'000, 14, 234300, 100000, 50000, 5, RadioCapability::Gfsk868}; // 868.2 / 868.4
 
         const GATAS::LinkLayerConfig *config = nullptr;
         const GATAS::RfConfig *frequency = &DEFAULT;

@@ -9,6 +9,8 @@ file(MAKE_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/generated)
 set(DEFAULT_CONFIG_HEADER "${CMAKE_CURRENT_LIST_DIR}/generated/default_config.hpp")
 set(OPTIMIZE_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/external/optimizejson.py
                     gatas_default_config.json ${DEFAULT_CONFIG_HEADER})
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_LIST_DIR}/gatas_default_config.json")
 
 set(LOCAL_CONFIG_FILE "${CMAKE_CURRENT_LIST_DIR}/gatas_local_config.json")
 if(EXISTS "${LOCAL_CONFIG_FILE}")
@@ -176,6 +178,7 @@ target_link_libraries(
           rtc
           acespi
           bmp280
+          bmp580
           tranceiver
           adslace
           flarmgatas

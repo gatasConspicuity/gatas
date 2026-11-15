@@ -63,6 +63,10 @@ etl::span<const CountryRegulations::ProtocolTxTimeSlot> CountryRegulations::getP
 
 const CountryRegulations::ProtocolRxTimeSlot &CountryRegulations::getProtocolRxTimings(CountryRegulations::Zone zone, GATAS::DataSource dataSource)
 {
+    if (dataSource == GATAS::DataSource::ADSB)
+    {
+        return ADSB_RX_TIMESLOT;
+    }
     for (size_t i = 0; i < protocolRxTimimgs.size(); ++i)
     {
         const auto &slot = protocolRxTimimgs[i];

@@ -19,7 +19,7 @@
 /**
  * ADSBDecoder decodes ADSB message from a ADSB device and forwards that as NMEA Strings
  */
-class ADSBDecoder : public BinaryReceiver, etl::message_router<ADSBDecoder, GATAS::ConfigUpdatedMsg, GATAS::Every5SecMsg, GATAS::AdapativeRadiusMsg>
+class ADSBDecoder : public BinaryReceiver, etl::message_router<ADSBDecoder, GATAS::ConfigUpdatedMsg, GATAS::Every5SecMsg, GATAS::AdapativeRadiusMsg, GATAS::RadioRxMsg>
 {
 private:
     static constexpr uint8_t MAX_PLANES_TRACKED = 48;
@@ -86,7 +86,7 @@ private:
     /**
      * Change a hex string into a byte array
      */
-    void on_receive(const GATAS::ADSBMessageBinMsg &msg);
+    void on_receive(const GATAS::RadioRxMsg &msg);
 
     virtual void receiveBinary(const uint8_t* data, uint8_t length) override;
     void processAdsbData(const uint8_t* data, uint8_t length);

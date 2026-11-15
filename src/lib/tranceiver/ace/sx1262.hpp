@@ -116,16 +116,17 @@ public:
 
     static constexpr etl::array<etl::string_view, 4> NAMES{"Sx1262_0", "Sx1262_1", "Sx1262_2", "Sx1262_3"};
 
-    Sx1262(etl::imessage_bus &bus, const GATAS::PinTypeMap &pins, uint8_t radioNo_, bool txEnabled_, bool groundStation, uint32_t offsetHz_) : AbstractTransceiver(bus, pins, radioNo_, txEnabled_, groundStation, offsetHz_, NAMES[radioNo_]) {}
-    Sx1262(etl::imessage_bus &bus, const Configuration &config, uint8_t radioNo_) : Sx1262(bus,
-                                                                                           config.pinMap(NAMES[radioNo_]),
-                                                                                           radioNo_,
-                                                                                           config.valueByPath(true, NAMES[radioNo_], "txEnabled"),
-                                                                                           config.gaTasConfig().conspicuity.groundStation,
-                                                                                           config.valueByPath(0, NAMES[radioNo_], "offset"))
+    Sx1262(etl::imessage_bus &bus, const GATAS::PinTypeMap &pins, uint8_t index_, bool txEnabled_, bool groundStation, uint32_t offsetHz_) : AbstractTransceiver(bus, pins, index_, txEnabled_, groundStation, offsetHz_, NAMES[index_]) {}
+    // The configuration index identifies wiring/settings; runtimeRadio identifies bus routing.
+    Sx1262(etl::imessage_bus &bus, const Configuration &config, uint8_t index, uint8_t runtimeRadio)
+        : AbstractTransceiver(bus, config.pinMap(NAMES[index]), runtimeRadio,
+              config.valueByPath(true, NAMES[index], "txEnabled"),
+              config.gaTasConfig().conspicuity.groundStation,
+              config.valueByPath(0, NAMES[index], "offset"), NAMES[index],
+              readCapabilities(config, NAMES[index]))
     {
-
     }
 
-    static void enterDisabledState(uint8_t radioNo, const Configuration &config);
+    // index is the configuration slot, not the runtime radio number.
+    static void enterDisabledState(uint8_t index, const Configuration &config);
 };

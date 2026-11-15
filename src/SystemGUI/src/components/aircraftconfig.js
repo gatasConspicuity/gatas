@@ -24,7 +24,7 @@ class AircraftConfig extends El {
       "Drop Plane"];
 
     this.transponderTypes = ["ICAO", "FLARM", "OGN", "ADSL"];
-    this.protocolTypes = ["OGN", "FLARM", "ADSL", "FANET"];
+    this.protocolTypes = ["OGN", "FLARM", "ADSL", "FANET", "ADSB"];
     this.protocolModes = [
       { value: "OFF", label: "OFF" },
       { value: "RX_TX", label: "RX/TX" },
@@ -157,7 +157,7 @@ class AircraftConfig extends El {
 
     for (const protocol of protocols) {
       if (typeof protocol === "string") {
-        normalized[protocol] = "RX_TX";
+        normalized[protocol] = protocol === "ADSB" ? "RX" : "RX_TX";
         continue;
       }
 
@@ -168,7 +168,9 @@ class AircraftConfig extends El {
           }
 
           const mode = protocolConfig?.mode ?? "RX_TX";
-          normalized[protocolName] = this.protocolModes.some((item) => item.value === mode) ? mode : "RX_TX";
+          normalized[protocolName] = protocolName === "ADSB"
+            ? (mode === "TX" || mode === "OFF" ? "OFF" : "RX")
+            : (this.protocolModes.some((item) => item.value === mode) ? mode : "RX_TX");
         }
       }
     }
@@ -194,13 +196,13 @@ class AircraftConfig extends El {
     this.$refs[`transponderType${aircraft.addressType?.toUpperCase()}`].selected = true;
     this.$refs.address.value = this._addressFormat(aircraft.address).toUpperCase();
     this.$refs.noTrack.checked = aircraft.noTrack;
+    this.$refs.privacy.checked = aircraft.privacy ?? false;
     this.$refs.groundStation.checked = aircraft.groundStation;
     this._updateGroundStationState(!!aircraft.groundStation);
     this.$refs.heightAboveGps.value = aircraft.heightAboveGps ?? 0;
     this.protocolModeState = this._normalizeProtocolModes(aircraft.protocols);
     this.protocolTypes.forEach((protocol) => this._updateProtocolModeStyles(protocol));
     //    this.$refs.autoConf.checked = aircraft.autoConf;
-    //    this.$refs.privacy.checked = aircraft.privacy;
   }
 
   _getFormData() {
@@ -210,11 +212,11 @@ class AircraftConfig extends El {
     aircraft.addressType = this.$refs.transponder.value;
     aircraft.address = Number("0x" + this.$refs.address.value);
     aircraft.noTrack = this.$refs.noTrack.checked;
+    aircraft.privacy = this.$refs.privacy.checked;
     aircraft.groundStation = this.$refs.groundStation.checked;
     aircraft.heightAboveGps = aircraft.groundStation ? (Number(this.$refs.heightAboveGps.value) || 0) : 0;
     //    aircraft.autoConf = this.$refs.autoConf.checked;
 
-    //    aircraft.privacy = this.$refs.privacy.checked;
     aircraft.protocols = [];
     for (let protocol of this.protocolTypes) {
       const mode = this.protocolModeState[protocol] ?? "OFF";
@@ -286,9 +288,9 @@ class AircraftConfig extends El {
             ${this.protocolTypes.map(
               (item) => html`
                 <div class="protocol-row">
-                  <div class="fw-bold">${item}</div>
+                  <div class="fw-bold">${item === "ADSB" ? "ADS-B (1090 MHz)" : item}</div>
                   <div class="protocol-options">
-                    ${this.protocolModes.map(
+                    ${this.protocolModes.filter((mode) => item !== "ADSB" || mode.value === "OFF" || mode.value === "RX").map(
                       (mode) => html`
                         <label class="${this._protocolModeLabelClass(this.protocolModeState[item] === mode.value)}" ref="${this._protocolLabelRefName(item, mode.value)}" for="${this._protocolInputId(item, mode.value)}">
                           <input
@@ -312,11 +314,10 @@ class AircraftConfig extends El {
         </div>
         <div>
 
-          <!-- <h5>Other</h5>
           <label for="privacy">
             <input type="checkbox" id="privacy" ref="privacy" />Privacy
           </label>
-          <small>GaTas Will use an random address and send it for the duration of the session.</small> -->
+          <small>Keeps this aircraft out of the GATAS Connect fleet.</small>
 
           <!--
           <label for="autoConf">

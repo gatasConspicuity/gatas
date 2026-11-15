@@ -261,3 +261,30 @@ TEST_CASE("failed ADSB decoder can be deleted without leaving a registered modul
     // Failure must not leave a subscriber referring to the deleted decoder.
     bus.receive(GATAS::AdapativeRadiusMsg{10'000'000});
 }
+
+TEST_CASE("ADSB decoder accepts complete DF17 frames from the radio bus")
+{
+    etl::message_bus<4> radioBus;
+    MockConfig config{radioBus};
+    ADSBDecoder decoder{radioBus, config, ownshipState};
+    xSemaphoreTakeValue = pdTRUE;
+    REQUIRE(decoder.postConstruct() == GATAS::PostConstruct::OK);
+    decoder.start();
+
+    const uint8_t sample[]{0x8d, 0x40, 0x62, 0x1d, 0x58, 0xc3, 0x82, 0xd6, 0x90, 0xc8, 0xac, 0x28, 0x63, 0xa7};
+    auto &pool = BaseModule::getGlobalPool();
+    auto send = [&](GATAS::DataSource source, size_t length)
+    {
+        auto *frame = static_cast<uint8_t *>(pool.alloc(length));
+        REQUIRE(frame != nullptr);
+        etl::copy_n(sample, length, frame);
+        radioBus.receive(GATAS::RadioRxMsg{pool, frame, length, 0, 1'090'000'000, source, -65});
+    };
+
+    send(GATAS::DataSource::FANET, sizeof(sample));
+    send(GATAS::DataSource::ADSB, sizeof(sample) - 1);
+    REQUIRE(decoder.adsbDataCollector.size() == 0);
+    send(GATAS::DataSource::ADSB, sizeof(sample));
+    REQUIRE(decoder.adsbDataCollector.size() == 1);
+    REQUIRE(decoder.adsbDataCollector.current().icao == 0x40621d);
+}

@@ -231,6 +231,7 @@ namespace GATAS
      */
     struct RadioControlMsg : public etl::message<28>
     {
+        // Default RadioParameters stop listening on the addressed radio.
         const GATAS::RadioParameters radioParameters;
         uint8_t radioNo;
         RadioControlMsg(const GATAS::RadioParameters &radioParameters_, uint8_t radioNo_) : radioParameters(radioParameters_), radioNo(radioNo_) {};

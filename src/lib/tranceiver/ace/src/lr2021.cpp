@@ -3,8 +3,19 @@
 #include "../../lr2021driver/inc/lr20xx_radio_fifo.h"
 #include "../../lr2021driver/inc/lr20xx_radio_fsk.h"
 #include "../../lr2021driver/inc/lr20xx_radio_lora.h"
+#include "../../lr2021driver/inc/lr20xx_radio_ook.h"
+#include "../../lr2021driver/inc/lr20xx_regmem.h"
 #include "../../lr2021driver/inc/lr20xx_workarounds.h"
 #include "../../lr2021driver/inc/lr20xx_pram.h"
+#include "ace/manchester.hpp"
+
+namespace
+{
+constexpr uint8_t DF17_SYNC = 0x95;
+constexpr uint8_t MODE_S_FRAME_BYTES = GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH;
+constexpr uint8_t OOK_FIFO_BYTES = 2 * MODE_S_FRAME_BYTES - 1;
+constexpr uint32_t OOK_TIMING_REGISTER = 0xF30150;
+}
 
 bool Lr2021::check(lr20xx_status_t status)
 {
@@ -71,11 +82,30 @@ bool Lr2021::initializeRadio()
 
 void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirection direction, uint8_t length)
 {
-    if (standBy(Standby::RC) != RadioStatus::OK) { return; }
+    const bool ook = parameters.frequency->mode == GATAS::Modulation::OOK;
     const uint32_t frequency = parameters.hopFrequency + offsetHz;
-    // OpenAce currently uses the LF path. Reject unsupported frequencies explicitly.
-    if (frequency < 150000000 || frequency > 960000000) { halError = true; return; }
-    if (calibratedFrequency == 0 || frequency / 10000000 != calibratedFrequency / 10000000)
+    if (ook ? direction != RadioDirection::RX || parameters.hopFrequency != 1'090'000'000 ||
+                  parameters.config->dataSource() != GATAS::DataSource::ADSB
+            : frequency < 150'000'000 || frequency > 960'000'000)
+    {
+        halError = true;
+        return;
+    }
+    if (ook && currentConfiguredModulation == GATAS::Modulation::OOK && calibratedFrequency == frequency)
+    {
+        // RX_DONE leaves the modem in standby with the packet configuration intact.
+        return;
+    }
+    if (standBy(Standby::RC) != RadioStatus::OK) { return; }
+    if (!ook && previousOokTiming)
+    {
+        if (!check(lr20xx_regmem_write_regmem32_mask(this, OOK_TIMING_REGISTER, 0xFF, *previousOokTiming)))
+        {
+            return;
+        }
+        previousOokTiming.reset();
+    }
+    if (ook ? frequency != calibratedFrequency : frequency / 10'000'000 != calibratedFrequency / 10'000'000)
     {
         const lr20xx_radio_common_front_end_calibration_value_t calibration{LR20XX_RADIO_COMMON_RX_PATH_LF, frequency};
         if (!check(lr20xx_radio_common_calibrate_front_end_helper(this, &calibration, 1))) { return; }
@@ -138,6 +168,43 @@ void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirec
             !check(lr20xx_radio_lora_set_packet_params(this, &packet)) ||
             !check(lr20xx_radio_lora_set_syncword(this, parameters.config->syncWord[0])) ||
             !check(lr20xx_workarounds_lora_enable_sx1276_compatibility_mode(this))) { return; }
+    }
+    else if (ook)
+    {
+        if (!previousOokTiming)
+        {
+            uint32_t timing = 0;
+            if (!check(lr20xx_regmem_read_regmem32(this, OOK_TIMING_REGISTER, &timing, 1)))
+            {
+                return;
+            }
+            previousOokTiming = static_cast<uint8_t>(timing);
+        }
+        // SoftRF's DF17 profile uses the last eight sync chips as the first four payload bits.
+        const lr20xx_radio_ook_mod_params_t modulation{
+            parameters.frequency->chipRate, LR20XX_RADIO_OOK_PULSE_SHAPE_OFF,
+            LR20XX_RADIO_FSK_COMMON_RX_BW_3_076_000_HZ, LR20XX_RADIO_OOK_MAG_DEPTH_FULL};
+        const lr20xx_radio_ook_pkt_params_t packet{
+            16, LR20XX_RADIO_OOK_ADDRESS_FILTERING_DISABLED, LR20XX_RADIO_OOK_HEADER_IMPLICIT,
+            OOK_FIFO_BYTES, LR20XX_RADIO_OOK_CRC_OFF, LR20XX_RADIO_OOK_ENCODING_OFF};
+        const uint8_t sync[LR20XX_RADIO_OOK_SYNCWORD_LENGTH]{0, 0, 0, DF17_SYNC};
+        // Match SoftRF's detector flags. Encoding is off for both sync and payload.
+        const lr20xx_radio_ook_rx_detector_t detector{
+            0x0285, 15, 0, LR20XX_RADIO_OOK_RX_DETECTOR_SFD_TYPE_FALLING_EDGE, 0, true};
+        constexpr uint32_t OOK_DETECTION_THRESHOLD = 0xF30E14;
+        constexpr uint32_t DETECTOR_THRESHOLD_MINUS_80_DBM = 0x70;
+        if (!check(lr20xx_radio_common_set_pkt_type(this, LR20XX_RADIO_COMMON_PKT_TYPE_OOK)) ||
+            !check(lr20xx_radio_ook_set_modulation_params(this, &modulation)) ||
+            !check(lr20xx_radio_ook_set_packet_params(this, &packet)) ||
+            !check(lr20xx_radio_ook_set_syncword(this, sync, 8, LR20XX_RADIO_OOK_SYNCWORD_MSBF)) ||
+            !check(lr20xx_radio_ook_set_rx_detector(this, &detector)) ||
+            !check(lr20xx_radio_common_set_agc_gain(this, LR20XX_RADIO_COMMON_GAIN_STEP_AUTO)) ||
+            !check(lr20xx_regmem_write_regmem32_mask(this, OOK_DETECTION_THRESHOLD, 0x7FU << 20,
+                                                    DETECTOR_THRESHOLD_MINUS_80_DBM << 20)) ||
+            !check(lr20xx_regmem_write_regmem32_mask(this, OOK_TIMING_REGISTER, 0xFF, 0x18)))
+        {
+            return;
+        }
     }
     else { halError = true; return; }
     currentConfiguredPcId = parameters.config->pcId;
@@ -209,20 +276,49 @@ AbstractTransceiver::RadioStatus Lr2021::acknowledgeIrq(uint32_t raw)
 
 void Lr2021::receivePacket(uint16_t length, int16_t rssi)
 {
+    const bool ook = lastRadioParameters.frequency->mode == GATAS::Modulation::OOK;
     if (discardPacket || length < 4 || length > 255 ||
+        (ook && length != OOK_FIFO_BYTES) ||
         (lastRadioParameters.config->manchester && length % 2 != 0) ||
         (lastRadioParameters.config->dataSource() == GATAS::DataSource::ADSLO_HDR && length % 4 != 0)) { return; }
-    if (auto data = static_cast<uint8_t *>(getGlobalPool().alloc(length)))
+    if (auto data = static_cast<uint8_t *>(getGlobalPool().alloc(length + (ook ? 1 : 0))))
     {
         GATAS::DataFrame frame{.epochSeconds = CoreUtils::secondsSinceEpoch(),
             .frequency = lastRadioParameters.hopFrequency, .config = lastRadioParameters.config,
-            .frame = {getGlobalPool(), data}, .length = static_cast<uint8_t>(length),
+            .frame = {getGlobalPool(), data}, .length = static_cast<size_t>(ook ? MODE_S_FRAME_BYTES : length),
             .rssidBm = static_cast<int8_t>(etl::max<int16_t>(-128, etl::min<int16_t>(127, rssi)))};
-        if (check(lr20xx_radio_fifo_read_rx(this, data, length)))
+        if (check(lr20xx_radio_fifo_read_rx(this, data + (ook ? 1 : 0), length)) &&
+            (!ook || decodeOokFrame(data)))
         {
             ++statistics.receivedPackets;
             rxDataFrameQueue->push(etl::move(frame));
         }
+    }
+}
+
+bool Lr2021::decodeOokFrame(uint8_t *data)
+{
+    data[0] = DF17_SYNC;
+    uint8_t errors[MODE_S_FRAME_BYTES]{};
+    manchesterDecodeInline(data, errors, 2 * MODE_S_FRAME_BYTES);
+    for (size_t i = 0; i < MODE_S_FRAME_BYTES; ++i)
+    {
+        if (errors[i] != 0)
+        {
+            return false;
+        }
+        // The Mode S pulse in the first half of the bit represents a one.
+        data[i] = static_cast<uint8_t>(~data[i]);
+    }
+    return (data[0] >> 3) == 17;
+}
+
+void Lr2021::receiveOOKPacket()
+{
+    lr20xx_radio_ook_packet_status_t packet{};
+    if (check(lr20xx_radio_ook_get_packet_status(this, &packet)))
+    {
+        receivePacket(packet.packet_length_bytes, packet.rssi_avg_in_dbm);
     }
 }
 
@@ -237,9 +333,9 @@ void Lr2021::receiveLORAPacket()
     if (check(lr20xx_radio_lora_get_packet_status(this, &packet))) { receivePacket(packet.packet_length_bytes, packet.rssi_signal_pkt_in_dbm); }
 }
 
-void Lr2021::enterDisabledState(uint8_t number, const Configuration &config)
+void Lr2021::enterDisabledState(uint8_t index, const Configuration &config)
 {
-    const auto pins = config.pinMap(NAMES[number]);
+    const auto pins = config.pinMap(NAMES[index]);
     const auto cs = CoreUtils::getPin(pins, GATAS::PinType::CS, UINT8_MAX);
     if (cs < NUM_BANK0_GPIOS) { gpio_init(cs); gpio_put(cs, 1); gpio_set_dir(cs, GPIO_OUT); }
 }

@@ -283,6 +283,8 @@ public:
 
     virtual ~Radio() = default;
     virtual uint8_t radio() const = 0;
+    virtual bool supportsRx(GATAS::RadioCapability capability) const = 0;
+    virtual bool supportsTx(GATAS::RadioCapability capability) const = 0;
 };
 
 class Configuration : public BaseModule

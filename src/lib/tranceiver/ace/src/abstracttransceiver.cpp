@@ -2,6 +2,7 @@
 #include "ace/manchester.hpp"
 #include "ace/measure.hpp"
 #include "pico/binary_info.h"
+#include <iterator>
 
 void AbstractTransceiver::start()
 {
@@ -10,6 +11,12 @@ void AbstractTransceiver::start()
 
 GATAS::PostConstruct AbstractTransceiver::postConstruct()
 {
+    if (schedulerOnly)
+    {
+        GATAS_INFO("Scheduler-only mode for %s", moduleName.cbegin());
+        return GATAS::PostConstruct::OK;
+    }
+
     if (csPin >= NUM_BANK0_GPIOS || busyPin >= NUM_BANK0_GPIOS || dio1Pin >= NUM_BANK0_GPIOS ||
         (resetPin != UINT8_MAX && (resetPin >= NUM_BANK0_GPIOS || resetPin == csPin || resetPin == busyPin || resetPin == dio1Pin)) ||
         device >= SpiModule::MAX_SPI_MODULES || csPin == busyPin || csPin == dio1Pin || busyPin == dio1Pin)
@@ -70,7 +77,11 @@ void AbstractTransceiver::getData(etl::string_stream &stream, const etl::string_
     int8_t powerdBm = LOW_POWER_MODE ? LOW_POWER_DBM : etl::min(static_cast<int8_t>(22), lastRadioParameters.frequency->powerdBm);
     stream << "{";
     stream << "\"deviceErrors\":" << statistics.deviceErrors;
-    stream << ",\"spiNo\":" << spiHall->spiNum();
+    if (spiHall != nullptr)
+    {
+        stream << ",\"spiNo\":" << spiHall->spiNum();
+    }
+    stream << ",\"schedulerOnly:b\":" << schedulerOnly;
     stream << ",\"receivedPackets:k\":" << statistics.receivedPackets;
     stream << ",\"transmittedPackets:k\":" << statistics.transmittedPackets;
     stream << ",\"buzyWaitsTimeout:err\":" << statistics.buzyWaitsTimeout;
@@ -218,6 +229,10 @@ void AbstractTransceiver::radioTask(void *arg)
             {
                 receiveLORAPacket();
             }
+            else if (lastRadioParameters.frequency->mode == GATAS::Modulation::OOK)
+            {
+                receiveOOKPacket();
+            }
             rxPacketPending = false;
             return !hasHalError();
         }
@@ -226,10 +241,17 @@ void AbstractTransceiver::radioTask(void *arg)
 
     const auto startListening = [&]()
     {
+        if (rxRadioParameters.config == nullptr)
+        {
+            operation = Operation::IDLE;
+            doListen = false;
+            return true;
+        }
         const auto &parameters = rxRadioParameters.config->dataSource() == GATAS::DataSource::NONE
                                      ? lastRadioParameters
                                      : rxRadioParameters;
-        if (parameters.config->dataSource() == GATAS::DataSource::NONE)
+        if (parameters.config->dataSource() == GATAS::DataSource::NONE ||
+            !supportsRx(parameters.frequency->capability))
         {
             operation = Operation::IDLE;
             doListen = false;
@@ -367,9 +389,51 @@ void AbstractTransceiver::radioTask(void *arg)
     }
 }
 
+uint8_t AbstractTransceiver::readCapabilities(const Configuration &config, etl::string_view name,
+                                              uint8_t supported)
+{
+    using GATAS::RadioCapability;
+    static constexpr GATAS::Mapping<RadioCapability, etl::string_view> capabilities[] = {
+        {RadioCapability::Gfsk868, "Gfsk868"},
+        {RadioCapability::Lora868, "Lora868"},
+        {RadioCapability::Gfsk915, "Gfsk915"},
+        {RadioCapability::Ook1090, "Ook1090"},
+    };
+    const auto configured = config.strValueByPath("", name, "capabilities");
+    etl::string_view remaining(configured.data(), configured.size());
+    uint8_t mask = 0;
+    while (!remaining.empty())
+    {
+        const auto separator = remaining.find(',');
+        const auto field = remaining.substr(0, separator);
+        const auto start = field.find_first_not_of(" \t");
+        const auto end = field.find_last_not_of(" \t");
+        const auto value = start == etl::string_view::npos ? etl::string_view{} : field.substr(start, end - start + 1);
+        const auto *entry = etl::find_if(std::begin(capabilities), std::end(capabilities),
+                                        [value](const auto &item) { return item.name == value; });
+        if (configured.is_truncated() || entry == std::end(capabilities) ||
+            (supported & static_cast<uint8_t>(entry->type)) == 0)
+        {
+            GATAS_WARN("Invalid radio capabilities '%s' for %.*s", configured.c_str(),
+                       static_cast<int>(name.size()), name.data());
+            return 0;
+        }
+        mask |= static_cast<uint8_t>(entry->type);
+        if (separator == etl::string_view::npos)
+        {
+            break;
+        }
+        remaining.remove_prefix(separator + 1);
+    }
+    return mask;
+}
+
 void AbstractTransceiver::on_receive(const GATAS::RadioControlMsg &msg)
 {
-    if (msg.radioNo == radioNo)
+    const auto &parameters = msg.radioParameters;
+    const bool idle = parameters.config == nullptr && parameters.frequency == nullptr;
+    if (!schedulerOnly && msg.radioNo == radioNo &&
+        (idle || (parameters.config != nullptr && parameters.frequency != nullptr && supportsRx(parameters.frequency->capability))))
     {
         newRxRadioParameters = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), msg.radioParameters);
         xTaskNotify(taskHandle, TaskState::RX_CONFIG_PENDING, eSetBits);
@@ -393,7 +457,7 @@ void AbstractTransceiver::on_receive(const GATAS::ConfigUpdatedMsg &msg)
 
 void AbstractTransceiver::on_receive(const GATAS::RadioTxFrameMsg &msg)
 {
-    if (msg.radioNo == radioNo)
+    if (!schedulerOnly && msg.radioNo == radioNo)
     {
         if (msg.radioParameters.config == nullptr || msg.radioParameters.frequency == nullptr ||
             !msg.frame || msg.length == 0 || msg.length > 255 ||
@@ -401,7 +465,7 @@ void AbstractTransceiver::on_receive(const GATAS::RadioTxFrameMsg &msg)
         {
             return;
         }
-        if (hasGpsFix && txEnabled)
+        if (hasGpsFix && supportsTx(msg.radioParameters.frequency->capability))
         {
             TxPacket txPacket{
                 .radioParameters = msg.radioParameters,

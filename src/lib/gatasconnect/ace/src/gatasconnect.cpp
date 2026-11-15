@@ -135,6 +135,7 @@ void GatasConnect::getConfig(const Configuration &config)
     hasUdpTraffic = false;
     localConfigurationUpdateCnt = LOCALCONFIGURATIONCHANGE_HOLD_BACK;
     icaoAddress = gatasConfig.conspicuity.icaoAddress;
+    privacy = gatasConfig.privacy;
     allIcaoAddresses = gatasConfig.allIcaoAddresses;
     groundStation = gatasConfig.conspicuity.groundStation;
     gatasId = config.internalStore()->gatasId;
@@ -214,6 +215,7 @@ void GatasConnect::sendAircraftConfiguration()
 {
     uint64_t gatasIdSnap = 0;
     uint32_t icaoAddressSnap = 0;
+    bool privacySnap = false;
     uint32_t gatasIpSnap = 0;
     uint32_t pinCodeSnap = 0;
     GATAS::WifiMode wifiModeSnap = GATAS::WifiMode::NC;
@@ -224,6 +226,7 @@ void GatasConnect::sendAircraftConfiguration()
     {
         gatasIdSnap = gatasId;
         icaoAddressSnap = icaoAddress;
+        privacySnap = privacy;
         gatasIpSnap = gatasIp;
         pinCodeSnap = pinCode;
         wifiModeSnap = wifiMode;
@@ -245,7 +248,7 @@ void GatasConnect::sendAircraftConfiguration()
         return;
     }
 
-    const size_t written = BinaryMessages::serializeAircraftConfigurationV2(cobsPayload, configFrameSize, gatasIdSnap, icaoAddressSnap, allIcaoAddressesSnap, gatasIpSnap, pinCodeSnap, wifiModeSnap);
+    const size_t written = BinaryMessages::serializeAircraftConfigurationV2(cobsPayload, configFrameSize, gatasIdSnap, icaoAddressSnap, allIcaoAddressesSnap, gatasIpSnap, pinCodeSnap, wifiModeSnap, privacySnap);
     if (written == 0)
     {
         GATAS_WARN("GatasConnect: failed to encode configuration payload");

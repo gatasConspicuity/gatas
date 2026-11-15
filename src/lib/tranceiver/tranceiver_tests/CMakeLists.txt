@@ -28,6 +28,7 @@ add_executable(tranceiver_test
     ${driver}/src/lr20xx_radio_fifo.c
     ${driver}/src/lr20xx_radio_fsk.c
     ${driver}/src/lr20xx_radio_lora.c
+    ${driver}/src/lr20xx_radio_ook.c
     ${driver}/src/lr20xx_workarounds.c)
 target_compile_features(tranceiver_test PRIVATE cxx_std_20)
 target_compile_definitions(tranceiver_test PRIVATE UNIT_TESTING GATAS_MAXIMUM_TCP_CLIENTS=4 GATAS_MAX_RADIOS=2 GATAS_MAX_SOURCE_PER_RADIO=3)

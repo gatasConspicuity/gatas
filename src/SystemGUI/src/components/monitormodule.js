@@ -648,7 +648,8 @@ class MonitorModule extends El {
                 </div>
               `}
             </div>
-            ${hasTiming ? html`<span style="width:130px; font-size:10px; color:#999; flex-shrink:0">${proto.min}-${proto.max}ms ~${avg}s</span>` : ''}
+            ${hasTiming ? html`<span style="font-size:10px; color:#999">${proto.min}-${proto.max}ms ~${avg}s
+              ${proto.radio === null ? " · No eligible radio" : proto.radio === undefined ? "" : ` · Radio ${proto.radio}`}</span>` : ''}
           </div>
         `;
       };

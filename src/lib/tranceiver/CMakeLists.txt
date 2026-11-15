@@ -21,6 +21,7 @@ gatas_add_module(
         lr2021driver/src/lr20xx_radio_fifo.c
         lr2021driver/src/lr20xx_radio_fsk.c
         lr2021driver/src/lr20xx_radio_lora.c
+        lr2021driver/src/lr20xx_radio_ook.c
         lr2021driver/src/lr20xx_workarounds.c
         lr2021driver/src/lr20xx_driver_version.c
 

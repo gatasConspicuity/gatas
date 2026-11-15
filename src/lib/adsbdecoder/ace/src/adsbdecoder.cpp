@@ -44,9 +44,13 @@ void ADSBDecoder::receiveBinary(const uint8_t *data, uint8_t length)
     processAdsbData(data, length);
 }
 
-void ADSBDecoder::on_receive(const GATAS::ADSBMessageBinMsg &msg)
+void ADSBDecoder::on_receive(const GATAS::RadioRxMsg &msg)
 {
-    processAdsbData(msg.data, msg.length);
+    if (msg.dataSource == GATAS::DataSource::ADSB && msg.frame &&
+        msg.lengthBytes == GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH)
+    {
+        processAdsbData(msg.frame.get(), msg.lengthBytes);
+    }
 }
 
 void ADSBDecoder::processAdsbData(const uint8_t *data, uint8_t length)
