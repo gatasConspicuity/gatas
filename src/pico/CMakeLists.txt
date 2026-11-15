@@ -46,19 +46,7 @@ target_compile_options(gatas_build_options INTERFACE
 
 # Add buildtime timestamp Move this to a dedicated 'status' module to reduce
 # build times
-# Get the exact tag if the commit is tagged
-execute_process(
-    COMMAND git describe --exact-match --tags
-    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-    RESULT_VARIABLE TAG_RESULT
-    OUTPUT_VARIABLE GIT_TAG
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-
-if(NOT TAG_RESULT EQUAL 0)
-    set(GIT_TAG "UNKNOWN_TAG")
-endif()
+include(${CMAKE_CURRENT_LIST_DIR}/../gatas_version.cmake)
 string(TIMESTAMP BUILD_TIMESTAMP_EPOCH "%s" UTC)
 
 set(BUILD_TIME_HEADER "${CMAKE_CURRENT_LIST_DIR}/generated/build_time.hpp")

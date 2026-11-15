@@ -5,12 +5,15 @@
 #include "configstore.hpp"
 
 #include "ace/coreutils.hpp"
+#include "ace/spinlockguard.hpp"
 #include "ace/constants.hpp"
 #include "ace/basemodule.hpp"
 #include "ace/messages.hpp"
+#include "ace/semaphoreguard.hpp"
 
 #include "etl/string.h"
 #include "etl/to_arithmetic.h"
+#include "etl/optional.h"
 
 #include "ArduinoJson.hpp"
 #include "jsonallocator.hpp"
@@ -19,7 +22,7 @@ using namespace ArduinoJson;
 
 typedef std::function<void(const char *NAME, const GATAS::PinTypeMap &map)> LoadModuleCallback;
 
-class Config : public Configuration, public etl::message_router<Config>
+class Config : public Configuration, public etl::message_router<Config, GATAS::SelectAircraftRequestMsg, GATAS::DeviceActionRequestMsg, GATAS::IdleMsg>
 {
 private:
     enum LoadLocation : uint8_t
@@ -139,7 +142,7 @@ private:
     }
 
     void serializeToVolatile();
-    void serializeToPersistent();
+    bool serializeToPersistent();
     bool persistentMatchesVolatile() const;
 
 private:
@@ -150,6 +153,12 @@ private:
     ConfigStore &permanentStore;
     ConfigStore &binaryStore;
     const uint8_t *defaultConfig;
+    SemaphoreHandle_t configMutex;
+    SynchronizedValue<etl::optional<GATAS::DeviceAction>> pendingDeviceAction;
+    // Private mutation helpers: the caller must hold configMutex.
+    bool saveToFlash();
+    void setValueBypath(const etl::string_view pathToValue, etl::string_view value);
+    void setValueBypath(const etl::string_view pathToValue, uint64_t value);
 
 public:
     Config(etl::imessage_bus &bus, ConfigStore &volatileStore_, ConfigStore &permanentStore_, ConfigStore &binaryStore_, const uint8_t *defaultConfig_) : Configuration(bus), volatileStore(volatileStore_), permanentStore(permanentStore_), binaryStore(binaryStore_), defaultConfig(defaultConfig_)
@@ -175,6 +184,9 @@ public:
     virtual bool deleteData(const etl::string_view fullPath) override;
 
     void on_receive_unknown(const etl::imessage &msg);
+    void on_receive(const GATAS::SelectAircraftRequestMsg &msg);
+    void on_receive(const GATAS::DeviceActionRequestMsg &msg);
+    void on_receive(const GATAS::IdleMsg &msg);
 
     /**
      * Returns the hardware configuration for this station or Aircraft
@@ -199,6 +211,8 @@ public:
 
     virtual bool isModuleEnabled(const etl::string_view moduleName) const override;
 
+    virtual bool isDirty() const override;
+
     virtual const GATAS::BinaryStore *internalStore() const override;
     virtual void internalStore(const GATAS::BinaryStore &store) override;
 
@@ -206,8 +220,5 @@ public:
      * Based on the HEX code, find the CallSign from any of the configured aircraft
      */
     virtual GATAS::CallSign getCallSignFromHex(uint32_t) const override;
-
-    virtual void setValueBypath(const etl::string_view pathToValue, etl::string_view value) override;
-    virtual void setValueBypath(const etl::string_view pathToValue, uint64_t value) override;
 
 };

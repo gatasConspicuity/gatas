@@ -11,10 +11,12 @@
 
 StaticGPS::StaticGPS(etl::imessage_bus &bus, const Configuration &config)
     : AbstractGnss(bus, NAME, GATAS::PinTypeMap{}, true, 0, false),
-      locationData{0.0F, 0.0F, 0.0F, 0.0F},
+      locationData(CoreUtils::sharedSpinLock()),
+      newServerName(CoreUtils::sharedSpinLock()),
       ntpClient(NtpClient::TimeCallback::create<StaticGPS, &StaticGPS::onNtpTime>(*this),
                 NtpClient::PpsCallback::create<StaticGPS, &StaticGPS::onNtpPps>(*this),
-                NtpClient::FailureCallback::create<StaticGPS, &StaticGPS::onNtpFailure>(*this))
+                NtpClient::FailureCallback::create<StaticGPS, &StaticGPS::onNtpFailure>(*this)),
+      ntpTimeResult(CoreUtils::sharedSpinLock()), ntpSlewUs(CoreUtils::sharedSpinLock())
 {
     readConfiguration(config);
 }
@@ -24,7 +26,7 @@ void StaticGPS::readConfiguration(const Configuration &config)
     float latitude = config.floatValueByPath(0.0F, NAME, "latitude");
     float longitude = config.floatValueByPath(0.0F, NAME, "longitude");
     float altitudeMeters = config.floatValueByPath(0.0F, NAME, "altitude");
-    newServerName = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), config.strValueByPath("time.cloudflare.com", NAME, "ntpServer"));
+    ServerName serverName = config.strValueByPath("time.cloudflare.com", NAME, "ntpServer");
 
     if (!std::isfinite(latitude) || latitude < -90.0F || latitude > 90.0F)
     {
@@ -38,14 +40,15 @@ void StaticGPS::readConfiguration(const Configuration &config)
     {
         altitudeMeters = 0.0F;
     }
-    if (newServerName.empty())
+    if (serverName.empty())
     {
-        newServerName = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), "time.cloudflare.com");
+        serverName = "time.cloudflare.com";
     }
+    newServerName.store(serverName);
 
     const float geoidSeparationMeters = static_cast<float>(CoreUtils::egmGeoidOffset(latitude, longitude));
     const LocationData newLocation{latitude, longitude, altitudeMeters, geoidSeparationMeters};
-    locationData = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), newLocation);
+    locationData.store(newLocation);
 }
 
 GATAS::PostConstruct StaticGPS::postConstruct()
@@ -72,7 +75,7 @@ GATAS::PostConstruct StaticGPS::postConstruct()
         return result;
     }
 
-    if (xTaskCreate(taskTrampoline, NAME.cbegin(), configMINIMAL_STACK_SIZE + 1024, this, tskIDLE_PRIORITY, &staticTaskHandle) != pdPASS)
+    if (xTaskCreate(taskTrampoline, NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY, &staticTaskHandle) != pdPASS)
     {
         return GATAS::PostConstruct::TASK_ERROR;
     }
@@ -128,7 +131,7 @@ void StaticGPS::task()
     bool hasNewServerData = false;
     uint64_t nextNtpAttemptUs = 0;
 
-    ntpClient.setServerName(newServerName);
+    ntpClient.setServerName(newServerName.load());
     while (true)
     {
         uint32_t notification = 0;
@@ -137,12 +140,12 @@ void StaticGPS::task()
 
         if ((notification & NTP_RESULT) != 0)
         {
-            applyNtpResult();
-            nextNtpAttemptUs = nowUs + NTP_REFRESH_INTERVAL_US;
+            nextNtpAttemptUs = nowUs + (applyNtpResult() ? NTP_REFRESH_INTERVAL_US : NTP_RETRY_INTERVAL_US);
         }
 
         if ((notification & (NTP_FAILED | NTP_ROUND_TRIP_TOO_LONG)) != 0)
         {
+            pendingNtpSamples = 0;
             staticStatistics.ntpErrors += 1;
             nextNtpAttemptUs = nowUs + NTP_RETRY_INTERVAL_US;
         }
@@ -153,6 +156,7 @@ void StaticGPS::task()
 
         if ((notification & NTP_SERVER_UPDATED) != 0)
         {
+            pendingNtpSamples = 0;
             hasNewServerData = true;
             nextNtpAttemptUs = nowUs;
             // Handle the set of the ntp server right before we do the request for reliability
@@ -160,6 +164,7 @@ void StaticGPS::task()
 
         if ((notification & NETWORK_CHANGED) != 0)
         {
+            pendingNtpSamples = 0;
             if (wifiConnected)
             {
                 nextNtpAttemptUs = nowUs;
@@ -178,7 +183,7 @@ void StaticGPS::task()
             // First copy the data, then apply the NTP result
             if (hasNewServerData && !ntpClient.isPending())
             {
-                auto const localNewServerName = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), newServerName);
+                auto const localNewServerName = newServerName.load();
                 ntpClient.setServerName(localNewServerName);
                 hasNewServerData = false;
             }
@@ -224,7 +229,7 @@ void StaticGPS::publishSentences()
     return;
 #endif
 
-    const auto currentLocation = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), locationData);
+    const auto currentLocation = locationData.load();
 
     const uint64_t epochMs = CoreUtils::msSinceEpoch();
     const bool valid = epochMs >= 1'000'000'000'000ULL;
@@ -309,17 +314,13 @@ void StaticGPS::publishSentences()
 
 void StaticGPS::onNtpTime(const NtpTimeResult &result)
 {
-    ntpTimeResult = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), result);
+    ntpTimeResult.store(result);
     xTaskNotify(staticTaskHandle, NTP_RESULT, eSetBits);
 }
 
 void StaticGPS::onNtpPps(int32_t offsetUs)
 {
-#if MEASURE_NTP_OFFSET
     (void)offsetUs;
-#else
-    rtc->ppsEvent(offsetUs);
-#endif
 }
 
 void StaticGPS::onNtpFailure(NtpClient::Failure failure)
@@ -330,11 +331,11 @@ void StaticGPS::onNtpFailure(NtpClient::Failure failure)
     xTaskNotify(staticTaskHandle, notification, eSetBits);
 }
 
-void StaticGPS::applyNtpResult()
+bool StaticGPS::applyNtpResult()
 {
     const uint64_t nowUs = CoreUtils::monotonic();
 
-    const auto localNtpTimeResult = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), ntpTimeResult);
+    const auto localNtpTimeResult = ntpTimeResult.load();
     const uint64_t epochNowMs = localNtpTimeResult.epochMs + (nowUs - localNtpTimeResult.receivedAtUs) / 1'000ULL;
     const uint64_t picoEpochMs = CoreUtils::msSinceEpoch();
     const int64_t slewUs = picoEpochMs >= 1'000'000'000'000ULL
@@ -342,15 +343,37 @@ void StaticGPS::applyNtpResult()
                                       ? static_cast<int64_t>((epochNowMs - picoEpochMs) * 1'000ULL)
                                       : -static_cast<int64_t>((picoEpochMs - epochNowMs) * 1'000ULL))
                                : 0;
-    ntpSlewUs = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), slewUs);
+    ntpSlewUs.store(slewUs);
+    if (picoEpochMs >= 1'000'000'000'000ULL &&
+        (slewUs > NTP_LARGE_CHANGE_US || slewUs < -NTP_LARGE_CHANGE_US))
+    {
+        const int64_t difference = slewUs - pendingNtpSlewUs;
+        if (pendingNtpSamples == 0 || difference > NTP_CONFIRM_TOLERANCE_US || difference < -NTP_CONFIRM_TOLERANCE_US)
+        {
+            pendingNtpSlewUs = slewUs;
+            pendingNtpSamples = 1;
+        }
+        else
+        {
+            pendingNtpSamples += 1;
+        }
+        if (pendingNtpSamples < NTP_CONFIRM_SAMPLES)
+        {
+            staticStatistics.ntpLargeChanges += 1;
+            return false;
+        }
+    }
+    pendingNtpSamples = 0;
 #if MEASURE_NTP_OFFSET
     GATAS_INFO("NTP offset from GPS: %" PRId64 "us", slewUs);
 #else
+    rtc->ppsEvent(static_cast<int32_t>((epochNowMs % 1'000ULL) * 1'000ULL));
     CoreUtils::setOffsetMsSinceEpoch(epochNowMs);
 #endif
     staticStatistics.ntpSyncs += 1;
 
     setStatus(MEASURE_NTP_OFFSET ? "Measuring NTP" : "Configured");
+    return true;
 }
 
 void StaticGPS::on_receive(const GATAS::WifiConnectionStateMsg &msg)
@@ -373,22 +396,23 @@ bool StaticGPS::configureGnss()
 void StaticGPS::getData(etl::string_stream &stream, const etl::string_view path) const
 {
     (void)path;
-    auto const servername = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), newServerName);
-    const int64_t currentNtpSlewUs = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), ntpSlewUs);
+    auto const servername = newServerName.load();
+    const int64_t currentNtpSlewUs = ntpSlewUs.load();
+    const auto currentLocation = locationData.load();
     stream << "{";
-    stream << "\"latitude\":" << etl::format_spec{}.precision(7) << locationData.latitude;
-    stream << ",\"longitude\":" << locationData.longitude;
-    stream << ",\"altitude:m\":" << locationData.altitudeMeters;
-    stream << ",\"geoidSeparation:m\":" << locationData.geoidSeparationMeters;
+    stream << "\"latitude\":" << etl::format_spec{}.precision(7) << currentLocation.latitude;
+    stream << ",\"longitude\":" << currentLocation.longitude;
+    stream << ",\"altitude:m\":" << currentLocation.altitudeMeters;
+    stream << ",\"geoidSeparation:m\":" << currentLocation.geoidSeparationMeters;
     stream << ",\"ntpServer\":\"" << servername << "\"";
     stream << ",\"ntpSlew:usec\":" << currentNtpSlewUs;
     stream << ",\"status\":\"" << statistics.status << "\"";
-    stream << ",\"totalReceived:k\":" << statistics.totalReceived;
     stream << ",\"queueFullErr:k\":" << statistics.queueFullErr;
     stream << ",\"ntpRequests:k\":" << staticStatistics.ntpRequests;
     stream << ",\"ntpSyncs:k\":" << staticStatistics.ntpSyncs;
     stream << ",\"ntpErrors:err\":" << staticStatistics.ntpErrors;
     stream << ",\"ntpRoundTripsRejected:err\":" << staticStatistics.ntpRoundTripRejected;
+    stream << ",\"ntpLargeChangesHeld:err\":" << staticStatistics.ntpLargeChanges;
     stream << ",\"invalidTimeCycles:err\":" << staticStatistics.invalidTime;
     stream << "}";
 }

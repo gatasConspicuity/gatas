@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.18)
 project(tests)
 include(FetchContent)
+include(${CMAKE_CURRENT_LIST_DIR}/../../../gatas_version.cmake)
 
 message(STATUS "Building tests.")
 
 add_definitions(-DCATCH_CONFIG_NO_POSIX_SIGNALS)
 add_definitions(-DUNIT_TESTING)
+add_definitions(-DMOCK_REAL_MUTEXES)
 add_definitions(-DGATAS_MAXIMUM_TCP_CLIENTS=4)
 add_definitions(-D__flash_binary_end=0x4000000)
 add_definitions(-DXIP_BASE=0x6000000)
@@ -51,7 +53,10 @@ set( ACE_SOURCE_FILES
         ../../core/ace/src/models.cpp
         ../../core/ace/src/coreutils.cpp
         ../../utils/ace/src/moreutils.cpp
+        ../../utils/ace/src/cobs.cpp
         ../ace/src/config.cpp
+        ../../idle/ace/src/idle.cpp
+        ../../gatasconnect/ace/src/gatasconnect.cpp
 )
 
 

@@ -22,10 +22,14 @@ def test_gatas_connect_provides_adsb_or_mlat_traffic_to_aircraft_tracker(api: De
         assert isinstance(tracker_data, dict)
         last_tracker_data = tracker_data
 
-        aircraft = tracker_data.get("aircraft:aoa", {})
-        data_sources = aircraft.get("ds", [])
-        if any(source in {"ADSB", "MLAT"} for source in data_sources):
-            return
+        aircraft = tracker_data.get("aircraft:aoa")
+        assert isinstance(aircraft, list), f"invalid AircraftTracker aircraft data: {tracker_data!r}"
+        for row in aircraft:
+            assert isinstance(row, str), f"invalid AircraftTracker aircraft row: {row!r}"
+            fields = row.split(",")
+            assert len(fields) == 4, f"invalid AircraftTracker aircraft row: {row!r}"
+            if fields[1] in {"ADSB", "MLAT"}:
+                return
 
         time.sleep(0.5)
 

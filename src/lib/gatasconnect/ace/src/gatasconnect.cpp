@@ -3,11 +3,18 @@
 #include "../gatasconnect.hpp"
 #include "ace/coreutils.hpp"
 #include "ace/debug.hpp"
+#include "pico/rand.h"
 
 #include "etl/algorithm.h"
 
+// Keep the bootId in memory after restart. This allows us to increase it by one
+// after PostConstruct. THis way we can validate if the device was restarted reliably.
+// No need for a random value
+uint8_t __uninitialized_ram(bootId);
+
 GATAS::PostConstruct GatasConnect::postConstruct()
 {
+    bootId += 1;
     if (xTaskCreate(workerTaskTrampoline, NAME, configMINIMAL_STACK_SIZE + 1024, this, tskIDLE_PRIORITY + 2, &workerTaskHandle) != pdPASS)
     {
         return GATAS::PostConstruct::TASK_ERROR;
@@ -64,6 +71,7 @@ void GatasConnect::on_receive(const GATAS::GpsStatsMsg &msg)
 
 void GatasConnect::on_receive(const GATAS::ConfigUpdatedMsg &msg)
 {
+    configurationDirty = msg.config.isDirty();
     if (msg.moduleName == GatasConnect::NAME || msg.moduleName == Configuration::NAME)
     {
         getConfig(msg.config);
@@ -92,10 +100,12 @@ void GatasConnect::on_receive(const GATAS::GatasConnectRx &msg)
         }
     }
 
-    if (localConfigurationUpdateCnt)
+    // After a local configuration update, ignore non-device-action frames for
+    // the next five received messages. Save/Restart/USB boot remain available.
+    const bool allowNonDeviceActionFrames = localConfigurationUpdateCnt == 0;
+    if (!allowNonDeviceActionFrames)
     {
         localConfigurationUpdateCnt -= 1;
-        return;
     }
 
     if (!msg.cobsMessage || msg.length == 0)
@@ -104,7 +114,8 @@ void GatasConnect::on_receive(const GATAS::GatasConnectRx &msg)
     }
 
     auto ownship = ownshipState.location.load();
-    cobsStreamHandler.handle(ownship.lat, ownship.lon, etl::span<uint8_t>(msg.cobsMessage.get(), msg.length));
+    cobsStreamHandler.handle(ownship.lat, ownship.lon, etl::span<uint8_t>(msg.cobsMessage.get(), msg.length),
+        msg.source, bootId, allowNonDeviceActionFrames);
 }
 
 void GatasConnect::on_receive(const GATAS::GdlMsg &msg)
@@ -142,6 +153,7 @@ void GatasConnect::getConfig(const Configuration &config)
     localConfigurationUpdateCnt = LOCALCONFIGURATIONCHANGE_HOLD_BACK;
 
     auto gatasConfig = config.gaTasConfig();
+    const bool dirty = config.isDirty();
     const uint64_t idSnap = config.internalStore()->gatasId;
     auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
     pinCode = pinSnap;
@@ -150,6 +162,7 @@ void GatasConnect::getConfig(const Configuration &config)
     allIcaoAddresses = gatasConfig.allIcaoAddresses;
     groundStation = gatasConfig.conspicuity.groundStation;
     gatasId = idSnap;
+    configurationDirty = dirty;
 }
 
 void GatasConnect::workerTaskTrampoline(void *arg)
@@ -231,6 +244,7 @@ void GatasConnect::sendOwnshipPosition()
 
 void GatasConnect::sendAircraftConfiguration()
 {
+    bool dirtyFlagSnap = false;
     uint64_t gatasIdSnap = 0;
     uint32_t icaoAddressSnap = 0;
     uint32_t gatasIpSnap = 0;
@@ -248,6 +262,7 @@ void GatasConnect::sendAircraftConfiguration()
         wifiModeSnap = wifiMode;
         outputSnap = gatasConnectOutput;
         allIcaoAddressesSnap = allIcaoAddresses;
+        dirtyFlagSnap = configurationDirty;
     }
 
     if (outputSnap == GATAS::GatasConnectOutput::NOOP)
@@ -264,7 +279,7 @@ void GatasConnect::sendAircraftConfiguration()
         return;
     }
 
-    const size_t written = BinaryMessages::serializeAircraftConfigurationV2(cobsPayload, configFrameSize, gatasIdSnap, icaoAddressSnap, allIcaoAddressesSnap, gatasIpSnap, pinCodeSnap, wifiModeSnap);
+    const size_t written = BinaryMessages::serializeAircraftConfigurationV2(cobsPayload, configFrameSize, gatasIdSnap, icaoAddressSnap, allIcaoAddressesSnap, gatasIpSnap, pinCodeSnap, wifiModeSnap, bootId, dirtyFlagSnap);
     if (written == 0)
     {
         GATAS_WARN("GatasConnect: failed to encode configuration payload");

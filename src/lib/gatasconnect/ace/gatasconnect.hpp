@@ -47,6 +47,7 @@ class GatasConnect : public BaseModule, public etl::message_router<GatasConnect,
     uint32_t gatasIp = 0;
     uint32_t pinCode = 0;
     uint64_t gatasId = 0;
+    bool configurationDirty = false;
     bool groundStation = false;
     GATAS::WifiMode wifiMode = GATAS::WifiMode::NC;
 
@@ -77,7 +78,7 @@ private:
     void getConfig(const Configuration &config);
 public:
     static constexpr const char *NAME = "GatasConnect";
-    GatasConnect(etl::imessage_bus &bus, Configuration &config, GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), ownshipState(ownshipState_), cobsStreamHandler(bus, config, ownshipState_)
+    GatasConnect(etl::imessage_bus &bus, Configuration &config, GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), ownshipState(ownshipState_), cobsStreamHandler(bus, ownshipState_)
     {
         getConfig(config);
     }

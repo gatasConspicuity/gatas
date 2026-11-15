@@ -18,8 +18,256 @@ const uint8_t DEFAULT_GATAS_CONFIG[] = R"=(
 
 #include "inmemorystore.hpp"
 #include "config.hpp"
+#include "../../idle/ace/idle.hpp"
+#include "../../gatasconnect/ace/gatasconnect.hpp"
+
+extern uint8_t bootId;
+
+// Ordinary API tests require an available mutex; individual tests can force
+// contention explicitly. Restore the shared stub after every test/section.
+struct SemaphoreMockScope
+{
+    uint32_t previous = xSemaphoreTakeValue;
+    SemaphoreMockScope() { xSemaphoreTakeValue = pdTRUE; }
+    ~SemaphoreMockScope() { xSemaphoreTakeValue = previous; }
+};
+
+class TestIdle : public Idle
+{
+public:
+    using Idle::Idle;
+protected:
+    void performSystemAction(GATAS::DeviceAction) override {}
+};
 
 GATAS::ThreadSafeBus<50> bus;
+
+// Match firmware startup: the configuration object exists before the shared
+// spinlock is claimed, and is initialized only afterwards.
+struct StartupConfigFixture
+{
+    uint8_t ram[4096] = {}, flash[4096] = {}, binary[4096] = {};
+    InMemoryStore ramStore{4096, ram}, flashStore{4096, flash}, binaryStore{4096, binary};
+    GATAS::ThreadSafeBus<8> localBus;
+    Config config{localBus, ramStore, flashStore, binaryStore, DEFAULT_GATAS_CONFIG};
+
+    StartupConfigFixture() { CoreUtils::init(); }
+};
+
+static StartupConfigFixture startupConfig;
+
+TEST_CASE_METHOD(SemaphoreMockScope, "Configuration initializes after the shared spinlock", "[device-actions]")
+{
+    REQUIRE(startupConfig.config.postConstruct() == GATAS::PostConstruct::OK);
+    startupConfig.config.start();
+    startupConfig.localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Restart});
+    REQUIRE(startupConfig.config.pendingDeviceAction.load() == GATAS::DeviceAction::Restart);
+}
+
+class FaultStore : public InMemoryStore
+{
+public:
+    enum class Failure { None, Zero, Short, Corrupt };
+    Failure failure = Failure::None;
+    size_t writes = 0;
+    uint8_t *backing;
+    FaultStore(size_t capacity, uint8_t *data) : InMemoryStore(capacity, data), backing(data) {}
+    size_t write(const uint8_t *data, size_t size) override
+    {
+        ++writes;
+        if (failure == Failure::Zero) { return 0; }
+        if (failure == Failure::Short) { return InMemoryStore::write(data, size - 1); }
+        const auto written = InMemoryStore::write(data, size);
+        if (failure == Failure::Corrupt && written > 0) { backing[0] ^= 1; }
+        return written;
+    }
+};
+
+class SystemActionReceiver : public etl::message_router<SystemActionReceiver, GATAS::SystemActionMsg>
+{
+public:
+    int resets = 0;
+    GATAS::DeviceAction lastReset = GATAS::DeviceAction::Status;
+    etl::imessage_bus *queueDuringDispatch = nullptr;
+    void on_receive(const GATAS::SystemActionMsg &msg)
+    {
+        ++resets;
+        lastReset = msg.action;
+        if (queueDuringDispatch != nullptr)
+        {
+            auto *target = queueDuringDispatch;
+            queueDuringDispatch = nullptr;
+            target->receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::UsbBoot});
+        }
+    }
+    void on_receive_unknown(const etl::imessage &) {}
+};
+
+TEST_CASE_METHOD(SemaphoreMockScope, "Configuration saves and web system actions", "[device-actions]")
+{
+    uint8_t ram[4096] = {}, flash[4096] = {}, binary[4096] = {};
+    InMemoryStore ramStore(4096, ram), binaryStore(4096, binary);
+    FaultStore flashStore(4096, flash);
+    GATAS::ThreadSafeBus<8> localBus;
+    SystemActionReceiver systemActions;
+    localBus.subscribe(systemActions);
+    Config config(localBus, ramStore, flashStore, binaryStore, DEFAULT_GATAS_CONFIG);
+    config.postConstruct();
+    REQUIRE_FALSE(config.isDirty());
+    config.start();
+    TestIdle idle(localBus, config);
+    idle.postConstruct();
+    localBus.subscribe(idle);
+    REQUIRE(config.setData(R"({"aircraftId":"TEST"})", "/api/Config/config.json"));
+    REQUIRE(config.isDirty());
+
+    SECTION("SaveBr verifies readback and avoids unchanged flash writes")
+    {
+        REQUIRE(config.setData("{}", "/api/Config/SaveBr.json"));
+        REQUIRE_FALSE(config.isDirty());
+        REQUIRE(config.persistentMatchesVolatile());
+        REQUIRE(flashStore.writes == 1);
+        REQUIRE(config.setData("{}", "/api/Config/SaveBr.json"));
+        REQUIRE(flashStore.writes == 1);
+    }
+    SECTION("Zero short and corrupt writes cannot claim success")
+    {
+        // Each fault starts with empty flash. A short write may leave bytes
+        // matching the next attempt, which would correctly skip that write.
+        SECTION("Zero write") { flashStore.failure = FaultStore::Failure::Zero; }
+        SECTION("Short write") { flashStore.failure = FaultStore::Failure::Short; }
+        SECTION("Corrupt write") { flashStore.failure = FaultStore::Failure::Corrupt; }
+        REQUIRE_FALSE(config.setData("{}", "/api/Config/SaveBr.json"));
+        REQUIRE_FALSE(config.persistentMatchesVolatile());
+        REQUIRE(config.isDirty());
+        REQUIRE(config.strValueByPath("", "config", "aircraftId") == "TEST");
+        REQUIRE(config.statistics.persistentStoreSize == 0);
+
+        // A subsequent successful retry must save the complete document.
+        flashStore.failure = FaultStore::Failure::None;
+        REQUIRE(config.setData("{}", "/api/Config/SaveBr.json"));
+        REQUIRE_FALSE(config.isDirty());
+        REQUIRE(config.persistentMatchesVolatile());
+    }
+    SECTION("A busy mutex rejects mutations and saves")
+    {
+        xSemaphoreTakeValue = pdFALSE;
+        REQUIRE_FALSE(config.setData(R"({"aircraftId":"LOST"})", "/api/Config/config.json"));
+        REQUIRE_FALSE(config.setData("{}", "/api/Config/SaveBr.json"));
+        REQUIRE(config.strValueByPath("", "config", "aircraftId") == "TEST");
+        REQUIRE(config.isDirty());
+        REQUIRE(flashStore.writes == 0);
+    }
+    SECTION("Web restart requests Idle without writing flash")
+    {
+        REQUIRE(config.setData("{}", "/api/Config/Restart.json"));
+        REQUIRE(systemActions.resets == 1);
+        REQUIRE(systemActions.lastReset == GATAS::DeviceAction::Restart);
+        REQUIRE(flashStore.writes == 0);
+        REQUIRE(config.strValueByPath("", "config", "aircraftId") == "TEST");
+    }
+    SECTION("Web USB boot requests Idle without writing flash")
+    {
+        REQUIRE(config.setData("{}", "/api/Config/UsbBoot.json"));
+        REQUIRE(systemActions.resets == 1);
+        REQUIRE(systemActions.lastReset == GATAS::DeviceAction::UsbBoot);
+        REQUIRE(flashStore.writes == 0);
+    }
+}
+
+class ConfigurationReceiver : public etl::message_router<ConfigurationReceiver, GATAS::GatasConnectTx>
+{
+public:
+    size_t configurationCount = 0;
+    uint8_t bootId = 0;
+    bool dirty = false;
+
+    void on_receive(const GATAS::GatasConnectTx &msg)
+    {
+        REQUIRE(msg.output.usesBluetooth());
+        REQUIRE(msg.length > 0);
+        REQUIRE(msg.cobsMessage.get()[msg.length - 1] == 0);
+        for (size_t index = 0; index + 1 < msg.length; ++index)
+        {
+            REQUIRE(msg.cobsMessage.get()[index] != 0);
+        }
+        uint8_t raw[256] = {};
+        const auto size = decodeCOBS(msg.cobsMessage.get(), msg.length, raw, sizeof(raw));
+        REQUIRE(size >= BinaryMessages::serializeAircraftConfigurationSizeV2().items(0));
+        REQUIRE(raw[0] == BinaryMessages::DataType::AIRCRAFT_CONFIGURATIONS_V2);
+        REQUIRE(raw[13] == GATAS::VERSION_MAJOR);
+        REQUIRE(raw[14] == GATAS::VERSION_MINOR);
+        REQUIRE(raw[15] == GATAS::VERSION_BUGFIX);
+        dirty = (raw[1] & BinaryMessages::AIRCRAFT_CONFIGURATION_DIRTY_FLAG) != 0;
+        bootId = raw[16];
+        ++configurationCount;
+    }
+    void on_receive_unknown(const etl::imessage &) {}
+};
+
+TEST_CASE_METHOD(SemaphoreMockScope, "Configuration broadcasts include current device state", "[device-state]")
+{
+    struct BootIdScope
+    {
+        uint8_t previous = bootId;
+        ~BootIdScope() { bootId = previous; }
+    } bootIdScope;
+
+    uint8_t ram[4096] = {}, flash[4096] = {}, binary[4096] = {};
+    InMemoryStore ramStore(sizeof(ram), ram), binaryStore(sizeof(binary), binary);
+    FaultStore flashStore(sizeof(flash), flash);
+    GATAS::ThreadSafeBus<8> localBus;
+    Config config(localBus, ramStore, flashStore, binaryStore, DEFAULT_GATAS_CONFIG);
+    config.postConstruct();
+    config.start();
+    GATAS::OwnshipState ownshipState;
+    GatasConnect connect(localBus, config, ownshipState);
+    localBus.subscribe(connect);
+    ConfigurationReceiver receiver;
+    localBus.subscribe(receiver);
+    bootId = 7;
+    // The timer stub returns null, but boot ID initialization still runs.
+    connect.postConstruct();
+
+    connect.sendAircraftConfiguration();
+    REQUIRE(receiver.configurationCount == 1);
+    REQUIRE(receiver.bootId == 0x08);
+    REQUIRE_FALSE(receiver.dirty);
+
+    REQUIRE(config.setData(R"({"value":1})", "/api/Config/Other.json"));
+    connect.sendAircraftConfiguration();
+    REQUIRE(receiver.dirty);
+    REQUIRE(receiver.bootId == 0x08);
+
+    REQUIRE(config.setData("{}", "/api/Config/SaveBr.json"));
+    connect.sendAircraftConfiguration();
+    REQUIRE(receiver.configurationCount == 3);
+    REQUIRE_FALSE(receiver.dirty);
+    REQUIRE(receiver.bootId == 0x08);
+
+    SECTION("The retained boot ID advances on restart")
+    {
+        connect.postConstruct();
+        connect.sendAircraftConfiguration();
+        REQUIRE(receiver.bootId == 9);
+    }
+    SECTION("The eight-bit boot ID wraps through zero")
+    {
+        bootId = 255;
+        connect.postConstruct();
+        connect.sendAircraftConfiguration();
+        REQUIRE(receiver.bootId == 0);
+    }
+    SECTION("A failed save is broadcast as unsaved")
+    {
+        REQUIRE(config.setData(R"({"value":2})", "/api/Config/Other.json"));
+        flashStore.failure = FaultStore::Failure::Corrupt;
+        REQUIRE_FALSE(config.setData("{}", "/api/Config/SaveBr.json"));
+        connect.sendAircraftConfiguration();
+        REQUIRE(receiver.dirty);
+        REQUIRE(receiver.bootId == 8);
+    }
+}
 
 TEST_CASE("InMemoryStore capacity", "[single-file]")
 {
@@ -39,7 +287,23 @@ TEST_CASE("InMemoryStore capacity", "[single-file]")
     REQUIRE(store.writtenSize() == 0);
 }
 
-TEST_CASE("Fully Configured", "[single-file]")
+TEST_CASE_METHOD(SemaphoreMockScope, "Too-small flash cannot damage the complete RAM configuration", "[device-actions]")
+{
+    uint8_t ram[4096] = {}, flash[16] = {}, binary[4096] = {};
+    InMemoryStore ramStore(sizeof(ram), ram), binaryStore(sizeof(binary), binary);
+    FaultStore flashStore(sizeof(flash), flash);
+    GATAS::ThreadSafeBus<8> localBus;
+    Config config(localBus, ramStore, flashStore, binaryStore, DEFAULT_GATAS_CONFIG);
+    config.postConstruct();
+    REQUIRE(config.setData(R"({"aircraftId":"KEEP-THIS"})", "/api/Config/config.json"));
+    const auto before = std::vector<uint8_t>(ram, ram + ramStore.writtenSize());
+    REQUIRE_FALSE(config.setData("{}", "/api/Config/SaveBr.json"));
+    REQUIRE(flashStore.writes == 0);
+    REQUIRE(std::memcmp(before.data(), ram, before.size()) == 0);
+    REQUIRE(config.strValueByPath("", "config", "aircraftId") == "KEEP-THIS");
+}
+
+TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
 {
     uint8_t vstore[4096] = {};
     uint8_t pstore[4096] = {};
@@ -196,6 +460,29 @@ TEST_CASE("Fully Configured", "[single-file]")
         REQUIRE_FALSE(restartedConfig.persistentMatchesVolatile());
     }
 
+    SECTION("BLE aircraft selection survives a warm restart without saving flash")
+    {
+        REQUIRE(config.setData(R"({"callSign":"YY-YYY","address":10994642,"addressType":"FLARM","category":"Small"})",
+            "/api/Config/aircraft/YY-YYY.json"));
+        config.on_receive(GATAS::SelectAircraftRequestMsg{10994642});
+        REQUIRE(config.gaTasConfig().conspicuity.icaoAddress == 10994642);
+        REQUIRE_FALSE(config.persistentMatchesVolatile());
+        Config restarted(bus, volatileStore, permanentStore, binaryStore, DEFAULT_GATAS_CONFIG);
+        REQUIRE(restarted.postConstruct() == GATAS::PostConstruct::OK);
+        REQUIRE(restarted.gaTasConfig().conspicuity.icaoAddress == 10994642);
+    }
+
+    SECTION("Verified save survives loss of the retained RAM image")
+    {
+        config.setValueBypath("/Bluetooth/localName", "SAVED-COLD");
+        REQUIRE(config.setData("{}", "/api/Config/SaveBr.json"));
+        memset(vstore, 0, sizeof(vstore));
+        Config coldBoot(bus, volatileStore, permanentStore, binaryStore, DEFAULT_GATAS_CONFIG);
+        REQUIRE(coldBoot.postConstruct() == GATAS::PostConstruct::OK);
+        REQUIRE(coldBoot.strValueByPath("", "Bluetooth", "localName") == "SAVED-COLD");
+        REQUIRE(coldBoot.persistentMatchesVolatile());
+    }
+
 #if GATAS_DEBUG == 1
     SECTION("Erase stored configuration")
     {
@@ -291,5 +578,138 @@ TEST_CASE("Config GATAS::PostConstruct", "[single-file]")
         get_rand_64_SET(12345);
         testCfg.postConstruct();
         REQUIRE(testCfg.internalStore()->gatasId == 1234);
+    }
+}
+
+TEST_CASE("Compact device actions reuse configuration save and Idle reset routes", "[compact-device-actions]")
+{
+    struct SemaphoreMockScope
+    {
+        uint32_t previous = xSemaphoreTakeValue;
+        SemaphoreMockScope() { xSemaphoreTakeValue = pdTRUE; }
+        ~SemaphoreMockScope() { xSemaphoreTakeValue = previous; }
+    } semaphoreMock;
+    uint8_t ram[4096] = {}, flash[4096] = {}, binary[4096] = {};
+    InMemoryStore ramStore(sizeof(ram), ram), binaryStore(sizeof(binary), binary);
+    FaultStore flashStore(sizeof(flash), flash);
+    GATAS::ThreadSafeBus<8> localBus;
+    SystemActionReceiver systemActions;
+    localBus.subscribe(systemActions);
+    Config config(localBus, ramStore, flashStore, binaryStore, DEFAULT_GATAS_CONFIG);
+    REQUIRE(config.postConstruct() == GATAS::PostConstruct::OK);
+    config.start();
+    REQUIRE(config.setData(R"({"value":1})", "/api/Config/Other.json"));
+    REQUIRE(config.isDirty());
+
+    SECTION("Save clears dirty state and writes the current configuration")
+    {
+        localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Save});
+        REQUIRE(config.isDirty());
+        REQUIRE(flashStore.writes == 0);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE_FALSE(config.isDirty());
+        REQUIRE(flashStore.writes == 1);
+        REQUIRE(config.persistentMatchesVolatile());
+        REQUIRE(systemActions.resets == 0);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(flashStore.writes == 1);
+    }
+    SECTION("Save remains pending while the configuration mutex is busy")
+    {
+        localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Save});
+        xSemaphoreTakeValue = pdFALSE;
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(config.isDirty());
+        REQUIRE(flashStore.writes == 0);
+        xSemaphoreTakeValue = pdTRUE;
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE_FALSE(config.isDirty());
+        REQUIRE(flashStore.writes == 1);
+    }
+    SECTION("Failed deferred saves keep the configuration dirty")
+    {
+        flashStore.failure = FaultStore::Failure::Zero;
+        localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Save});
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(config.isDirty());
+        REQUIRE_FALSE(config.persistentMatchesVolatile());
+        REQUIRE(flashStore.writes == 1);
+    }
+    SECTION("Web SaveBr shares the same save behavior")
+    {
+        REQUIRE(config.setData("{}", "/api/Config/SaveBr.json"));
+        REQUIRE_FALSE(config.isDirty());
+        REQUIRE(flashStore.writes == 1);
+        REQUIRE(config.persistentMatchesVolatile());
+        REQUIRE(systemActions.resets == 0);
+    }
+    SECTION("Restart preserves unsaved configuration without writing flash")
+    {
+        localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Restart});
+        REQUIRE(systemActions.resets == 0);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(systemActions.resets == 1);
+        REQUIRE(systemActions.lastReset == GATAS::DeviceAction::Restart);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(systemActions.resets == 1);
+        REQUIRE(config.isDirty());
+        REQUIRE(flashStore.writes == 0);
+    }
+    SECTION("USB boot forwards the action without implicitly saving")
+    {
+        localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::UsbBoot});
+        REQUIRE(systemActions.resets == 0);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(systemActions.resets == 1);
+        REQUIRE(systemActions.lastReset == GATAS::DeviceAction::UsbBoot);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(systemActions.resets == 1);
+        REQUIRE(flashStore.writes == 0);
+    }
+}
+
+TEST_CASE("Pending device actions keep only the latest request", "[compact-device-actions]")
+{
+    struct SemaphoreMockScope
+    {
+        uint32_t previous = xSemaphoreTakeValue;
+        SemaphoreMockScope() { xSemaphoreTakeValue = pdTRUE; }
+        ~SemaphoreMockScope() { xSemaphoreTakeValue = previous; }
+    } semaphoreMock;
+    uint8_t ram[4096] = {}, flash[4096] = {}, binary[4096] = {};
+    InMemoryStore ramStore(sizeof(ram), ram), binaryStore(sizeof(binary), binary);
+    FaultStore flashStore(sizeof(flash), flash);
+    GATAS::ThreadSafeBus<8> localBus;
+    SystemActionReceiver receiver;
+    localBus.subscribe(receiver);
+    Config config(localBus, ramStore, flashStore, binaryStore, DEFAULT_GATAS_CONFIG);
+    REQUIRE(config.postConstruct() == GATAS::PostConstruct::OK);
+    config.start();
+    localBus.receive(GATAS::IdleMsg{});
+    REQUIRE(receiver.resets == 0);
+    REQUIRE(flashStore.writes == 0);
+    SECTION("A different action arriving during dispatch remains pending")
+    {
+        receiver.queueDuringDispatch = &localBus;
+        localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Restart});
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(receiver.resets == 1);
+        REQUIRE(receiver.lastReset == GATAS::DeviceAction::Restart);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(receiver.resets == 2);
+        REQUIRE(receiver.lastReset == GATAS::DeviceAction::UsbBoot);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(receiver.resets == 2);
+    }
+    SECTION("The latest action queued before dispatch replaces the previous one")
+    {
+        localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Save});
+        localBus.receive(GATAS::DeviceActionRequestMsg{GATAS::DeviceAction::Restart});
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(receiver.resets == 1);
+        REQUIRE(receiver.lastReset == GATAS::DeviceAction::Restart);
+        REQUIRE(flashStore.writes == 0);
+        localBus.receive(GATAS::IdleMsg{});
+        REQUIRE(receiver.resets == 1);
     }
 }

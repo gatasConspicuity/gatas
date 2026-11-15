@@ -14,6 +14,7 @@ OpenAce is a multi-protocol aviation conspicuity device (OGN, FLARM, ADS-L, FANE
 - Prefer `etl::optional<T>` when a function may not produce a value. Avoid boolean return values combined with output references.
 - For richer or multi-value results, return a small struct declared next to the API so callers can use `auto result = function();` instead of passing output references.
 - Keep desktop test code and embedded code paths aligned when changing shared module behavior.
+- Design COBS messages as idempotent state notifications, not request/response exchanges. GATAS always provides the required current state; clients must not need to request it or correlate replies with requests or sessions.
 - Use fixed-size ETL containers and avoid introducing dynamic-allocation-heavy patterns into firmware code.
 - Modules must not retain a reference or pointer to `Configuration`. Read configuration during construction and synchronously from `ConfigUpdatedMsg`, then copy only the values owned by the module. `Configuration` is not task-safe, so configuration access must remain in these controlled paths.
 - Use `float`, never `double`, in project code and tests.
@@ -21,6 +22,8 @@ OpenAce is a multi-protocol aviation conspicuity device (OGN, FLARM, ADS-L, FANE
 - Reuse `CoreUtils::addChecksumToNMEA(...)` when assembling NMEA sentences instead of implementing checksum formatting locally.
 - Always use braces for control-flow bodies, even when the body is a single line.
 - Do not introduce trailing-underscore variable names by default. Prefer the existing local naming style unless a specific file or API already requires a different convention.
+- Do not add mutexes or spinlocks around standalone reads or assignments of naturally aligned scalar values up to 32 bits (including bool and 8/16/32-bit values). These accesses are atomic on the RP2040/RP2350. Protect related values together when they must remain consistent as a pair or group; this rule does not cover read-modify-write operations or values wider than 32 bits.
+- Prefer `SynchronizedValue` for small shared datasets that need synchronized snapshots or updates. Keep copies and updates short and non-blocking because they run under a spinlock.
 - Handle mutexes with RAII `SemaphoreGuard` scopes. Preferred pattern:
   ```cpp
   if (auto guard = SemaphoreGuard(1000, instance->mutex))
@@ -41,6 +44,7 @@ OpenAce is a multi-protocol aviation conspicuity device (OGN, FLARM, ADS-L, FANE
 cd src
 cmake -B build_test -G Ninja
 ninja -C build_test
+ctest --test-dir build_test --output-on-failure
 ```
 
 ### Running a Single Test Module
