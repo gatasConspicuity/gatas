@@ -502,7 +502,7 @@ const GATAS::Config::GaTasConfiguration Config::gaTasConfig() const
     etl::vector<GATAS::DataSourceConfig, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> protocols;
     auto appendProtocol = [&](GATAS::DataSource dataSource, GATAS::DataSourceMode mode)
     {
-        if (dataSource == GATAS::DataSource::NONE || protocols.full())
+        if (dataSource >= GATAS::DataSource::_TRANSPROTOCOLS || protocols.full())
         {
             return;
         }
@@ -533,11 +533,6 @@ const GATAS::Config::GaTasConfiguration Config::gaTasConfig() const
         for (JsonPairConst protocolEntry : protocol.as<JsonObjectConst>())
         {
             auto dataSource = GATAS::stringToDataSource(protocolEntry.key().c_str());
-            if (dataSource == GATAS::DataSource::NONE)
-            {
-                continue;
-            }
-
             GATAS::DataSourceMode mode = GATAS::DataSourceMode::RX_TX;
             JsonObjectConst protocolConfig = protocolEntry.value().as<JsonObjectConst>();
             if (!protocolConfig.isNull())
