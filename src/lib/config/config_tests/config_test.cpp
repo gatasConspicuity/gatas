@@ -352,6 +352,20 @@ TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
         REQUIRE(GATAS::DataSourceMode::RX_TX == hwConfig.protocols[3].mode);
     }
 
+    SECTION("Aircraft protocol settings only include tunable sources")
+    {
+        REQUIRE(config.setData(
+            R"=({"callSign":"XX-XXX","address":12345678,"addressType":"OGN","category":"Small","protocols":["ADSB",{"ADSB":{"mode":"RX"}},"MLAT","ADSL",{"OGN":{"mode":"RX"}}]})=",
+            "/api/Config/aircraft/XX-XXX.json"));
+
+        const auto protocols = config.gaTasConfig().protocols;
+        REQUIRE(protocols.size() == 3);
+        REQUIRE(protocols[0].dataSource == GATAS::DataSource::ADSLM);
+        REQUIRE(protocols[1].dataSource == GATAS::DataSource::ADSLO_HDR);
+        REQUIRE(protocols[2].dataSource == GATAS::DataSource::OGN);
+        REQUIRE(protocols[2].mode == GATAS::DataSourceMode::RX);
+    }
+
     SECTION("Arrays")
     {
         REQUIRE(4000 == config.valueByPath(1, "GDLoverUDP/defaultPorts/0", ""));

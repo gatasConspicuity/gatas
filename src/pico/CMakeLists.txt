@@ -109,6 +109,13 @@ set(FIRMWARE_LINK_OPTIONS
 
 pico_sdk_init()
 
+if(PICO_PLATFORM STREQUAL "rp2350-arm-s")
+  # The upstream port uses volatile ++/-- in headers included by C++20 code.
+  target_include_directories(FreeRTOS-Kernel SYSTEM INTERFACE
+    "${FREERTOS_KERNEL_PATH}/${FREERTOS_KERNEL_RP2040_RELATIVE_PATH}/non_secure"
+  )
+endif()
+
 add_executable(${PROJECT_NAME} main.cpp IdleMemory.c lwip_core_lock.c)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../vendor vendorLib)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../lib globalLib)

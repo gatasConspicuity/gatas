@@ -24,22 +24,10 @@ WORKDIR /opt
 RUN git config --global http.version HTTP/1.1 && \
     git config --global http.postBuffer 1048576000 && \
     git config --global https.postBuffer 1048576000 && \
-    git clone --branch 2.1.1 --depth 1 https://github.com/raspberrypi/pico-sdk.git && \
-    cd pico-sdk && \
-    git config fetch.recurseSubmodules on-demand && \
-    git submodule update --init --depth 1 && \
-    cd lib/btstack && \
-    git fetch --unshallow && git checkout v1.6.2 && \
-    cd /opt && \
-    git clone --branch V11.2.0 --depth 1 https://github.com/FreeRTOS/FreeRTOS-Kernel.git && \
-    cd FreeRTOS-Kernel && \
-    git config fetch.recurseSubmodules on-demand && \
-    git submodule update --init --depth 1
-
-COPY ./Community-Supported-Ports.patch /opt/
-RUN cd /opt/FreeRTOS-Kernel/portable/ThirdParty/Community-Supported-Ports && git apply /opt/Community-Supported-Ports.patch
-COPY ./freertos.patch /opt/
-RUN cd /opt/FreeRTOS-Kernel && git apply /opt/freertos.patch 
+    git clone --branch 2.3.1 --depth 1 --recurse-submodules --shallow-submodules \
+        https://github.com/raspberrypi/pico-sdk.git && \
+    git clone --branch V11.3.3 --depth 1 --recurse-submodules --shallow-submodules \
+        https://github.com/FreeRTOS/FreeRTOS-Kernel.git
 
 #RUN mkdir -p /opt/src/
 

@@ -36,34 +36,17 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: raspberrypi/pico-sdk
-        ref: '2.1.1'
+        ref: '2.3.1'
         path: pico-sdk
-        submodules: true
-
-    - name: Checkout btstack
-      shell: bash
-      run: |
-        git config pull.rebase false
-        cd ${{github.workspace}}/pico-sdk/lib/btstack
-        git fetch --all --tags --prune
-        git fetch --unshallow
-        git checkout v1.6.2
+        submodules: recursive
 
     - name: Checkout FreeRTOS
       uses: actions/checkout@v4
       with:
         repository: FreeRTOS/FreeRTOS-Kernel
-        ref: 'V11.2.0'
+        ref: 'V11.3.3'
         path: FreeRTOS-Kernel
-        submodules: true
-
-    - name: Patch FreeRTOS
-      shell: bash
-      run: |
-        cd ${{github.workspace}}/FreeRTOS-Kernel
-        git apply ${{github.workspace}}/src/freertos.patch
-        cd ${{github.workspace}}/FreeRTOS-Kernel/portable/ThirdParty/Community-Supported-Ports
-        git apply ${{github.workspace}}/src/Community-Supported-Ports.patch
+        submodules: recursive
 
     - name: Show workspace
       shell: bash

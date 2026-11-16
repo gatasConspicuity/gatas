@@ -14,9 +14,6 @@ gatas_add_module(
         pico_cyw43_arch_lwip_sys_freertos
 )
 
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}/generated/${OUTPUT_NAME}_gatt_header
+pico_btstack_make_gatt_header(${PROJECT_NAME} PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/ace/gatas_gatt.gatt"
 )
-
-pico_btstack_make_gatt_header(${OUTPUT_NAME} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/ace/gatas_gatt.gatt")
-add_dependencies(${PROJECT_NAME} ${OUTPUT_NAME}_gatt_header)
