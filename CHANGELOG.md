@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
--
+- Updated the Pico SDK to 2.3.1 and the FreeRTOS kernel to V11.3.3.
 
 ### Deprecated
 
