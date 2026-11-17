@@ -328,7 +328,8 @@ TEST_CASE("Ownship position V2 requests aircraft response V3", "[binarymessages]
     constexpr size_t rawSize = BinaryMessages::serializeOwnshipPositionSizeV2().items(1);
     uint8_t raw[rawSize] = {};
     etl::bit_stream_writer writer(raw, rawSize, etl::endian::big);
-    BinaryMessages::serializeOwnshipPositionV2(writer, ownship);
+    BinaryMessages::serializeOwnshipPosition(writer, ownship, BinaryMessages::DataType::AIRCRAFT_POSITION_REQUEST_V2);
+    writer.write_unchecked(3U, 8U);
 
     REQUIRE(raw[0] == BinaryMessages::DataType(BinaryMessages::DataType::AIRCRAFT_POSITION_REQUEST_V2).get_value());
     REQUIRE(raw[rawSize - 1] == 3);
@@ -341,6 +342,43 @@ TEST_CASE("Ownship position V2 requests aircraft response V3", "[binarymessages]
     constexpr size_t legacyRawSize = BinaryMessages::serializeOwnshipPositionSizeV1().items(1);
     uint8_t legacyRaw[legacyRawSize] = {};
     etl::bit_stream_writer legacyWriter(legacyRaw, legacyRawSize, etl::endian::big);
-    BinaryMessages::serializeOwnshipPositionV1(legacyWriter, ownship);
+    BinaryMessages::serializeOwnshipPosition(legacyWriter, ownship);
     REQUIRE(legacyRaw[0] == BinaryMessages::DataType(BinaryMessages::DataType::AIRCRAFT_POSITION_REQUEST_V1).get_value());
+}
+
+TEST_CASE("Ownship V3 uploads only measured absolute pressure altitude", "[binarymessages][pressure]")
+{
+    GATAS::OwnshipPositionInfo ownship{};
+    constexpr size_t rawSize = BinaryMessages::serializeOwnshipPositionSizeV3().items(1);
+    STATIC_REQUIRE(rawSize == 29);
+    // Shared Rust/Kotlin vectors, including zero, both signs and the sentinel boundary.
+    for (const int32_t metres : {900, -139, 0, -32767, 32767, -32768, 32768})
+    {
+        uint8_t framed[64] = {};
+        const GATAS::SelectedPressureAltitude sample{static_cast<float>(metres),
+            GATAS::BarometricSource::Internal, GATAS::PressureSource::PressureSensor};
+        const auto size = BinaryMessages::serializeOwnshipPositionV3(framed, sizeof(framed), ownship, sample);
+        REQUIRE(size > 0);
+        uint8_t raw[64] = {};
+        REQUIRE(decodeCOBS(framed, size, raw, sizeof(raw)) == rawSize);
+        REQUIRE(raw[0] == 14);
+        const auto expected = metres < -32767 || metres > 32767 ? INT16_MIN : metres;
+        REQUIRE(raw[26] == static_cast<uint8_t>((static_cast<uint16_t>(expected) >> 8) & 0xff));
+        REQUIRE(raw[27] == static_cast<uint8_t>(expected & 0xff));
+        REQUIRE(raw[28] == 3);
+    }
+    for (const auto method : {GATAS::PressureSource::Calculated, GATAS::PressureSource::Unavailable})
+    {
+        uint8_t raw[rawSize] = {};
+        etl::bit_stream_writer writer(raw, rawSize, etl::endian::big);
+        BinaryMessages::serializeOwnshipPositionV3(writer, ownship,
+            GATAS::SelectedPressureAltitude{900.0f, GATAS::BarometricSource::External, method});
+        REQUIRE(raw[26] == 0x80);
+        REQUIRE(raw[27] == 0);
+    }
+    uint8_t raw[rawSize] = {};
+    etl::bit_stream_writer writer(raw, rawSize, etl::endian::big);
+    BinaryMessages::serializeOwnshipPositionV3(writer, ownship, etl::nullopt);
+    REQUIRE(raw[26] == 0x80);
+    REQUIRE(raw[27] == 0);
 }

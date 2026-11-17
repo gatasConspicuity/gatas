@@ -2,6 +2,16 @@
 
 This document maps every message type to its sender(s) and receiver(s).
 
+GatasConnect sends ownship V3 (COBS type 14) through its existing UDP/Bluetooth
+routes. It copies the fresh selected pressure sample from OwnshipState and only
+uploads `PressureSource::PressureSensor`. The absolute pressure altitude is a
+signed big-endian 16-bit number of metres at 1013.25 hPa in bytes 26–27; `0x8000`
+means unavailable (including calculated, stale or out-of-range pressure). The
+29-byte body ends with traffic response version 3 at byte 28. Zero and negative
+altitudes are valid. GPS height retains the V2 encoding and is independent of
+pressure altitude. No new message-bus subscription is needed. Deploy V3 server
+support first; the legacy V1/V2 ownship serializers are deprecated and disabled.
+
 > **Maintenance note**: Keep this document split into separate flow diagrams. When updating it, change only the affected flow sections and do not collapse everything into one large combined flow unless explicitly asked.
 
 > **How this was generated**: Senders were found by grepping `getBus().receive(` across all `.cpp` files. Receivers were found by grepping `void on_receive(const GATAS::` across all `.hpp` files. The class name was inferred from the enclosing file/class context.

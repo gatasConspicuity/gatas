@@ -1,7 +1,7 @@
 # GATAS Conspicuity Device
 
 [![Build GaTas](https://github.com/rvt/openace/actions/workflows/ci.yml/badge.svg)](https://github.com/rvt/openace/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v3.6.0-green)
+![version](https://img.shields.io/badge/version-unreleased-yellow)
 
 [<img src="doc/img/Discord-Logo-Blurple.png" height="45px">](https://discord.gg/J6mXTcWndS)
 
@@ -148,6 +148,11 @@ your mobile's access point, how cool is that!
 
 - **Transmit:** ~52 bytes/second
 - **Receive:** ~1024 bytes/second at 30 aircraft. (supports up to 30 nearby aircraft)
+
+## Firmware clock selection
+
+Firmware builds offer Default, 200 MHz and 266 MHz clock selections, with matching
+wireless clock dividers. See [Firmware clock selection](doc/build-clock.md).
 
 ## External Libraries and frameworks used
 

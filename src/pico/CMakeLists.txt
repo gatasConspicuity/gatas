@@ -68,6 +68,22 @@ endif()
 set(OUTPUT_NAME "GATAS_${PICO_PLATFORM}")
 project(${OUTPUT_NAME} C CXX ASM)
 
+set(GATAS_CLOCK_SPEED "Default" CACHE STRING "System clock: Default, 200 or 266 MHz")
+set_property(CACHE GATAS_CLOCK_SPEED PROPERTY STRINGS Default 200 266)
+if(GATAS_CLOCK_SPEED STREQUAL "Default")
+  set(GATAS_SYS_CLOCK_KHZ 0)
+  # Preserve the SDK's board clock and CYW43 divider.
+elseif(GATAS_CLOCK_SPEED STREQUAL "200")
+  set(GATAS_SYS_CLOCK_KHZ 200000)
+  set(GATAS_CYW43_PIO_CLOCK_DIV_INT 3)
+elseif(GATAS_CLOCK_SPEED STREQUAL "266")
+  set(GATAS_SYS_CLOCK_KHZ 266000)
+  set(GATAS_CYW43_PIO_CLOCK_DIV_INT 4)
+else()
+  message(FATAL_ERROR "GATAS_CLOCK_SPEED must be Default, 200 or 266")
+endif()
+message(STATUS "GATAS system clock selection: ${GATAS_CLOCK_SPEED}")
+
 # Allow user to override this option from command line: -DGATAS_UART_OVER_USB=1
 option(GATAS_UART_OVER_USB "Enable UART over USB (1) or physical UART (0)" "")
 
@@ -193,7 +209,13 @@ target_compile_definitions(
   PRIVATE FREE_RTOS_KERNEL_SMP=1
           portSUPPORT_SMP=1
           GATAS_UART_OVER_USB=${GATAS_UART_OVER_USB}
+          GATAS_SYS_CLOCK_KHZ=${GATAS_SYS_CLOCK_KHZ}
           PICO_USE_STACK_GUARDS=1)
+
+if(NOT GATAS_CLOCK_SPEED STREQUAL "Default")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE
+    CYW43_PIO_CLOCK_DIV_INT=${GATAS_CYW43_PIO_CLOCK_DIV_INT})
+endif()
 
 # Enable debugging over PICO Debugger
 if(GATAS_UART_OVER_USB)

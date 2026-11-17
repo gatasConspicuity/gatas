@@ -16,6 +16,7 @@
 #include "pico/cyw43_arch.h"
 #include "pico/btstack_cyw43.h"
 #include "pico/cyw43_driver.h"
+#include "hardware/vreg.h"
 
 /* Vendor. */
 #include "etl/list.h"
@@ -65,6 +66,7 @@
 const char *GATAS_BUILD_TIMESTAMP = BUILD_TIMESTAMP;
 const char *GATAS_BUILD_GIT_TAG = BUILD_GIT_TAG;
 const uint32_t GATAS_BUILD_TIMESTAMP_EPOCH = BUILD_TIMESTAMP_EPOCH;
+
 
 void etlcpp_receive_error(const etl::exception &e)
 {
@@ -430,10 +432,13 @@ static void loadModules(void *arg)
     ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░    ░░░░░   ░░░░░  ░░░░░░░░░
 
         GATAS Device ID: %lX
+        Clock: %dMhz Cores:%u
 
         )=",
-        static_cast<uint32_t>(config.internalStore()->gatasId));
-    gpio_put(ledStatusIndicatorPin, 1);
+        static_cast<uint32_t>(config.internalStore()->gatasId),
+        (uint16_t)(clock_get_hz(clk_sys) / 1'000'000), (uint8_t)configNUMBER_OF_CORES);
+
+        gpio_put(ledStatusIndicatorPin, 1);
 
     vTaskDelete(nullptr);
 }
@@ -684,11 +689,11 @@ void overflowTest()
 
 int main()
 {
-    bool at200Mhz = false;
-    if (set_sys_clock_khz(200000, true))
-    {
-        at200Mhz = true;
-    }
+#if GATAS_SYS_CLOCK_KHZ > 0
+    vreg_set_voltage(VREG_VOLTAGE_1_15);
+    busy_wait_ms(10);
+    set_sys_clock_khz(GATAS_SYS_CLOCK_KHZ, true);
+#endif
     stdio_init_all();
     overflowTest();
 
@@ -704,17 +709,17 @@ int main()
 #endif
 
 #if (configNUMBER_OF_CORES > 1)
-    printf("        Starting %s on both cores at %dMHZ:\n\n", rtos_name, at200Mhz ? 200 : 125);
+    printf("        Starting %s on both cores at %uMHZ:\n\n", rtos_name, static_cast<unsigned int>(clock_get_hz(clk_sys) / 1'000'000));
     vLaunch();
 #elif (RUN_FREERTOS_ON_CORE == 1)
-    printf("        Starting %s on core 1:\n\n", rtos_name);
+    printf("        Starting %s on core 1 at %uMHZ:\n\n", rtos_name, static_cast<unsigned int>(clock_get_hz(clk_sys) / 1'000'000));
     multicore_launch_core1(vLaunch);
     while (true)
     {
         ;
     }
 #else
-    printf("        Starting %s on core 0 %dMHZ:\n\n", rtos_name, at200Mhz ? 200 : 125);
+    printf("        Starting %s on core 0  %uMHZ:\n\n", rtos_name, static_cast<unsigned int>(clock_get_hz(clk_sys) / 1'000'000));
     vLaunch();
 #endif
 

@@ -9,15 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
--
+- Fresh physical-sensor pressure altitude is included in GATAS Server position
+  reports so other aircraft can receive it. Requires a server supporting ownship V3.
+- Firmware builds can select the default clock, 200 MHz, or 266 MHz on RP2040
+  and RP2350, with matching CYW43 wireless clock dividers.
 
 ### Changed
 
 - Updated the Pico SDK to 2.3.1 and the FreeRTOS kernel to V11.3.3.
+- New builds use the SDK's board clock by default; higher clock speeds are optional.
 
 ### Deprecated
 
--
+- Legacy V1/V2 ownship position serializers; firmware now sends ownship V3.
 
 ### Removed
 
@@ -25,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
--
+- Startup diagnostics report the actual system clock on both Pico generations
+  without clock-display format warnings.
 
 ### Security
 

@@ -222,7 +222,7 @@ void GatasConnect::sendOwnshipPosition()
         return;
     }
 
-    const size_t ownshipFrameSize = BinaryMessages::serializeOwnshipPositionFramedSizeV2();
+    const size_t ownshipFrameSize = BinaryMessages::serializeOwnshipPositionFramedSizeV3();
     auto &pool = BaseModule::getGlobalPool();
     auto *cobsPayload = static_cast<uint8_t *>(pool.alloc(ownshipFrameSize));
     if (cobsPayload == nullptr)
@@ -231,7 +231,8 @@ void GatasConnect::sendOwnshipPosition()
         return;
     }
 
-    const size_t written = BinaryMessages::serializeOwnshipPositionV2(cobsPayload, ownshipFrameSize, ownshipSnap);
+    const size_t written = BinaryMessages::serializeOwnshipPositionV3(
+        cobsPayload, ownshipFrameSize, ownshipSnap, ownshipState.selectedPressureAltitude());
     if (written == 0)
     {
         GATAS_WARN("GatasConnect: failed to encode ownship request payload");

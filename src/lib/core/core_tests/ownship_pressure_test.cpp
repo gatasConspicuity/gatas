@@ -29,6 +29,30 @@ namespace
     };
 }
 
+TEST_CASE("Ownship upload expires physical pressure and never uploads the calculated fallback", "[binarymessages][pressure]")
+{
+    CoreUtils::init();
+    GATAS::OwnshipState state;
+    state.init(CoreUtils::sharedSpinLock());
+    state.updateBarometricPressure(GATAS::BarometricSource::Internal,
+        {1013.25f, GATAS::PressureSource::PressureSensor}, 1000);
+    GATAS::OwnshipPositionInfo ownship{};
+    constexpr auto size = BinaryMessages::serializeOwnshipPositionSizeV3().items(1);
+    uint8_t raw[size] = {};
+    etl::bit_stream_writer fresh(raw, size, etl::endian::big);
+    BinaryMessages::serializeOwnshipPositionV3(fresh, ownship, state.selectedPressureAltitude(1000));
+    REQUIRE(raw[26] == 0);
+    REQUIRE(raw[27] == 0);
+
+    state.updateBarometricPressure(GATAS::BarometricSource::External,
+        {900.0f, GATAS::PressureSource::Calculated}, 7000);
+    REQUIRE(state.selectedPressureAltitude(7000)->method == GATAS::PressureSource::Calculated);
+    etl::bit_stream_writer expired(raw, size, etl::endian::big);
+    BinaryMessages::serializeOwnshipPositionV3(expired, ownship, state.selectedPressureAltitude(7000));
+    REQUIRE(raw[26] == 0x80);
+    REQUIRE(raw[27] == 0);
+}
+
 TEST_CASE("Ownship pressure V1 matches server bytes and ignores QNH", "[binarymessages][pressure]")
 {
     REQUIRE(BinaryMessages::DataType::OWNSHIP_PRESSURE_V1 == 11);
