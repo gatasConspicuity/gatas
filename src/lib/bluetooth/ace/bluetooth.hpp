@@ -20,6 +20,7 @@
 #include "ace/messages.hpp"
 #include "ace/packetbuffer.hpp"
 #include "ace/circularbuffer.hpp"
+#include "cobssubscriptionpublisher.hpp"
 
 /* BT Stack*/
 #include "btstack.h"
@@ -234,6 +235,8 @@ private:
     GATAS::SsidOrPasswdStr localName;
 
     SemaphoreHandle_t bufferMutex;
+    CobsSubscriptionPublisher cobsSubscriptions{
+        CobsSubscriptionPublisher::Publish::create<&Bluetooth::publishCobsSubscriptionState>()};
 
     static bool sendNMEABuffer(BtContext &ctx);
     static bool sendCobsBuffer(BtContext &ctx);
@@ -259,8 +262,8 @@ public:
 
     void postStart() override
     {
-        // GatasConnect is now subscribed even if a client connected during startup.
-        publishCobsSubscriptionState();
+        // Defer the snapshot to Bluetooth, including clients connected during startup.
+        cobsSubscriptions.changed();
     }
 
     virtual ~Bluetooth() = default;

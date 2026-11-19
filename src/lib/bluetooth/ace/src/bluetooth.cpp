@@ -251,12 +251,13 @@ void Bluetooth::removeConnection(uint16_t hciHandle)
         {
             it->deactivate();
         }
-        publishCobsSubscriptionState();
+        instance->cobsSubscriptions.changed();
     }
 }
 
 void Bluetooth::publishCobsSubscriptionState()
 {
+    // Both the snapshot and publication run on the Bluetooth task, never the loader.
     uint8_t subscribers = 0;
     {
         auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex);
@@ -632,7 +633,7 @@ int Bluetooth::attWriteCallback(hci_con_handle_t con_handle, uint16_t att_handle
                 }
             }));
         // clang-format on
-        publishCobsSubscriptionState();
+        instance->cobsSubscriptions.changed();
     }
     break;
 
