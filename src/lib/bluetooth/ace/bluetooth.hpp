@@ -173,6 +173,7 @@ private:
     static bool createConnection(hci_con_handle_t handle, uint16_t mtu);
     // Remove any old connections
     static void removeConnection(uint16_t handle);
+    static void publishCobsSubscriptionState();
     static void heartbeat_handler(struct btstack_timer_source *ts);
     // END: methods within this block as running within the BLE task
 
@@ -233,6 +234,7 @@ private:
     GATAS::SsidOrPasswdStr localName;
 
     SemaphoreHandle_t bufferMutex;
+    btstack_context_callback_registration_t subscriptionCallback{};
 
     static bool sendNMEABuffer(BtContext &ctx);
     static bool sendCobsBuffer(BtContext &ctx);
@@ -254,6 +256,13 @@ public:
         localName = config.strValueByPath("GaTas", NAME, "localName");
         createAdvData();
         createScanResponseData();
+    }
+
+    void postStart() override
+    {
+        // Read the current count on the Bluetooth task after all modules have started.
+        subscriptionCallback.callback = [](void *) { publishCobsSubscriptionState(); };
+        btstack_run_loop_execute_on_main_thread(&subscriptionCallback);
     }
 
     virtual ~Bluetooth() = default;

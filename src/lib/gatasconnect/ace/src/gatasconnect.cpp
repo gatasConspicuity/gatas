@@ -47,7 +47,7 @@ void GatasConnect::getData(etl::string_stream &stream, const etl::string_view pa
     stream << "{";
     stream << "\"hasGpsFix:b\":" << hasGpsFix;
     stream << ",\"output\":\"" << gatasConnectOutput.c_str() << "\"";
-    stream << ",\"gdl90BridgeEnabled:b\":" << gdl90BridgeEnabled;
+    stream << ",\"gdl90BleSubscribers\":" << gdl90BleSubscribers;
     stream << ",\"localConfigurationUpdateCnt\":" << localConfigurationUpdateCnt;
     stream << ",\"lastRadioTrafficUs\":" << lastRadioTrafficUs;
     stream << "}";
@@ -118,10 +118,15 @@ void GatasConnect::on_receive(const GATAS::GatasConnectRx &msg)
         msg.source, bootId, allowNonDeviceActionFrames);
 }
 
+void GatasConnect::on_receive(const GATAS::GatasConnectBluetoothStateMsg &msg)
+{
+    gdl90BleSubscribers = msg.subscribers;
+}
+
 void GatasConnect::on_receive(const GATAS::GdlMsg &msg)
 {
-    // Send GDL90 over Bluetooth when the bridge is enabled and the selected output includes Bluetooth.
-    if (gatasConnectOutput.usesBluetooth() && gdl90BridgeEnabled && !msg.msg.empty())
+    // Allocate bridge frames only while at least one client subscribes to COBS.
+    if (gatasConnectOutput.usesBluetooth() && gdl90BleSubscribers != 0 && !msg.msg.empty())
     {
 
         const size_t cobsSize = BinaryMessages::serializeGdl90FramedSizeV1(msg.msg.size());
@@ -149,7 +154,6 @@ void GatasConnect::getConfig(const Configuration &config)
 {
     const uint32_t configuredPin = static_cast<uint32_t>(config.valueByPath(0, NAME, "pinCode"));
     const uint32_t pinSnap = configuredPin == 0 ? 0 : etl::clamp(configuredPin, static_cast<uint32_t>(1000), static_cast<uint32_t>(999999));
-    gdl90BridgeEnabled = config.valueByPath(false, NAME, "enableGdl90Bridge");
     localConfigurationUpdateCnt = LOCALCONFIGURATIONCHANGE_HOLD_BACK;
 
     auto gatasConfig = config.gaTasConfig();
