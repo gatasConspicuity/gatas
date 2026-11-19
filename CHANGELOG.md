@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
-- Legacy V1/V2 ownship position serializers; firmware now sends ownship V3.
+-
 
 ### Removed
 
@@ -29,8 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Startup diagnostics report the actual system clock on both Pico generations
-  without clock-display format warnings.
+-
 
 ### Security
 

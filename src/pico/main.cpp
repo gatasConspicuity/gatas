@@ -709,17 +709,14 @@ int main()
 #endif
 
 #if (configNUMBER_OF_CORES > 1)
-    printf("        Starting %s on both cores at %uMHZ:\n\n", rtos_name, static_cast<unsigned int>(clock_get_hz(clk_sys) / 1'000'000));
     vLaunch();
 #elif (RUN_FREERTOS_ON_CORE == 1)
-    printf("        Starting %s on core 1 at %uMHZ:\n\n", rtos_name, static_cast<unsigned int>(clock_get_hz(clk_sys) / 1'000'000));
     multicore_launch_core1(vLaunch);
     while (true)
     {
         ;
     }
 #else
-    printf("        Starting %s on core 0  %uMHZ:\n\n", rtos_name, static_cast<unsigned int>(clock_get_hz(clk_sys) / 1'000'000));
     vLaunch();
 #endif
 
