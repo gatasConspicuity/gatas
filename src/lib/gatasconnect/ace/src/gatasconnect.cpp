@@ -47,9 +47,7 @@ void GatasConnect::getData(etl::string_stream &stream, const etl::string_view pa
     stream << "{";
     stream << "\"hasGpsFix:b\":" << hasGpsFix;
     stream << ",\"output\":\"" << gatasConnectOutput.c_str() << "\"";
-    stream << ",\"gdl90BluetoothAutomatic:b\":true";
     stream << ",\"gdl90BleSubscribers\":" << gdl90BleSubscribers;
-    stream << ",\"gdl90UdpRecipients\":" << gdl90UdpRecipients;
     stream << ",\"localConfigurationUpdateCnt\":" << localConfigurationUpdateCnt;
     stream << ",\"lastRadioTrafficUs\":" << lastRadioTrafficUs;
     stream << "}";
@@ -123,11 +121,6 @@ void GatasConnect::on_receive(const GATAS::GatasConnectRx &msg)
 void GatasConnect::on_receive(const GATAS::GatasConnectBluetoothStateMsg &msg)
 {
     gdl90BleSubscribers = msg.subscribers;
-}
-
-void GatasConnect::on_receive(const GATAS::Gdl90UdpStateMsg &msg)
-{
-    gdl90UdpRecipients = msg.recipients;
 }
 
 void GatasConnect::on_receive(const GATAS::GdlMsg &msg)

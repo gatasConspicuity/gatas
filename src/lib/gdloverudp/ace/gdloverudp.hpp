@@ -8,7 +8,6 @@
 #include "ace/basemodule.hpp"
 #include "ace/messages.hpp"
 #include "ace/packetbuffer.hpp"
-#include "gdl90udproutes.hpp"
 
 /* LwIP */
 #include "lwip/udp.h"
@@ -65,8 +64,7 @@ private:
     void on_receive(const GATAS::ConfigUpdatedMsg &msg);
     static void gdlOverUDPTask(void *arg);
     static void foreFlightListener(void *arg, udp_pcb *pcb, pbuf *p, const ip_addr_t *addr, u16_t port);
-    Gdl90UdpRoutes snapshotRoutes() const;
-    void transmitBuffer(const Gdl90UdpRoutes &routes);
+    void transmitBuffer();
     void sendTo(uint32_t ip, uint16_t port, etl::span<uint8_t> data);
 
 public:

@@ -87,7 +87,6 @@ public:
 
     static constexpr uint8_t AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK = 0x03U;
     static constexpr uint8_t AIRCRAFT_CONFIGURATION_DIRTY_FLAG = 0x04U;
-    static constexpr uint8_t AIRCRAFT_CONFIGURATION_AUTOMATIC_GDL90_FLAG = 0x10U;
 
     static constexpr int32_t LEGACY_ELLIPSOID_HEIGHT_OFFSET_M = 100;
     static constexpr int32_t V3_ELLIPSOID_HEIGHT_OFFSET_M = 1000;
@@ -412,9 +411,8 @@ public:
     {
         writer.write_unchecked(DataType(DataType::AIRCRAFT_CONFIGURATIONS_V2).get_value(), 8U);
         const uint8_t flags = (static_cast<uint8_t>(wifiMode) & AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK)
-            | (dirtyFlag ? AIRCRAFT_CONFIGURATION_DIRTY_FLAG : 0U)
-            | AIRCRAFT_CONFIGURATION_AUTOMATIC_GDL90_FLAG;
-        writer.write_unchecked(flags, 8U); // Bits 0-1: WiFi; bit 2: dirty; bit 4: automatic BLE GDL90; other bits reserved
+            | (dirtyFlag ? AIRCRAFT_CONFIGURATION_DIRTY_FLAG : 0U);
+        writer.write_unchecked(flags, 8U); // Bits 0-1: WiFi mode NC/AP/CLIENT; bit 2: dirty; bits 3-7: reserved
         writer.write_unchecked(gatasId, 32U);
         writer.write_unchecked(gatasIp, 32U);
         writer.write_unchecked(icaoAddressSnap, 24U);

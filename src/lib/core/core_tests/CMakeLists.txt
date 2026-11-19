@@ -44,7 +44,6 @@ set(SOURCES_IDIOMATIC_EXAMPLES # Tests
     antennaRadiationPattern_test.cpp
     models_test.cpp
     binarymessages_test.cpp
-    transport_diagnostics_test.cpp
     gatasconnect_test.cpp
     deviceactions_test.cpp
     ownship_pressure_test.cpp
@@ -71,8 +70,6 @@ foreach(name ${TARGETS_IDIOMATIC_EXAMPLES})
     POST_BUILD
     COMMAND ${UNIT_TEST})
 endforeach()
-
-target_compile_definitions(transport_diagnostics_test PRIVATE GATAS_GDL90OVERUDP_MAX_PORTS=2 GATAS_GDL90OVERUDP_MAX_CUSTOM_CLIENTS=2)
 
 target_sources(ownship_pressure_test PRIVATE ../../utils/ace/src/cobs.cpp)
 target_sources(binarymessages_test PRIVATE ../../utils/ace/src/cobs.cpp)

@@ -6,13 +6,17 @@ This file provides guidance to Codex and other coding agents working in this rep
 
 OpenAce is a multi-protocol aviation conspicuity device (OGN, FLARM, ADS-L, FANET, ADS-B) running on Raspberry Pi RP2040/RP2350 with FreeRTOS. It uses a modular message-bus architecture built on the Embedded Template Library (ETL).
 
+## Minimal Changes
+
+Make the smallest readable change that fully solves the task. Start in the code that owns the behavior and reuse existing functions and types. Add a helper, class, file, or configuration option only when the current task needs it. Preserve existing callers and leave unrelated cleanup out of the diff.
+
 ## Working Rules
 
 - Prefix every shell command with `rtk`. Use the matching `rtk` subcommand when available, or `rtk run` for commands without a dedicated wrapper.
-- Prefer targeted edits. Do not touch `src/vendor/` unless the task explicitly requires it.
+- Do not touch `src/vendor/` unless the task explicitly requires it.
 - When updating `CHANGELOG.md` in preparation for the next release, also update the version badge in `README.md`.
 - Prefer `etl::optional<T>` when a function may not produce a value. Avoid boolean return values combined with output references.
-- For richer or multi-value results, return a small struct declared next to the API so callers can use `auto result = function();` instead of passing output references.
+- When several values must be returned together and no existing type fits, return a small struct declared next to the API so callers can use `auto result = function();` instead of passing output references.
 - Keep desktop test code and embedded code paths aligned when changing shared module behavior.
 - Design COBS messages as idempotent state notifications, not request/response exchanges. GATAS always provides the required current state; clients must not need to request it or correlate replies with requests or sessions.
 - Use fixed-size ETL containers and avoid introducing dynamic-allocation-heavy patterns into firmware code.
@@ -34,82 +38,47 @@ OpenAce is a multi-protocol aviation conspicuity device (OGN, FLARM, ADS-L, FANE
   After the guarded block, RAII releases the mutex. Do not replace this with manual `xSemaphoreTake` / `xSemaphoreGive` pairs unless the task explicitly requires it.
 - Use `LwipRAIILock` only around lwIP API calls. It protects lwIP's core context and must not be used as general-purpose synchronization for application state.
 - For lwIP packet allocation, use `PBUF_POOL` rather than `PBUF_RAM` (for example, with `pbuf_alloc`).
-- When changing message routes or module interactions, update [doc/message-bus.md](/Volumes/ext/source/OpenAce/doc/message-bus.md) if the documented flow changed.
+- When changing message routes or module interactions, update [doc/message-bus.md](doc/message-bus.md) if the documented flow changed.
 
 ## Build Commands
 
-### Unit Tests (Desktop/x86)
+### Desktop Tests
+
+Run from the repository root:
 
 ```bash
-cd src
-cmake -B build_test -G Ninja
-ninja -C build_test
-ctest --test-dir build_test --output-on-failure
+rtk run cmake -S src -B src/build_test -G Ninja
+rtk run cmake --build src/build_test
+rtk run ctest --test-dir src/build_test --output-on-failure
 ```
 
-### Running a Single Test Module
-
-Each tested module has a local `urun.sh` script in its `*_tests/` directory. This is the fastest way to iterate:
+For a focused run, build the affected target and run its registered CTest. For example:
 
 ```bash
-cd src/lib/<module>/<module>_tests
-./urun.sh
+rtk run cmake --build src/build_test --target coreutils_test
+rtk run ctest --test-dir src/build_test -R '^coreutils_test$' --output-on-failure
 ```
 
-Examples that exist today include:
+List registered tests with `rtk run ctest --test-dir src/build_test -N`.
 
-- `src/lib/core/core_tests/urun.sh`
-- `src/lib/radiotuner/radiotuner_tests/urun.sh`
-- `src/lib/aircrafttracker/aircrafttracker_tests/urun.sh`
-- `src/lib/config/config_tests/urun.sh`
+### Firmware Build
 
-You can also run the built test binary directly from the top-level test build:
+With `PICO_SDK_PATH` and `FREERTOS_KERNEL_PATH` set, run from the repository root:
 
 ```bash
-cd src
-cmake -B build_test -G Ninja
-ninja -C build_test
-./build_test/lib/<module>/<module>_tests/<target>
+rtk run cmake -S src/pico -B src/pico/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico_w
+rtk run cmake --build src/pico/build
 ```
 
-### Firmware Build (Embedded)
+For Pico 2 W, use a separate build directory with `-DPICO_PLATFORM=rp2350 -DPICO_BOARD=pico2_w`. The firmware output is a `.uf2` image.
 
-```bash
-export PICO_SDK_PATH=/path/to/pico-sdk
-export FREERTOS_KERNEL_PATH=/path/to/FreeRTOS-Kernel
+### SystemGUI
 
-cd src/pico
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DPICO_PLATFORM=rp2040 -DPICO_BOARD=pico_w
-ninja -C build
-```
+The module Monitor helps users check whether a module is working and diagnose common problems. Keep each module’s `getData(...)` output brief. Include a field only if it answers a specific user question, such as “Is the receiver getting packets?” Omit developer-only counters, raw dumps, and duplicate indicators.
 
-Supported variants:
+From `src/SystemGUI/`, use `rtk npm install` to install dependencies, `rtk npm start` for development, and `rtk npm test` for frontend tests. Set the device IP in `.proxyrc.js` when testing against hardware.
 
-- Platforms: `rp2040`, `rp2350`
-- Boards: `pico_w`, `pico2_w`
-
-The firmware output is a `.uf2` image.
-
-### SystemGUI (Web UI)
-
-The web UI lives in `src/SystemGUI/`.
-
-```bash
-cd src/SystemGUI
-npm install
-npm start
-```
-
-For production assets:
-
-```bash
-cd src/SystemGUI
-npm run build
-```
-
-The Parcel build output in `src/SystemGUI/dist/` is embedded into the firmware during the CMake firmware build.
-
-Before running the dev server against hardware, set the device IP in `src/SystemGUI/.proxyrc.js`.
+`rtk npm run build` produces `dist/`. To embed UI changes, run `rtk run sh makeFs.sh` **from `src/lib/webserver/`**. The script builds the UI and regenerates `gatas_fsdata.c`, which the firmware build consumes.
 
 ### Browser Testing Tools
 
@@ -121,43 +90,19 @@ Before running the dev server against hardware, set the device IP in `src/System
 
 ### ACE Module Pattern
 
-Each functional unit is a module that typically inherits from `BaseModule` and an ETL message router:
-
-```cpp
-class MyModule : public BaseModule,
-                 public etl::message_router<MyModule, Msg1, Msg2, ...>
-{
-    OpenAce::PostConstruct postConstruct(OpenAce::PostConstruct) override;
-    void start() override;
-    void on_receive(const Msg1 &msg);
-    void on_receive(const Msg2 &msg);
-    void on_receive_unknown(const etl::imessage &msg) override {}
-};
-```
-
-Key base pieces:
-
-- `src/lib/core/ace/basemodule.hpp`: lifecycle management, config access, module registry
-- `src/lib/core/ace/messages.hpp`: shared message definitions
-
-### Module Lifecycle
-
-1. Constructor receives `etl::imessage_bus&` and `const Configuration&`
-2. `postConstruct()` validates hardware and configuration and returns `PostConstruct::OK` or an error enum
-3. `start()` begins operation
-4. `getData(...)` and `setData(...)` expose runtime inspection and control
+For a working example, see [Ogn1](src/lib/ogn/ace/ogn1.hpp) and [its implementation](src/lib/ogn/ace/src/ogn1.cpp). Modules typically derive from `BaseModule` and `etl::message_router`. The constructor receives the bus, configuration and any module-specific dependencies. `GATAS::PostConstruct postConstruct()` checks initialization, then `start()` begins operation. Modules can override `postStart()` for work that depends on other modules having started, and `getData(...)` or `setData(...)` for runtime inspection or control.
 
 ### Message Bus Communication
 
-Modules communicate asynchronously through the ETL message bus. Prefer message-based communication over direct module-to-module calls.
+The ETL bus dispatches synchronously in the publisher’s context. A handler that defers work must copy any borrowed data it will need after returning. Prefer message-based communication over direct module-to-module calls.
 
 - Define messages in `src/lib/core/ace/messages.hpp`
-- Send with `messageBus.receive(FooMsg{...})`
-- Receive by listing the message in the router template parameters and implementing `on_receive(const FooMsg&)`
+- Send with `getBus().receive(FooMsg{...})`
+- Subscribe the router with `getBus().subscribe(*this)`. Receive by listing the message in the router template parameters and implementing `on_receive(const FooMsg&)`
 
 Common message groups include:
 
-- Position: `OwnshipPositionMsg`, `AircraftPositionMsg`
+- Position: `OwnshipPositionMsg`, `IngressAircraftPositionMsg`, `EgressAircraftPositionMsg`
 - Radio: `RadioRxManchesterMsg`, `RadioTxPositionRequestMsg`
 - Sensors: `GPSSentenceMsg`, `BarometricPressureMsg`
 - Timers: `Every5SecMsg`, `Every30SecMsg`
@@ -172,16 +117,12 @@ auto str = config.strValueByPath(defaultValue, "SectionName", "keyName");
 bool en = config.isModuleEnabled("ModuleName");
 ```
 
-Primary runtime config file:
-
-- `src/pico/gatas_default_config.ini`
-
-When adding or wiring a new module, update the `[Modules]` section accordingly.
+The firmware build embeds `src/pico/gatas_default_config.json`, with an optional `src/pico/gatas_local_config.json` overlay. The top-level `modules` value is a comma-separated string of module names.
 
 ### Hardware Abstraction Base Classes
 
-- `Radio`: radio transceivers, registered as `_Radio_0` through `_Radio_3`
-- `SpiModule`: SPI interface, `NAME = "_SPI"`
+- `Radio`: radio transceiver base with lookup names `_Radio_0` through `_Radio_3`
+- `SpiModule`: SPI interface, `_SPI_0` and `_SPI_1`
 - `RtcModule`: RTC abstraction
 - `BinaryReceiver`: binary stream consumer base
 
@@ -193,18 +134,18 @@ Firmware code favors fixed-size containers and predictable memory behavior. Pref
 
 - `AircraftPositionInfo.timestamp` is a local relative timestamp in microseconds and should be in the `CoreUtils::timeUs32()` frame.
 - Received aircraft packet timestamps represent the remote send time, not the local receive time. By the time a packet is received, the restored packet timestamp is expected to be less than or equal to the local 64-bit epoch timestamp from `CoreUtils::msSinceEpoch()`.
-- For packet formats that only encode time within a minute, resolve the timestamp as now-or-past, never as a future timestamp. Use a small max-delta window to reject ambiguous or stale data.
-- When converting packet send time to `AircraftPositionInfo.timestamp`, compute elapsed time against `CoreUtils::msSinceEpoch()` and subtract that elapsed duration from `CoreUtils::timeUs32()`.
+- For packet formats that encode only part of the send time, resolve the timestamp as now-or-past, never as a future timestamp. Use a small max-delta window to reject ambiguous or stale data.
+- When converting packet send time to `AircraftPositionInfo.timestamp`, compute elapsed time against `CoreUtils::msSinceEpoch()` and convert the elapsed milliseconds to microseconds, and subtract them from `CoreUtils::timeUs32()`.
 
 ## GDL90 Nearby-Traffic Altitude Decision
 
-- For traffic aircraft within the tracker’s intended nearby operating range, using the ownship geoid separation to convert a remote ellipsoid height is an accepted approximation. The WGS-84 geoid separation changes negligibly over this local range for the display accuracy required by the project. Revisit this decision if traffic is reported over substantially larger distances or if an aircraft-specific geoid separation becomes available.
+- Use `CoreUtils::resolveTrafficAltitude(...)` for GDL90 traffic. It prefers the target’s pressure altitude, then applies the target–ownship ellipsoid height difference to ownship pressure altitude when available. If both pressure sources are unavailable and MSL fallback is enabled, using ownship geoid separation for nearby traffic is an accepted approximation. Revisit this decision if traffic is reported over substantially larger distances or if an aircraft-specific geoid separation becomes available.
 
 ## Testing Notes
 
 - Desktop tests use Catch2 with mocks in `src/lib/mocks/` for FreeRTOS, pico-sdk, and hardware APIs.
 - Top-level desktop test aggregation is defined in `src/CMakeLists.txt`.
-- When changing a module that already has tests, update or extend those tests in the sibling `*_tests/` directory.
+- When changing a module that already has tests, run the relevant existing tests. Add or update focused coverage when a behavior change or regression needs it.
 
 ## Key File Locations
 
@@ -214,27 +155,23 @@ Firmware code favors fixed-size containers and predictable memory behavior. Pref
 | `src/lib/core/ace/messages.hpp` | Core message type definitions |
 | `src/lib/gatas_module.cmake` | Template/pattern for new modules |
 | `src/pico/main.cpp` | Firmware entry point and module instantiation |
-| `src/pico/gatas_default_config.ini` | Runtime configuration |
+| `src/pico/gatas_default_config.json` | Embedded configuration defaults |
 | `src/lib/mocks/` | Desktop test mocks |
-| `/src/SystemGUI` | Web Interface |
+| `src/SystemGUI/` | Web Interface |
 | `doc/message-bus.md` | Message bus flow documentation |
 
 ## Adding a New Module
 
-1. Create `src/lib/<name>/` with `ace/<name>.hpp` and `ace/<name>.cpp`
+1. Create `src/lib/<name>/` with `ace/<name>.hpp` and `ace/src/<name>.cpp`
 2. Follow an existing module pattern such as `src/lib/ogn/`
-3. Add a `CMakeLists.txt` using `src/lib/gatas_module.cmake` as the template
+3. Add a `CMakeLists.txt` that includes `src/lib/gatas_module.cmake` and calls `gatas_add_module(...)`
 4. Add the new subdirectory to `src/lib/CMakeLists.txt`
-5. Register the module in `src/pico/gatas_default_config.ini`
+5. Link the target in `src/pico/CMakeLists.txt` and wire registration, construction, and loading in `src/pico/main.cpp`. Update the JSON defaults if the module needs settings or should be enabled by default.
 6. Add or extend desktop tests when the module has logic that can be validated off-target
 
 ## Message Bus Diagram Maintenance
 
-`doc/message-bus.md` contains a PlantUML component diagram of message flows. When message producers or consumers change:
-
-1. Find senders: `grep -r "getBus().receive(" src/lib --include="*.cpp" -n`
-2. Find receivers: `grep -r "void on_receive(const GATAS::" src/lib --include="*.hpp"`
-3. Update only the affected flow sections instead of collapsing the document into a single large diagram
+Search for the affected message type across headers and implementations, for example `rtk rg RadioTxPositionRequestMsg src/lib src/pico`. Check both publication sites and router subscriptions, then update only the affected PlantUML sections in `doc/message-bus.md`.
 
 ## Vendor Dependencies
 
