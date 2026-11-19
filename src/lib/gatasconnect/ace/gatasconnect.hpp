@@ -24,7 +24,7 @@
  * framed binary protocol while transport specific modules subscribe to
  * GatasConnectTx and publish GatasConnectRx.
  */
-class GatasConnect : public BaseModule, public etl::message_router<GatasConnect, GATAS::WifiConnectionStateMsg, GATAS::ConfigUpdatedMsg, GATAS::GpsStatsMsg, GATAS::IngressAircraftPositionMsg, GATAS::GatasConnectRx, GATAS::GdlMsg, GATAS::GatasConnectBluetoothStateMsg>
+class GatasConnect : public BaseModule, public etl::message_router<GatasConnect, GATAS::WifiConnectionStateMsg, GATAS::ConfigUpdatedMsg, GATAS::GpsStatsMsg, GATAS::IngressAircraftPositionMsg, GATAS::GatasConnectRx, GATAS::GdlMsg, GATAS::GatasConnectBluetoothStateMsg, GATAS::Gdl90UdpStateMsg>
 {
     friend class message_router;
 
@@ -40,7 +40,8 @@ class GatasConnect : public BaseModule, public etl::message_router<GatasConnect,
     const GATAS::GatasConnectOutput gatasConnectOutput = GATAS::GatasConnectOutput::UDPAndBluetooth;
     uint32_t lastUdpTrafficUs = 0;
     bool hasUdpTraffic = false;
-    uint8_t gdl90Subscribers = 0;
+    uint8_t gdl90BleSubscribers = 0;
+    uint16_t gdl90UdpRecipients = 0;
 
     uint32_t icaoAddress = 0;
     uint32_t gatasIp = 0;
@@ -68,6 +69,7 @@ private:
     void on_receive(const GATAS::GatasConnectRx &msg);
     void on_receive(const GATAS::GdlMsg &msg);
     void on_receive(const GATAS::GatasConnectBluetoothStateMsg &msg);
+    void on_receive(const GATAS::Gdl90UdpStateMsg &msg);
 
     static void requestTimerCallbackTrampoline(TimerHandle_t xTimer);
     static void workerTaskTrampoline(void *arg);

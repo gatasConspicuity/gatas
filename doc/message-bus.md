@@ -286,6 +286,7 @@ package "Output Services" {
 [DataPort] --> [Bluetooth] : DataPortMsg
 [Bluetooth] --> [GatasConnect] : GatasConnectRx
 [Bluetooth] --> [GatasConnect] : GatasConnectBluetoothStateMsg
+[GDLoverUDP] --> [GatasConnect] : Gdl90UdpStateMsg
 [Bluetooth] --> [AirConnect] : DataPortMsg
 [DataPort] --> [AirConnect] : DataPortMsg
 
@@ -473,6 +474,7 @@ package "Wifi Consumers" {
 | `DataPortMsg` | `DataPort`, `Bluetooth` | `AirConnect`, `Bluetooth` | NMEA-compatible egress and BLE NMEA ingress. |
 | `GdlMsg` | `Gdl90Service` | `GDLoverUDP`, `GatasConnect` | Packed GDL90 bytes fan out independently to Wi-Fi and Bluetooth. GatasConnect allocates type-6 COBS frames only while at least one binary BLE subscriber is present; the Wi-Fi path is unaffected. No hardware bridge setting or app control request is required. |
 | `GatasConnectBluetoothStateMsg` | `Bluetooth` | `GatasConnect` | Idempotent current subscriber count after all modules have started, binary CCCD writes and disconnects. All callers schedule one coalesced BTstack callback; read the current count and publish on the Bluetooth task, after releasing the buffer mutex. A delayed startup callback cannot overwrite a newer subscription with an old snapshot. The last unsubscribe/disconnect stops bridge allocation; remaining subscribers keep their output. |
+| `Gdl90UdpStateMsg` | `GDLoverUDP` | `GatasConnect` | Diagnostic count of distinct eligible IP:port targets, including AP/discovered clients, the station-mode gateway and custom destinations on the current subnet. The UDP worker snapshots network and routing state together, releases the spinlock, and publishes on changes and at least once per second. This is output policy, not a UDP subscription or acknowledgement, and never enables or disables the BLE bridge. |
 | `DeviceActionRequestMsg` | `GatasConnect` COBS parser | `Config` | Bluetooth type-12 action, accepted only for the current 8-bit boot ID; Config stores the latest action in an optional for dispatch on `IdleMsg`. No flash write or reset occurs in the request handler. |
 | `GatasConnectTx` | `GatasConnect` | `GatasConnectUDP`, `Bluetooth` | Framed binary output; each configuration broadcast is one type-5 COBS frame carrying the boot ID, dirty flag and automatic-GDL90 flag (flags bit 4, `0x10`), without session targeting, including Bluetooth. The frame length and field offsets are unchanged. Bluetooth queues COBS only for current binary subscribers; subscription changes clear old buffered data. |
 | `GatasConnectRx` | `GatasConnectUDP`, `Bluetooth` | `GatasConnect` | Framed binary input with source transport only. Bluetooth assembles complete frames per connection; the shared parser clears partial frames on transport changes. Type 12 accepts exactly three decoded bytes (type, action, boot ID), only over Bluetooth with a matching boot ID, and bypasses the legacy startup holdback. |
@@ -511,3 +513,23 @@ When the topology changes, verify all three of these:
 3. Router declarations: `rg -n "message_router<" src/lib`
 
 Also check for direct module-to-module calls like `receiveBinary(...)`, because those will not appear in a pure bus grep but still affect the effective data flow.
+
+### Transport monitor counters
+
+The Bluetooth monitor snapshots active clients and COBS transmit totals under the
+buffer mutex, then renders JSON after releasing it. Each client reports its peer
+address and address type, HCI handle, payload MTU, NMEA/COBS subscriptions, queued
+COBS bytes, and send/error counters. Addresses may be randomized by the peer.
+Per-client counters reset on connection reuse; aggregate counters survive
+disconnects until reboot. Packets count COBS terminators in successfully accepted
+ATT notifications, bytes include COBS framing, and notifications count BLE
+fragments. ATT acceptance does not prove reception by the peer. Totals count
+fanout separately for each subscribed client.
+
+The GatasConnect monitor exposes `gdl90BluetoothAutomatic` as a firmware capability,
+`gdl90BleSubscribers` as the current COBS subscriber count, and
+`gdl90UdpRecipients` as the latest UDP destination count. A UDP destination is a
+unique IP:port eligible under the same snapshot and traversal used for sending;
+several rules targeting the same endpoint count once. Existing overlapping send
+rules are preserved. A configured or discovered UDP destination does not prove
+that an EFB is listening. BLE and UDP output remain independent.

@@ -330,12 +330,17 @@ class MonitorModule extends El {
       return html`
         <table style="width:100%; border-collapse:collapse; margin:0">
           <tbody>
-            ${entries.map(([key, nestedValue]) => html`
+            ${entries.map(([key, nestedValue]) => {
+              const field = nestedValue !== null && typeof nestedValue !== "object"
+                ? formatUnit2(key, nestedValue)
+                : { name: key, value: nestedValue };
+              return html`
               <tr>
-                <th scope="row" style="width:33%; text-align:left; vertical-align:top; padding:1px 6px 1px 0; color:#777; font-weight:600; word-break:break-word">${key}</th>
-                <td style="padding:1px 0; vertical-align:top">${this._renderStructuredValue(html, nestedValue)}</td>
+                <th scope="row" style="width:33%; text-align:left; vertical-align:top; padding:1px 6px 1px 0; color:#777; font-weight:600; word-break:break-word">${field.name}</th>
+                <td style="padding:1px 0; vertical-align:top">${this._renderStructuredValue(html, field.value)}</td>
               </tr>
-            `)}
+            `;
+            })}
           </tbody>
         </table>
       `;
@@ -722,6 +727,8 @@ class MonitorModule extends El {
           <p class="monitor-heading__eyebrow">Live monitoring</p>
           <h2>${this.selected}</h2>
           <p>Module diagnostics and counters update automatically.</p>
+          ${this.selected === "Bluetooth" ? html`<p>Client counters cover the current connection; totals cover all connections since boot. COBS packets and bytes count successful local sends, including framing. Notifications are BLE fragments, not complete COBS packets.</p>` : ""}
+          ${this.selected === "GatasConnect" ? html`<p>GDL90 starts automatically for BLE clients subscribed to COBS. UDP recipients are distinct IP:port output targets; UDP does not confirm reception. The UDP count refreshes about once per second.</p>` : ""}
         </header>
         <div class="table-wrap">
         <table class="data-table monitor-table">

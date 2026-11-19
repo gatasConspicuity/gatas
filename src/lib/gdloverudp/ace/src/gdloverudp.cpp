@@ -188,18 +188,15 @@ void GDLoverUDP::foreFlightListener(void *arg, udp_pcb *pcb, pbuf *p, const ip_a
 void GDLoverUDP::getData(etl::string_stream &stream, const etl::string_view path) const
 {
     (void)path;
-    decltype(connectedClients) connectedClientsSnapshot;
-    decltype(udpPorts) udpPortsSnapshot;
-    if (auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()})
-    {
-        connectedClientsSnapshot = connectedClients;
-        udpPortsSnapshot = udpPorts;
-    }
+    const auto routes = snapshotRoutes();
+    const auto &connectedClientsSnapshot = routes.clients;
+    const auto &udpPortsSnapshot = routes.ports;
 
     stream << "{";
     stream << "\"heartbeatTx:k\":" << statistics.heartbeatTx;
     stream << ",\"sendFailure:err\":" << statistics.sendFailureErr;
     stream << ",\"foreFlightBroadcasts:k\":" << statistics.foreFlightBroadcasts;
+    stream << ",\"gdl90UdpRecipients\":" << routes.recipientCount();
     stream << ",\"currentAddressesInUse\":" << connectedClientsSnapshot.size();
     stream << ",\"maxPorts\":" << udpPortsSnapshot.max_size();
     stream << ",\"currentPortsInUse\":" << udpPortsSnapshot.size();
@@ -252,15 +249,29 @@ void GDLoverUDP::on_receive(const GATAS::ConfigUpdatedMsg &msg)
 void GDLoverUDP::gdlOverUDPTask(void *arg)
 {
     GDLoverUDP *at = static_cast<GDLoverUDP *>(arg);
+    uint16_t previousRecipients = UINT16_MAX;
+    uint32_t lastReportUs = CoreUtils::timeUs32();
     while (true)
     {
         uint32_t notifyValue = 0;
         xTaskNotifyWait(pdFALSE, ULONG_MAX, &notifyValue, TASK_DELAY_MS(1000));
 
+        const auto routes = at->snapshotRoutes();
+        const auto recipients = routes.recipientCount();
+        const auto now = CoreUtils::timeUs32();
+        if (recipients != previousRecipients || static_cast<uint32_t>(now - lastReportUs) >= 1'000'000)
+        {
+            // One publisher task keeps reports ordered. Periodic refresh also
+            // reaches consumers that subscribed after the first startup report.
+            at->getBus().receive(GATAS::Gdl90UdpStateMsg{recipients});
+            previousRecipients = recipients;
+            lastReportUs = now;
+        }
+
         // Handle TRANSMIT
         if (notifyValue == 0 || (notifyValue & TaskState::TRANSMIT))
         {
-            at->transmitBuffer();
+            at->transmitBuffer(routes);
         }
     }
 }
@@ -279,34 +290,24 @@ void GDLoverUDP::on_receive(const GATAS::GdlMsg &msg)
     }
 }
 
-void GDLoverUDP::transmitBuffer()
+Gdl90UdpRoutes GDLoverUDP::snapshotRoutes() const
 {
-    decltype(connectedClients) connectedClientsSnapshot;
-    decltype(udpPorts) udpPortsSnapshot;
-    decltype(customClients) customClientsSnapshot;
-    if (auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()})
+    Gdl90UdpRoutes routes;
     {
-        connectedClientsSnapshot = connectedClients;
-        udpPortsSnapshot = udpPorts;
-        customClientsSnapshot = customClients;
+        auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
+        routes.connected = wifiConnected;
+        routes.network = networkAddress;
+        routes.gateway = gateWayClient;
+        routes.clients = connectedClients;
+        routes.ports = udpPorts;
+        routes.custom = customClients;
     }
+    return routes;
+}
 
-    // When no network, don't send any UDP packages
-    if (!wifiConnected)
-    {
-        return;
-    }
-
-    uint8_t totalpBufs = connectedClientsSnapshot.size() * udpPortsSnapshot.size() +
-                         (gateWayClient ? udpPortsSnapshot.size() : 0);
-    for (const auto &client : customClientsSnapshot)
-    {
-        if ((client.ip & 0xFFFFFF) == networkAddress)
-        {
-            totalpBufs += 1;
-        }
-    }
-    if (totalpBufs == 0)
+void GDLoverUDP::transmitBuffer(const Gdl90UdpRoutes &routes)
+{
+    if (routes.recipientCount() == 0)
     {
         return;
     }
@@ -325,34 +326,10 @@ void GDLoverUDP::transmitBuffer()
     auto data = part.value();
     LwipRAIILock lock;
 
-    // Send to the connect clients and the defined ports
-    for (auto ip : connectedClientsSnapshot)
+    routes.forEachDestination([this, data](uint32_t ip, uint16_t port)
     {
-        // Connected clients are always on the accesspoint,
-        // thus we don't need to test for the networkAddress
-        for (auto port : udpPortsSnapshot)
-        {
-            sendTo(ip, port, data);
-        }
-    }
-
-    // Send to the gateway client, which is most lickly running a EFB
-    if (gateWayClient)
-    {
-        for (auto port : udpPortsSnapshot)
-        {
-            sendTo(gateWayClient, port, data);
-        }
-    }
-
-    // Custom clients can have any netmask and thus need to be tested if they are on the local net
-    for (const auto &client : customClientsSnapshot)
-    {
-        if ((client.ip & 0xFFFFFF) == networkAddress)
-        {
-            sendTo(client.ip, client.port == 0 ? GDL90OVERUDP_DEFAULT_PORT : client.port, data);
-        }
-    }
+        sendTo(ip, port, data);
+    });
 }
 
 void GDLoverUDP::sendTo(uint32_t ip, uint16_t port, etl::span<uint8_t> data)
@@ -388,6 +365,7 @@ void GDLoverUDP::sendTo(uint32_t ip, uint16_t port, etl::span<uint8_t> data)
 
 void GDLoverUDP::on_receive(const GATAS::WifiConnectionStateMsg &msg)
 {
+    auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()};
     wifiConnected = msg.wifiMode != GATAS::WifiMode::NC;
     networkAddress = msg.gatasIp & 0xFFFFFF;
     if (msg.wifiMode == GATAS::WifiMode::CLIENT)

@@ -187,3 +187,37 @@ TEST_CASE("Delayed startup publication observes the latest Bluetooth subscriptio
     REQUIRE(output.wifiSourceFrames == 3);
     REQUIRE(mockBtstackCallbacks.empty());
 }
+
+TEST_CASE("Monitor separates UDP destinations from BLE subscribers without changing the bridge", "[gatasconnect][monitor]")
+{
+    CoreUtils::init();
+    etl::message_bus<4> bus;
+    LegacyBridgeConfig config{bus};
+    GATAS::OwnshipState ownship;
+    ownship.init(CoreUtils::sharedSpinLock());
+    GatasConnect bridge{bus, config, ownship};
+    OutputReceiver output;
+    bus.subscribe(bridge);
+    bus.subscribe(output);
+    GATAS::GdlMsg gdl;
+    gdl.msg.push_back(0x7e);
+    bus.receive(GATAS::Gdl90UdpStateMsg{3});
+    bus.receive(gdl);
+    REQUIRE(output.bluetoothFrames == 0);
+    bus.receive(GATAS::GatasConnectBluetoothStateMsg{2});
+    bus.receive(gdl);
+    REQUIRE(output.bluetoothFrames == 1);
+    etl::string<512> json;
+    etl::string_stream stream(json);
+    static_cast<const BaseModule &>(bridge).getData(stream, {});
+    REQUIRE(json.find("\"gdl90BleSubscribers\":2") != json.npos);
+    REQUIRE(json.find("\"gdl90UdpRecipients\":3") != json.npos);
+    REQUIRE(json.find("\"gdl90BluetoothAutomatic:b\":true") != json.npos);
+    bus.receive(GATAS::Gdl90UdpStateMsg{0});
+    bus.receive(gdl);
+    REQUIRE(output.bluetoothFrames == 2);
+    json.clear();
+    static_cast<const BaseModule &>(bridge).getData(stream, {});
+    REQUIRE(json.find("\"gdl90UdpRecipients\":0") != json.npos);
+    REQUIRE(json.find("\"gdl90BleSubscribers\":2") != json.npos);
+}

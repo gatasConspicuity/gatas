@@ -89,22 +89,69 @@ void Bluetooth::start()
 
 void Bluetooth::getData(etl::string_stream &stream, const etl::string_view path) const
 {
+    (void)path;
+    struct ClientSnapshot
+    {
+        etl::string<17> address;
+        uint8_t addressType;
+        hci_con_handle_t handle;
+        uint16_t mtu;
+        bool nmeaSubscribed;
+        bool cobsSubscribed;
+        uint32_t queuedBytes;
+        uint32_t nmeaWriteBufferErr;
+        uint32_t cobsWriteBufferErr;
+        CobsTxStatistics tx;
+    };
+    etl::vector<ClientSnapshot, GATAS_MAX_BLUETOOTH_CONNECTIONS> clients;
+    CobsTxStatistics total;
+    {
+        auto guard = SemaphoreGuard(portMAX_DELAY, bufferMutex);
+        total = statistics.cobsTx;
+        for (const auto &ctx : connections)
+        {
+            if (ctx.inUse)
+            {
+                clients.push_back({ctx.peerAddress, ctx.peerAddressType, ctx.hciHandle, ctx.mtu,
+                    ctx.nmeaAttrHandle != 0, ctx.binaryAttrHandle != 0,
+                    static_cast<uint32_t>(ctx.cobsWriteBuffer.length()),
+                    ctx.nmeaWriteBufferErr, ctx.cobsWriteBufferErr, ctx.cobsTx});
+            }
+        }
+    }
     stream << "{";
-    stream << "\"nmeaPortMsgMissed:err\":" << statistics.nmeaPortMsgMissedErr;
+    stream << "\"connectedClients\":" << clients.size();
+    stream << ",\"cobsSubscribers\":" << etl::count_if(clients.begin(), clients.end(),
+        [](const ClientSnapshot &client) { return client.cobsSubscribed; });
+    stream << ",\"cobsPacketsSent:k\":" << total.packets;
+    stream << ",\"cobsBytesSent:kb\":" << total.bytes;
+    stream << ",\"cobsNotificationsSent:k\":" << total.notifications;
+    stream << ",\"cobsNotifyFailed:err\":" << total.errors;
+    stream << ",\"nmeaPortMsgMissed:err\":" << statistics.nmeaPortMsgMissedErr;
     stream << ",\"cobsMsgMissed:err\":" << statistics.cobsMsgMissedErr;
     stream << ",\"connections\":[";
     bool first = true;
-    for (auto &it : connections)
+    for (const auto &client : clients)
     {
-        if (!it.inUse)
-        {
-            continue;
-        }
         if (!first)
         {
             stream << ",";
         }
-        it.getData(stream, path);
+        stream << "{\"peerAddress\":\"" << client.address << "\"";
+        stream << ",\"addressType\":\"" << (client.addressType == 0 ? "public" :
+            client.addressType == 1 ? "random" : client.addressType == 2 ? "public identity" : "random identity") << "\"";
+        stream << ",\"hciHandle\":" << client.handle;
+        stream << ",\"mtu\":" << client.mtu;
+        stream << ",\"nmeaSubscribed:b\":" << client.nmeaSubscribed;
+        stream << ",\"cobsSubscribed:b\":" << client.cobsSubscribed;
+        stream << ",\"cobsPacketsSent:k\":" << client.tx.packets;
+        stream << ",\"cobsBytesSent:kb\":" << client.tx.bytes;
+        stream << ",\"cobsNotificationsSent:k\":" << client.tx.notifications;
+        stream << ",\"cobsNotifyFailed:err\":" << client.tx.errors;
+        stream << ",\"cobsQueuedBytes:kb\":" << client.queuedBytes;
+        stream << ",\"nmeaWriteBufferErr:err\":" << client.nmeaWriteBufferErr;
+        stream << ",\"cobsWriteBufferErr:err\":" << client.cobsWriteBufferErr;
+        stream << "}";
         first = false;
     }
     stream << "]}\n";
@@ -228,14 +275,14 @@ void Bluetooth::on_receive_unknown(const etl::imessage &msg)
     (void)msg;
 }
 
-bool Bluetooth::createConnection(hci_con_handle_t handle, uint16_t mtu)
+bool Bluetooth::createConnection(hci_con_handle_t handle, uint16_t mtu, const bd_addr_t address, uint8_t addressType)
 {
     auto it = instance->freeCtx();
     if (it != instance->connections.end())
     {
         if (auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex))
         {
-            it->activate(handle, mtu);
+            it->activate(handle, mtu, address, addressType);
             return true;
         }
     }
@@ -338,9 +385,14 @@ bool Bluetooth::sendCobsBuffer(BtContext &ctx)
     const size_t sendSize = etl::min(static_cast<size_t>(ctx.mtu), peek.size);
     const uint8_t sendStatus = att_server_notify(ctx.hciHandle,  ctx.binaryAttrHandle,  reinterpret_cast<const uint8_t *>(peek.part), sendSize);
 
-    if (sendStatus == ERROR_CODE_SUCCESS)
+    // The unread bytes remain stable until accepted(). Keep counters and queue
+    // advancement together, including when a notification has been rejected.
+    if (auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex))
     {
-        if (auto guard = SemaphoreGuard(1000, instance->bufferMutex))
+        const etl::span<const uint8_t> payload{reinterpret_cast<const uint8_t *>(peek.part), sendSize};
+        ctx.cobsTx.record(payload, sendStatus == ERROR_CODE_SUCCESS);
+        instance->statistics.cobsTx.record(payload, sendStatus == ERROR_CODE_SUCCESS);
+        if (sendStatus == ERROR_CODE_SUCCESS)
         {
             ctx.cobsWriteBuffer.accepted(sendSize);
         }
@@ -476,7 +528,9 @@ void Bluetooth::attPacketHandler(uint8_t packet_type, uint16_t channel, uint8_t 
         {
             auto handle = att_event_connected_get_handle(packet);
             auto mtu = att_server_get_mtu(handle) - 4;
-            if (createConnection(handle, mtu))
+            bd_addr_t address;
+            att_event_connected_get_address(packet, address);
+            if (createConnection(handle, mtu, address, att_event_connected_get_address_type(packet)))
             {
                 GATAS_INFO("ATT_EVENT_CONNECTED Handle:%d MTU:%d\n", handle, mtu);
                 gatt_client_send_mtu_negotiation(gattClientPacketHandler, handle);

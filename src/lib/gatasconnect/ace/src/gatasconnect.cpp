@@ -47,8 +47,9 @@ void GatasConnect::getData(etl::string_stream &stream, const etl::string_view pa
     stream << "{";
     stream << "\"hasGpsFix:b\":" << hasGpsFix;
     stream << ",\"output\":\"" << gatasConnectOutput.c_str() << "\"";
-    stream << ",\"gdl90Automatic:b\":true";
-    stream << ",\"gdl90Subscribers\":" << gdl90Subscribers;
+    stream << ",\"gdl90BluetoothAutomatic:b\":true";
+    stream << ",\"gdl90BleSubscribers\":" << gdl90BleSubscribers;
+    stream << ",\"gdl90UdpRecipients\":" << gdl90UdpRecipients;
     stream << ",\"localConfigurationUpdateCnt\":" << localConfigurationUpdateCnt;
     stream << ",\"lastRadioTrafficUs\":" << lastRadioTrafficUs;
     stream << "}";
@@ -121,13 +122,18 @@ void GatasConnect::on_receive(const GATAS::GatasConnectRx &msg)
 
 void GatasConnect::on_receive(const GATAS::GatasConnectBluetoothStateMsg &msg)
 {
-    gdl90Subscribers = msg.subscribers;
+    gdl90BleSubscribers = msg.subscribers;
+}
+
+void GatasConnect::on_receive(const GATAS::Gdl90UdpStateMsg &msg)
+{
+    gdl90UdpRecipients = msg.recipients;
 }
 
 void GatasConnect::on_receive(const GATAS::GdlMsg &msg)
 {
     // Allocate bridge frames only while at least one client subscribes to COBS.
-    if (gatasConnectOutput.usesBluetooth() && gdl90Subscribers != 0 && !msg.msg.empty())
+    if (gatasConnectOutput.usesBluetooth() && gdl90BleSubscribers != 0 && !msg.msg.empty())
     {
 
         const size_t cobsSize = BinaryMessages::serializeGdl90FramedSizeV1(msg.msg.size());

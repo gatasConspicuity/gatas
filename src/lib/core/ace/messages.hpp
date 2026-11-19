@@ -363,6 +363,13 @@ namespace GATAS
         explicit GatasConnectBluetoothStateMsg(uint8_t subscribers_) : subscribers(subscribers_) {}
     };
 
+    // Distinct IP:port destinations eligible for GDL90 UDP output, not confirmed receivers.
+    struct Gdl90UdpStateMsg : public etl::message<45>
+    {
+        uint16_t recipients;
+        explicit Gdl90UdpStateMsg(uint16_t recipients_) : recipients(recipients_) {}
+    };
+
     struct DeviceActionRequestMsg : public etl::message<39>
     {
         DeviceAction action;

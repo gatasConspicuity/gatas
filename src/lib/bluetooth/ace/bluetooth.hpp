@@ -21,6 +21,7 @@
 #include "ace/packetbuffer.hpp"
 #include "ace/circularbuffer.hpp"
 #include "cobssubscriptionpublisher.hpp"
+#include "cobstxstatistics.hpp"
 
 /* BT Stack*/
 #include "btstack.h"
@@ -52,6 +53,7 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
         uint32_t cobsMsgMissedErr = 0;
         uint32_t cobsMsgReceived = 0;
         uint32_t nmeaMsgReceived = 0;
+        CobsTxStatistics cobsTx;
     } statistics;
 
     using TxBuffer = PacketBuffer<CONNECTIONS_BUFFER_SIZE, (CONNECTIONS_BUFFER_SIZE / 32) * 2>;
@@ -70,6 +72,9 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
         uint16_t mtu = 0;
         uint16_t nmeaAttrHandle = 0;
         uint16_t binaryAttrHandle = 0;
+        etl::string<17> peerAddress;
+        uint8_t peerAddressType = 0;
+        CobsTxStatistics cobsTx;
         uint32_t nmeaWriteBufferErr = 0;
         uint32_t cobsWriteBufferErr = 0;
         btstack_context_callback_registration_t attCallback;
@@ -94,11 +99,14 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
             attCallback.callback = attCallback_;
         }
 
-        void activate(hci_con_handle_t hciHandle_, uint16_t mtu_)
+        void activate(hci_con_handle_t hciHandle_, uint16_t mtu_, const bd_addr_t address, uint8_t addressType)
         {
             txDirty = false;
             hciHandle = hciHandle_;
             mtu = mtu_;
+            peerAddress = bd_addr_to_str(address);
+            peerAddressType = addressType;
+            cobsTx = {};
             nmeaAttrHandle = 0;
             binaryAttrHandle = 0;
             nmeaWriteBufferErr = 0;
@@ -119,6 +127,9 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
             txDirty = false;
             hciHandle = 0;
             mtu = 0;
+            peerAddress.clear();
+            peerAddressType = 0;
+            cobsTx = {};
             nmeaAttrHandle = 0;
             binaryAttrHandle = 0;
             nmeaWriteBufferErr = 0;
@@ -130,17 +141,6 @@ class Bluetooth : public BaseModule, public etl::message_router<Bluetooth, GATAS
             binaryGulpBuffer.clear();
             binaryGulp.setRef({});
             cobsWriteBuffer.clear();
-        }
-
-        void getData(etl::string_stream &stream, const etl::string_view path) const
-        {
-            (void)path;
-            stream << "{";
-            stream << "\"hciHandle\":" << hciHandle;
-            stream << ",\"mtu\":" << mtu;
-            stream << ",\"nmeaWriteBufferErr\":" << nmeaWriteBufferErr;
-            stream << ",\"cobsWriteBufferErr\":" << cobsWriteBufferErr;
-            stream << "}";
         }
 
         // Disallow copy
@@ -171,7 +171,7 @@ private:
     static void hciPacketHandler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size);
     static int attWriteCallback(hci_con_handle_t con_handle, uint16_t att_handle, uint16_t transaction_mode, uint16_t offset, uint8_t *buffer, uint16_t buffer_size);
     // Create a new connection in the connections list
-    static bool createConnection(hci_con_handle_t handle, uint16_t mtu);
+    static bool createConnection(hci_con_handle_t handle, uint16_t mtu, const bd_addr_t address, uint8_t addressType);
     // Remove any old connections
     static void removeConnection(uint16_t handle);
     static void publishCobsSubscriptionState();
