@@ -117,7 +117,7 @@ TEST_CASE("Legacy bridge values and configuration changes cannot disable automat
     REQUIRE(output.wifiSourceFrames == 3);
 }
 
-TEST_CASE("Monitor reports automatic Bluetooth output and current subscribers", "[gatasconnect][monitor]")
+TEST_CASE("Monitor reports current Bluetooth subscribers", "[gatasconnect][monitor]")
 {
     CoreUtils::init();
     etl::message_bus<4> bus;
@@ -139,5 +139,4 @@ TEST_CASE("Monitor reports automatic Bluetooth output and current subscribers", 
     etl::string_stream stream(json);
     static_cast<const BaseModule &>(bridge).getData(stream, {});
     REQUIRE(json.find("\"gdl90BleSubscribers\":2") != json.npos);
-    REQUIRE(json.find("\"gdl90BluetoothAutomatic:b\":true") != json.npos);
 }

@@ -106,8 +106,7 @@ is required. The app's **Forward GDL90 to EFB** setting controls only forwarding
 to an EFB on the same phone or tablet; radar and alerts remain independent.
 Wi-Fi GDL90 output can run in parallel. Legacy `enableGdl90Bridge` values are
 ignored, including `false`; saving GatasConnect settings in the web interface
-removes that obsolete key. Configuration V2 flags bit 4 (`0x10`) advertises
-automatic output to compatible apps without a control handshake.
+removes that obsolete key.
 
 ### Tested with Electronic Flight Bag
 

@@ -32,7 +32,7 @@ TEST_CASE("Aircraft position V1 decodes the Rust unsigned ellipsoid-height range
     REQUIRE(position->address == 0x010203U);
 }
 
-TEST_CASE("Aircraft configuration exposes WiFi mode, dirty state and automatic GDL90 in flags", "[binarymessages]")
+TEST_CASE("Aircraft configuration exposes WiFi mode and dirty state in flags", "[binarymessages]")
 {
     etl::array<uint32_t, 2> addresses = {0x010203, 0x040506};
     etl::span<uint32_t> addressSpan(addresses.data(), addresses.size());
@@ -44,7 +44,7 @@ TEST_CASE("Aircraft configuration exposes WiFi mode, dirty state and automatic G
     REQUIRE(buffer[0] == BinaryMessages::DataType(BinaryMessages::DataType::AIRCRAFT_CONFIGURATIONS_V2).get_value());
     REQUIRE((buffer[1] & BinaryMessages::AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK) == static_cast<uint8_t>(GATAS::WifiMode::NC));
     const uint8_t expected[] = {
-        5, 0x10, 1, 2, 3, 4, 10, 11, 12, 13, 5, 6, 7,
+        5, 0, 1, 2, 3, 4, 10, 11, 12, 13, 5, 6, 7,
         GATAS::VERSION_MAJOR, GATAS::VERSION_MINOR, GATAS::VERSION_BUGFIX, 0xab,
         14, 15, 16, 0, 2, 1, 2, 3, 4, 5, 6,
     };
@@ -52,7 +52,7 @@ TEST_CASE("Aircraft configuration exposes WiFi mode, dirty state and automatic G
     for (size_t i = 0; i < sizeof(expected); ++i)
     {
         CAPTURE(i);
-        REQUIRE(buffer[i] == expected[i]);
+        REQUIRE(expected[i] == buffer[i]);
     }
 
     etl::bit_stream_writer apWriter(buffer, rawSize, etl::endian::big);
@@ -69,7 +69,7 @@ TEST_CASE("Aircraft configuration exposes WiFi mode, dirty state and automatic G
         {
             etl::bit_stream_writer writer(buffer, rawSize, etl::endian::big);
             BinaryMessages::serializeAircraftConfigurationV2(writer, 0x01020304, 0x050607, addressSpan, 0x0a0b0c0d, 0x0e0f10, mode, 0xab, dirty);
-            REQUIRE(buffer[1] == (static_cast<uint8_t>(mode) | (dirty ? 0x04U : 0U) | 0x10U));
+            REQUIRE((static_cast<uint8_t>(mode) | (dirty ? 0x04U : 0U)) == buffer[1]);
         }
     }
 }
@@ -85,7 +85,7 @@ TEST_CASE("Framed aircraft configuration includes firmware version without shift
         0x0a0b0c0d, 0x0e0f10, GATAS::WifiMode::CLIENT, 0xab, true);
     REQUIRE(written > 0);
     REQUIRE(decodeCOBS(framed, written, raw, sizeof(raw)) == BinaryMessages::serializeAircraftConfigurationSizeV2().items(addresses.size()));
-    REQUIRE(raw[1] == (static_cast<uint8_t>(GATAS::WifiMode::CLIENT) | 0x04U | 0x10U));
+    REQUIRE((static_cast<uint8_t>(GATAS::WifiMode::CLIENT) | 0x04U) == raw[1]);
     REQUIRE(raw[13] == GATAS::VERSION_MAJOR);
     REQUIRE(raw[14] == GATAS::VERSION_MINOR);
     REQUIRE(raw[15] == GATAS::VERSION_BUGFIX);
