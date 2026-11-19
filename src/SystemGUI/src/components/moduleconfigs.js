@@ -987,6 +987,7 @@ class GatasConnectConfig extends ModuleConfig {
       .onSuccess((event) => {
         const data = { ...this.copyOfData, ...this._getFormData() };
         delete data.output;
+        delete data.enableGdl90Bridge;
         store.updateModuleData("GatasConnect", data).then(() => {
           this.close();
         });
@@ -996,13 +997,11 @@ class GatasConnectConfig extends ModuleConfig {
   _setFormData(data) {
     //    this.$refs.pinCode.value = data.pinCode !== undefined ? data.pinCode : this.randomIntFromInterval(1000, 999999);
     this.$refs.pinCode.value = data.pinCode !== undefined ? data.pinCode : "0";
-    this.$refs.enableGdl90Bridge.checked = data.enableGdl90Bridge === true;
   }
 
   _getFormData() {
     return {
       pinCode: this.$refs.pinCode.value.trim(),
-      enableGdl90Bridge: this.$refs.enableGdl90Bridge.checked,
     };
   }
 
@@ -1022,10 +1021,9 @@ class GatasConnectConfig extends ModuleConfig {
           application to connect to your GATAS system to allow to configure your GATAS aircraft you are flying.
           Instead of using the unique GATAS ID which is differcult to remmeber, you can use the Pin Code with your location.
           When using 0 as Pin Code, the Pin Code functionality is disabled for added security if you whish to not use it.<br />
-          GDL90 bridge is used together with the mobile application <i>Gatas Companion</i> and when enabled it will allow
-          to forward GDL90 messages from GATAS via bluetooth to the mobile application that forwards the GDL90 packets to a local UDP server.
-          This is to eliminate any WIFI connection if you whish to your mobile if you whish. You can still let other devices connect to GATAS
-          to benefit from all traffic and GPS data.
+          GATAS automatically sends GDL90 to Bluetooth clients that subscribe to its binary data stream, including <i>GATAS Connect</i>.
+          No bridge setting is required on GATAS. In the app, choose whether to forward this data to an EFB on the same phone or tablet.
+          Radar and traffic alerts work independently of EFB forwarding. GDL90 output over Wi-Fi can run at the same time.
           </div>
         </div>
 
@@ -1035,12 +1033,6 @@ class GatasConnectConfig extends ModuleConfig {
               <label for="ip">
                 Pin Code:
                 <input type="text" id="pinCode" ref="pinCode" placeholder="0" } />
-              </label>
-            </div>
-            <div class="split-main" style="margin-top:20px;" ref="enableGdl90BridgeGroup">
-              <label for="enableGdl90Bridge">
-                Enable Gdl90 Bridge:
-                <input type="checkbox" id="enableGdl90Bridge" ref="enableGdl90Bridge" />
               </label>
             </div>
         </div>

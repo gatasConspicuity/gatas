@@ -173,6 +173,7 @@ private:
     static bool createConnection(hci_con_handle_t handle, uint16_t mtu);
     // Remove any old connections
     static void removeConnection(uint16_t handle);
+    static void publishCobsSubscriptionState();
     static void heartbeat_handler(struct btstack_timer_source *ts);
     // END: methods within this block as running within the BLE task
 
@@ -254,6 +255,12 @@ public:
         localName = config.strValueByPath("GaTas", NAME, "localName");
         createAdvData();
         createScanResponseData();
+    }
+
+    void postStart() override
+    {
+        // GatasConnect is now subscribed even if a client connected during startup.
+        publishCobsSubscriptionState();
     }
 
     virtual ~Bluetooth() = default;

@@ -206,7 +206,7 @@ void Bluetooth::on_receive(const GATAS::GatasConnectTx &msg)
         etl::span<const uint8_t> payload(msg.cobsMessage.get(), msg.length);
         for (auto &ctx : connections)
         {
-            if (!ctx.inUse)
+            if (!ctx.inUse || ctx.binaryAttrHandle == 0)
             {
                 continue;
             }
@@ -251,7 +251,29 @@ void Bluetooth::removeConnection(uint16_t hciHandle)
         {
             it->deactivate();
         }
+        publishCobsSubscriptionState();
     }
+}
+
+void Bluetooth::publishCobsSubscriptionState()
+{
+    uint8_t subscribers = 0;
+    {
+        auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex);
+        if (!guard)
+        {
+            return;
+        }
+        for (const auto &ctx : instance->connections)
+        {
+            if (ctx.inUse && ctx.binaryAttrHandle != 0)
+            {
+                ++subscribers;
+            }
+        }
+    }
+    // Publish after releasing the buffer lock: consumers may send through Bluetooth.
+    instance->getBus().receive(GATAS::GatasConnectBluetoothStateMsg{subscribers});
 }
 
 bool Bluetooth::sendNMEABuffer(BtContext &ctx)
@@ -597,17 +619,20 @@ int Bluetooth::attWriteCallback(hci_con_handle_t con_handle, uint16_t att_handle
         Bluetooth::withHandle(con_handle,
             etl::delegate<void(BtContext &)>::create([buffer](BtContext &ctx)
             {
-                const bool enabled = little_endian_read_16(buffer, 0) == GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION;
-                if (enabled)
+                if (auto guard = SemaphoreGuard(portMAX_DELAY, instance->bufferMutex))
                 {
-                    ctx.binaryAttrHandle = ATT_CHARACTERISTIC_FFE2_01_VALUE_HANDLE;
-                }
-                else if (ctx.binaryAttrHandle == ATT_CHARACTERISTIC_FFE2_01_VALUE_HANDLE)
-                {
-                    ctx.binaryAttrHandle = 0;
+                    const bool enabled = little_endian_read_16(buffer, 0) == GATT_CLIENT_CHARACTERISTICS_CONFIGURATION_NOTIFICATION;
+                    const uint16_t nextHandle = enabled ? ATT_CHARACTERISTIC_FFE2_01_VALUE_HANDLE : 0;
+                    if (ctx.binaryAttrHandle != nextHandle)
+                    {
+                        // Do not replay data from before a subscription or retain a partial old stream.
+                        ctx.cobsWriteBuffer.clear();
+                        ctx.binaryAttrHandle = nextHandle;
+                    }
                 }
             }));
         // clang-format on
+        publishCobsSubscriptionState();
     }
     break;
 

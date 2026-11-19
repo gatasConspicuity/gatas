@@ -94,13 +94,20 @@ or other equipment.
 
 | Protocol     | Send UDP over WIFI | Receive UDP over WIFI | Send Bluetooth     | Send TCP over WIFI | Receiver over TCP WIFI |
 |--------------|--------------------|-----------------------|--------------------|--------------------|------------------------|
-| GDL90        | :heavy_check_mark: | N/A                   | N/A                | N/A                | N/A                    |
+| GDL90        | :heavy_check_mark: | N/A                   | Via gatasConnect*  | N/A                | N/A                    |
 | AirConnect   | N/A                | N/A                   | :heavy_check_mark: | :heavy_check_mark: | N/A                    |
 | Dump1090     | N/A                | N/A                   | N/A                | N/A                | :heavy_check_mark:     |
 | gatasConnect | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | N/A                | :heavy_check_mark:     |
 
-\* Sending GDL90 over Bluetooth is not used in the industry so this is currently not setup. If this
-is really required, then this can be done. Do let me know the use case
+\* GDL90 is carried inside the GATAS COBS Bluetooth stream, not as a raw GDL90
+serial connection. GATAS automatically provides it to clients subscribed to the
+binary characteristic (FFE2), including GATAS Connect. No hardware bridge setting
+is required. The app's **Forward GDL90 to EFB** setting controls only forwarding
+to an EFB on the same phone or tablet; radar and alerts remain independent.
+Wi-Fi GDL90 output can run in parallel. Legacy `enableGdl90Bridge` values are
+ignored, including `false`; saving GatasConnect settings in the web interface
+removes that obsolete key. Configuration V2 flags bit 4 (`0x10`) advertises
+automatic output to compatible apps without a control handshake.
 
 ### Tested with Electronic Flight Bag
 
