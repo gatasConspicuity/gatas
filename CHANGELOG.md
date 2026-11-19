@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Updated the Pico SDK to 2.3.1 and the FreeRTOS kernel to V11.3.3.
-- New builds use the SDK's board clock by default; higher clock speeds are optional.
+- New builds use 266 MHz by default on both RP2040 and RP2350; the SDK's board
+  clock and 200 MHz remain selectable.
 
 ### Deprecated
 

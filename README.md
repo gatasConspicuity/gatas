@@ -151,8 +151,9 @@ your mobile's access point, how cool is that!
 
 ## Firmware clock selection
 
-Firmware builds offer Default, 200 MHz and 266 MHz clock selections, with matching
-wireless clock dividers. See [Firmware clock selection](doc/build-clock.md).
+Firmware builds use 266 MHz by default on both RP2040 and RP2350, with matching
+wireless clock dividers. The SDK board clock (`Default`) and 200 MHz remain
+selectable. See [Firmware clock selection](doc/build-clock.md).
 
 ## External Libraries and frameworks used
 

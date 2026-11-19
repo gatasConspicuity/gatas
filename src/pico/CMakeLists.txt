@@ -68,7 +68,7 @@ endif()
 set(OUTPUT_NAME "GATAS_${PICO_PLATFORM}")
 project(${OUTPUT_NAME} C CXX ASM)
 
-set(GATAS_CLOCK_SPEED "Default" CACHE STRING "System clock: Default, 200 or 266 MHz")
+set(GATAS_CLOCK_SPEED "266" CACHE STRING "System clock: Default (SDK), 200 or 266 MHz")
 set_property(CACHE GATAS_CLOCK_SPEED PROPERTY STRINGS Default 200 266)
 if(GATAS_CLOCK_SPEED STREQUAL "Default")
   set(GATAS_SYS_CLOCK_KHZ 0)
