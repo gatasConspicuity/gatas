@@ -5,36 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]
+## [Unreleased]
 
 ### Added
 
-- Fresh physical-sensor pressure altitude is included in GATAS Server position
-  reports so other aircraft can receive it. Requires a server supporting ownship V3.
-- Firmware builds can select the default clock, 200 MHz, or 266 MHz on RP2040
-  and RP2350, with matching CYW43 wireless clock dividers.
+- Ownship V3 position reports include standard pressure altitude when a fresh
+  reading from the onboard pressure sensor is available. Requires a server
+  supporting ownship V3.
+- GATAS Connect automatically streams GDL90 to Bluetooth clients subscribed to
+  its binary data stream. Wi-Fi GDL90 output can run in parallel.
 
 ### Changed
 
 - Updated the Pico SDK to 2.3.1 and the FreeRTOS kernel to V11.3.3.
-- New builds use 266 MHz by default on both RP2040 and RP2350; the SDK's board
-  clock and 200 MHz remain selectable.
-
-### Deprecated
-
--
+- New RP2040 and RP2350 firmware builds default to 266 MHz. The SDK board clock
+  and 200 MHz remain selectable, with matching CYW43 wireless clock dividers.
 
 ### Removed
 
--
+- Removed the GDL90 bridge toggle from the web interface. Firmware ignores
+  saved `enableGdl90Bridge` values.
 
 ### Fixed
 
--
-
-### Security
-
--
+- Ignore invalid or non-radio data sources in the configured radio protocol list.
 
 ## [v3.6.0] - 2026-11-15
 

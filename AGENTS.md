@@ -18,13 +18,16 @@ Make the smallest readable change that fully solves the task. Start in the code 
 - Prefer `etl::optional<T>` when a function may not produce a value. Avoid boolean return values combined with output references.
 - When several values must be returned together and no existing type fits, return a small struct declared next to the API so callers can use `auto result = function();` instead of passing output references.
 - Keep desktop test code and embedded code paths aligned when changing shared module behavior.
+Updaet agents and changelog- Keep shared code compatible with the C++ standard configured for its desktop tests. The firmware build uses C++20, and many desktop test targets use C++17.
 - Design COBS messages as idempotent state notifications, not request/response exchanges. GATAS always provides the required current state; clients must not need to request it or correlate replies with requests or sessions.
 - Use fixed-size ETL containers and avoid introducing dynamic-allocation-heavy patterns into firmware code.
 - Modules must not retain a reference or pointer to `Configuration`. Read configuration during construction and synchronously from `ConfigUpdatedMsg`, then copy only the values owned by the module. `Configuration` is not task-safe, so configuration access must remain in these controlled paths.
 - Use `float`, never `double`, in project code and tests.
 - Prefer ETL text facilities such as `etl::string_stream` and `etl::string_view`; do not use `std::snprintf`.
 - Reuse `CoreUtils::addChecksumToNMEA(...)` when assembling NMEA sentences instead of implementing checksum formatting locally.
-- Always use braces for control-flow bodies, even when the body is a single line.
+- Always use braces for control-flow bodies, even when the body is a single line. Put opening and closing braces on their own lines.
+- Use explicit status values for firmware errors. The firmware builds with exceptions disabled.
+- Document hardware assumptions and units in APIs, configuration, and timing calculations.
 - Do not introduce trailing-underscore variable names by default. Prefer the existing local naming style unless a specific file or API already requires a different convention.
 - Do not add mutexes or spinlocks around standalone reads or assignments of naturally aligned scalar values up to 32 bits (including bool and 8/16/32-bit values). These accesses are atomic on the RP2040/RP2350. Protect related values together when they must remain consistent as a pair or group; this rule does not cover read-modify-write operations or values wider than 32 bits.
 - Prefer `SynchronizedValue` for small shared datasets that need synchronized snapshots or updates. Keep copies and updates short and non-blocking because they run under a spinlock.
@@ -126,12 +129,15 @@ The firmware build embeds `src/pico/gatas_default_config.json`, with an optional
 - `RtcModule`: RTC abstraction
 - `BinaryReceiver`: binary stream consumer base
 
+Use Pico SDK APIs for peripheral and hardware access. Keep interrupt handlers short and use only non-blocking, allocation-free operations in them. When handing off work between one producer and one consumer, prefer the existing ETL `queue_spsc_atomic` pattern where it fits.
+
 ### Memory Model
 
-Firmware code favors fixed-size containers and predictable memory behavior. Prefer ETL types such as `etl::unordered_map`, `etl::string`, and `etl::vector` with explicit compile-time limits.
+Firmware code favors fixed-size containers and predictable memory behavior. Prefer ETL types such as `etl::unordered_map`, `etl::string`, and `etl::vector` with explicit compile-time limits. Pass large read-only values by const reference and use a span for borrowed buffers. Account for alignment and byte order when reading or writing wire formats.
 
 ## Aircraft Timestamp Model
 
+- Use `CoreUtils::timeUs32Raw()` for short elapsed-time measurements independent of PPS, `CoreUtils::monotonic()` for 64-bit monotonic timing, and `CoreUtils::timeUs32()` for PPS-aligned timestamps. Avoid busy-wait loops except where hardware requires one.
 - `AircraftPositionInfo.timestamp` is a local relative timestamp in microseconds and should be in the `CoreUtils::timeUs32()` frame.
 - Received aircraft packet timestamps represent the remote send time, not the local receive time. By the time a packet is received, the restored packet timestamp is expected to be less than or equal to the local 64-bit epoch timestamp from `CoreUtils::msSinceEpoch()`.
 - For packet formats that encode only part of the send time, resolve the timestamp as now-or-past, never as a future timestamp. Use a small max-delta window to reject ambiguous or stale data.
@@ -146,6 +152,8 @@ Firmware code favors fixed-size containers and predictable memory behavior. Pref
 - Desktop tests use Catch2 with mocks in `src/lib/mocks/` for FreeRTOS, pico-sdk, and hardware APIs.
 - Top-level desktop test aggregation is defined in `src/CMakeLists.txt`.
 - When changing a module that already has tests, run the relevant existing tests. Add or update focused coverage when a behavior change or regression needs it.
+- Keep desktop tests deterministic and independent of the Pico SDK. Use the existing mocks or simple fakes and avoid sleeps, timing assumptions, and direct peripheral access.
+- For equality checks in Catch2, put the expected value first, for example `REQUIRE(expected == actual)`. Cover relevant boundary conditions, error paths, and fixed-size buffer limits.
 
 ## Key File Locations
 
