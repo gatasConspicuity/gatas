@@ -115,7 +115,7 @@ private:
 
 
     // ADSL Protocol Handler functions
-    virtual uint32_t adsl_getTick() const
+    uint32_t adsl_getTick() const override
     {
         return CoreUtils::timeUs32();
     }
@@ -128,7 +128,7 @@ private:
     virtual void adsl_receivedUplinkTraffic(const ADSL::Header &header, etl::span<const ADSL::UplinkEntry> entries) override;
     virtual void adsl_buildStatusPayload(const void *ctx, ADSL::StatusPayload &sp) override;
 
-    virtual uint8_t *adsl_alloc(const void *ctx, size_t sizeBytes);
+    uint8_t *adsl_alloc(const void *ctx, size_t sizeBytes) override;
 
     virtual void adsl_lock() override;
     virtual void adsl_unlock() override;

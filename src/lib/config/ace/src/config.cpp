@@ -4,8 +4,6 @@
 #include <cmath>
 #include <cstring>
 
-#include "hardware/watchdog.h"
-#include "pico/bootrom.h"
 #include "etl/string_utilities.h"
 
 /* GATAS. */
@@ -37,6 +35,7 @@ etl::string_view Config::loadLocationToString(LoadLocation location) const
 
 GATAS::PostConstruct Config::postConstruct()
 {
+    pendingDeviceAction.init(CoreUtils::sharedSpinLock());
     auto iStore = internalStore();
     if (iStore->magic != GATAS::BinaryStore::MAGIC)
     {
@@ -94,6 +93,8 @@ GATAS::PostConstruct Config::postConstruct()
         serializeToVolatile();
     }
 
+    configMutex = xSemaphoreCreateMutex();
+
     return GATAS::PostConstruct::OK;
 }
 
@@ -104,6 +105,11 @@ void Config::start()
 
 void Config::getData(etl::string_stream &stream, const etl::string_view fullPath) const
 {
+    auto guard = SemaphoreGuard(5000, configMutex);
+    if (!guard)
+    {
+        return;
+    }
     struct CustomWriter
     {
         etl::string_stream &stream;
@@ -157,6 +163,11 @@ void Config::getData(etl::string_stream &stream, const etl::string_view fullPath
 
 bool Config::setData(const etl::string_view data, const etl::string_view fullPath)
 {
+    auto guard = SemaphoreGuard(5000, configMutex);
+    if (!guard)
+    {
+        return false;
+    }
     auto [idx, path] = getConfigPath(fullPath);
     bool dataMutated = false;
     bool requestSucceeded = false;
@@ -164,7 +175,15 @@ bool Config::setData(const etl::string_view data, const etl::string_view fullPat
     auto applyUpdate = [&](auto &&destination)
     {
         auto error = deserializeJson(destination, data.cbegin(), data.size());
-        if (error == DeserializationError::Ok)
+
+// STACK on my developer device (RP2040 ) is getting a bit low, so disabled this extra check.
+#if defined(PICO_RP2350)
+        bool capacityOk = measureJson(doc) + 16 <= volatileStore.capacity();
+#else
+        bool capacityOk = true;
+#endif
+
+        if (error == DeserializationError::Ok && capacityOk)
         {
             return true;
         }
@@ -202,10 +221,7 @@ bool Config::setData(const etl::string_view data, const etl::string_view fullPat
         {
             if (path.back() == "SaveBr")
             {
-                doc["config"]["_dirty"] = false;
-                serializeToVolatile();
-                serializeToPersistent();
-                requestSucceeded = true;
+                requestSucceeded = saveToFlash();
             }
 #if GATAS_DEBUG == 1
             // Added for automated testing. This endpoint is excluded from release firmware.
@@ -222,9 +238,12 @@ bool Config::setData(const etl::string_view data, const etl::string_view fullPat
             else if (path.back() == "CompareBr")
             {
                 requestSucceeded = persistentMatchesVolatile();
-                if (requestSucceeded) {
+                if (requestSucceeded)
+                {
                     GATAS_INFO("persistent Matches Volatile");
-                } else {
+                }
+                else
+                {
                     GATAS_WARN("persistent does not Match Volatile");
                 }
             }
@@ -232,20 +251,14 @@ bool Config::setData(const etl::string_view data, const etl::string_view fullPat
             // TODO: See if its possible to make something that these two are not in the config
             else if (path.back() == "Restart")
             {
-                watchdog_reboot(0, 0, 0);
-                while (true)
-                {
-                    tight_loop_contents();
-                }
+                getBus().receive(GATAS::SystemActionMsg{GATAS::DeviceAction::Restart});
+                requestSucceeded = true;
             }
             // Restart the Pico in USB mode so that the user can upload a new firmware
             else if (path.back() == "UsbBoot")
             {
-                reset_usb_boot(0, 0);
-                while (true)
-                {
-                    tight_loop_contents();
-                }
+                getBus().receive(GATAS::SystemActionMsg{GATAS::DeviceAction::UsbBoot});
+                requestSucceeded = true;
             }
             else
             {
@@ -303,6 +316,27 @@ bool Config::setData(const etl::string_view data, const etl::string_view fullPat
     return requestSucceeded;
 }
 
+bool Config::saveToFlash()
+{
+    doc["config"]["_dirty"] = false;
+    // Check both capacities before changing the retained RAM image.
+    const size_t required = measureJson(doc) + 1;
+    if (required > volatileStore.capacity() || required > permanentStore.capacity())
+    {
+        doc["config"]["_dirty"] = true;
+        return false;
+    }
+    serializeToVolatile();
+    const bool saved = serializeToPersistent();
+    if (!saved)
+    {
+        doc["config"]["_dirty"] = true;
+        serializeToVolatile();
+    }
+    getBus().receive(GATAS::ConfigUpdatedMsg{*this, Configuration::NAME});
+    return saved;
+}
+
 void Config::serializeToVolatile()
 {
     volatileStore.rewind();
@@ -310,18 +344,24 @@ void Config::serializeToVolatile()
     volatileStore.write(0);
 }
 
-void Config::serializeToPersistent()
+bool Config::serializeToPersistent()
 {
     // One byte operations not yet supported, and arduinoJson wants to do these
     // It might not work at all due to complexity of flash (no interrupts etc)
     // So for now we do this from volatileStore
 
+    if (persistentMatchesVolatile())
+    {
+        return true;
+    }
     permanentStore.rewind();
-    // Known limitation: persistence failures are not propagated to SaveBr yet.
-    // The store reports zero on failure, but the current API keeps its historic
-    // best-effort save behavior.
-    permanentStore.write(volatileStore.data(), volatileStore.writtenSize());
+    const auto written = permanentStore.write(volatileStore.data(), volatileStore.writtenSize());
+    if (written != volatileStore.writtenSize() || !persistentMatchesVolatile())
+    {
+        return false;
+    }
     statistics.persistentStoreSize = volatileStore.writtenSize();
+    return true;
 }
 
 bool Config::persistentMatchesVolatile() const
@@ -334,6 +374,11 @@ bool Config::persistentMatchesVolatile() const
 
 bool Config::deleteData(const etl::string_view fullPath)
 {
+    auto guard = SemaphoreGuard(5000, configMutex);
+    if (!guard)
+    {
+        return false;
+    }
     bool dataMutated = false;
     auto [idx, path] = getConfigPath(fullPath);
 
@@ -500,11 +545,6 @@ const GATAS::Config::GaTasConfiguration Config::gaTasConfig() const
         for (JsonPairConst protocolEntry : protocol.as<JsonObjectConst>())
         {
             auto dataSource = GATAS::stringToDataSource(protocolEntry.key().c_str());
-            if (dataSource == GATAS::DataSource::NONE)
-            {
-                continue;
-            }
-
             GATAS::DataSourceMode mode = GATAS::DataSourceMode::RX_TX;
             JsonObjectConst protocolConfig = protocolEntry.value().as<JsonObjectConst>();
             if (!protocolConfig.isNull())
@@ -562,6 +602,11 @@ bool Config::isModuleEnabled(const etl::string_view moduleName) const
     }
     return false;
 };
+
+bool Config::isDirty() const
+{
+    return valueByPath(0, "config", "_dirty") != 0;
+}
 
 int Config::valueByPath(int defaultValue, const etl::string_view pathToValue, const etl::string_view key) const
 {
@@ -670,6 +715,7 @@ void Config::setValueBypath(const etl::string_view pathToValue, etl::string_view
     auto path = CoreUtils::parsePath(pathToValue, "");
     auto src = configValueBypath<JsonVariant>(path);
     src.set(value);
+    doc["config"]["_dirty"] = true;
 }
 
 void Config::setValueBypath(const etl::string_view pathToValue, uint64_t value)
@@ -677,4 +723,61 @@ void Config::setValueBypath(const etl::string_view pathToValue, uint64_t value)
     auto path = CoreUtils::parsePath(pathToValue, "");
     auto src = configValueBypath<JsonVariant>(path);
     src.set(value);
+    doc["config"]["_dirty"] = true;
+}
+
+void Config::on_receive(const GATAS::SelectAircraftRequestMsg &msg)
+{
+    if (auto guard = SemaphoreGuard(5000, configMutex))
+    {
+        const auto callSign = getCallSignFromHex(msg.icaoAddress);
+        if (!callSign.empty() && gaTasConfig().conspicuity.icaoAddress != msg.icaoAddress)
+        {
+            setValueBypath("config/aircraftId", callSign);
+            serializeToVolatile();
+            getBus().receive(GATAS::ConfigUpdatedMsg{*this, Configuration::NAME});
+        }
+    }
+}
+
+void Config::on_receive(const GATAS::DeviceActionRequestMsg &msg)
+{
+    pendingDeviceAction.store(etl::optional<GATAS::DeviceAction>{msg.action});
+}
+
+void Config::on_receive(const GATAS::IdleMsg &msg)
+{
+    (void)msg;
+    auto action = pendingDeviceAction.load();
+    if (!action)
+    {
+        return;
+    }
+    switch (action.value())
+    {
+    case GATAS::DeviceAction::Save:
+        if (auto guard = SemaphoreGuard(0, configMutex))
+        {
+            // We have to saveBR from idle loop, because from a BLE task it kept crashing
+            saveToFlash();
+        }
+        else
+        {
+            return;
+        }
+        break;
+    case GATAS::DeviceAction::Restart:
+    case GATAS::DeviceAction::UsbBoot:
+        getBus().receive(GATAS::SystemActionMsg{action.value()});
+        break;
+    default:
+        break;
+    }
+
+    pendingDeviceAction.update([action](auto &pending) {
+        if (pending == action)
+        {
+            pending.reset();
+        }
+    });
 }

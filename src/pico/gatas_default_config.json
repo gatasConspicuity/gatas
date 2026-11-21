@@ -48,8 +48,7 @@
   },
   "GatasConnect": {
     "_comment_pinCode": "A pincode to be use for connecting to GATAS Connect online services",
-    "pinCode": "0",
-    "enableGdl90Bridge": false
+    "pinCode": "0"
   },
   "GatasConnectUDP": {
     "_comment_ip": "IP Address or DNS name of the server running GATAS Server",

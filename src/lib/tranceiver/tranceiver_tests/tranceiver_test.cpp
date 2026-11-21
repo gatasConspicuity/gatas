@@ -6,6 +6,21 @@
 
 namespace
 {
+struct RadioModuleRegistration
+{
+    explicit RadioModuleRegistration(etl::string_view name) : name(name)
+    {
+        BaseModule::registerModule(name, true);
+    }
+
+    ~RadioModuleRegistration()
+    {
+        BaseModule::registerModule(name, true);
+    }
+
+    const etl::string_view name;
+};
+
 GATAS::PinTypeMap pins()
 {
     return {{GATAS::PinType::CS, 1}, {GATAS::PinType::BUSY, 2}, {GATAS::PinType::DIO1, 3}};
@@ -451,8 +466,12 @@ TEST_CASE("mixed transceivers with matching configuration indices have distinct 
 {
     etl::message_bus<8> bus;
     Config config(bus);
+    RadioModuleRegistration sxRegistration(Sx1262::NAMES[0]);
+    RadioModuleRegistration lrRegistration(Lr2021::NAMES[0]);
     Sx1262 sx(bus, config, 0, 0);
     Lr2021 lr(bus, config, 0, 1);
+    REQUIRE(GATAS::PostConstruct::OK == sx.startAndRegister(Sx1262::NAMES[0]));
+    REQUIRE(GATAS::PostConstruct::OK == lr.startAndRegister(Lr2021::NAMES[0]));
     REQUIRE(sx.radio() == 0);
     REQUIRE(lr.radio() == 1);
     REQUIRE(BaseModule::moduleByName(config, Radio::NAMES[0]) == &sx);
@@ -467,7 +486,9 @@ TEST_CASE("failed radio identity can be reused by a different transceiver config
     REQUIRE(failed->postConstruct() == GATAS::PostConstruct::HARDWARE_NOT_CONFIGURED);
     delete failed;
     REQUIRE(BaseModule::moduleByName(config, Radio::NAMES[0]) == nullptr);
+    RadioModuleRegistration replacementRegistration(Lr2021::NAMES[1]);
     Lr2021 replacement(bus, config, 1, 0);
+    REQUIRE(GATAS::PostConstruct::OK == replacement.startAndRegister(Lr2021::NAMES[1]));
     REQUIRE(replacement.radio() == 0);
     REQUIRE(BaseModule::moduleByName(config, Radio::NAMES[0]) == &replacement);
 }

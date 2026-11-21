@@ -2,6 +2,16 @@
 
 This document maps every message type to its sender(s) and receiver(s).
 
+GatasConnect sends ownship V3 (COBS type 14) through its existing UDP/Bluetooth
+routes. It copies the fresh selected pressure sample from OwnshipState and only
+uploads `PressureSource::PressureSensor`. The absolute pressure altitude is a
+signed big-endian 16-bit number of metres at 1013.25 hPa in bytes 26–27; `0x8000`
+means unavailable (including calculated, stale or out-of-range pressure). The
+29-byte body ends with traffic response version 3 at byte 28. Zero and negative
+altitudes are valid. GPS height retains the V2 encoding and is independent of
+pressure altitude. No new message-bus subscription is needed. Deploy V3 server
+support first; the legacy V1/V2 ownship serializers are deprecated and disabled.
+
 > **Maintenance note**: Keep this document split into separate flow diagrams. When updating it, change only the affected flow sections and do not collapse everything into one large combined flow unless explicitly asked.
 
 > **How this was generated**: Senders were found by grepping `getBus().receive(` across all `.cpp` files. Receivers were found by grepping `void on_receive(const GATAS::` across all `.hpp` files. The class name was inferred from the enclosing file/class context.
@@ -297,6 +307,7 @@ package "Output Services" {
 [GatasConnectUDP] --> [GatasConnect] : GatasConnectRx
 [DataPort] --> [Bluetooth] : DataPortMsg
 [Bluetooth] --> [GatasConnect] : GatasConnectRx
+[Bluetooth] --> [GatasConnect] : GatasConnectBluetoothStateMsg
 [Bluetooth] --> [AirConnect] : DataPortMsg
 [DataPort] --> [AirConnect] : DataPortMsg
 
@@ -430,6 +441,7 @@ package "Wifi Consumers" {
 [Idle] --> [DataPort] : Every1SecMsg\nEvery30SecMsg
 [Idle] --> [Bmp280] : Every1SecMsg
 [Idle] --> [Bmp580] : Every1SecMsg
+[Idle] --> [Config] : IdleMsg\nDispatch pending device action
 
 [Config] --> [Sx1262 / Lr2021] : ConfigUpdatedMsg
 [Config] --> [GDLoverUDP] : ConfigUpdatedMsg
@@ -449,6 +461,9 @@ package "Wifi Consumers" {
 [Config] --> [DP2] : ConfigUpdatedMsg
 
 [GC4] --> [WifiService] : WifiModeRequestMsg
+[GC4] --> [Config] : SelectAircraftRequestMsg
+[GC4] --> [Config] : DeviceActionRequestMsg\nValidated Bluetooth type 12
+[Config] --> [I2] : SystemActionMsg
 [WifiService] --> [GC3] : WifiConnectionStateMsg
 [WifiService] --> [GU2] : WifiConnectionStateMsg
 [WifiService] --> [GO2] : WifiConnectionStateMsg\nAccessPointClientsMsg
@@ -481,14 +496,19 @@ package "Wifi Consumers" {
 | `RadioTxPositionRequestMsg` | `RadioTunerTx` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `AircraftTracker` | Triggers per-protocol transmit preparation when a loaded radio supports the TX profile and has transmission enabled. |
 | `RadioTxFrameMsg` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce` | `Sx1262` / `Lr2021` | Final frame sent to RF hardware. |
 | `DataPortMsg` | `DataPort`, `Bluetooth` | `AirConnect`, `Bluetooth` | NMEA-compatible egress and BLE NMEA ingress. |
-| `GdlMsg` | `Gdl90Service` | `GDLoverUDP`, `GatasConnect` | Packed GDL90 bytes for network and bridge outputs. |
-| `GatasConnectTx` | `GatasConnect` | `GatasConnectUDP`, `Bluetooth` | Framed binary output, transport-agnostic. |
-| `GatasConnectRx` | `GatasConnectUDP`, `Bluetooth` | `GatasConnect` | Framed binary input from transports. |
+| `GdlMsg` | `Gdl90Service` | `GDLoverUDP`, `GatasConnect` | Packed GDL90 bytes fan out independently to Wi-Fi and Bluetooth. GatasConnect allocates type-6 COBS frames only while at least one binary BLE subscriber is present; the Wi-Fi path is unaffected. No hardware bridge setting or app control request is required. |
+| `GatasConnectBluetoothStateMsg` | `Bluetooth` | `GatasConnect` | Current number of active connections subscribed to FFE2 notifications. Bluetooth counts its existing connections and publishes directly after FFE2 CCCD writes and disconnects, outside the buffer mutex. One startup callback reads and publishes the current count on the Bluetooth task after all modules have started. The last unsubscribe/disconnect stops bridge allocation; remaining subscribers keep their output. |
+| `DeviceActionRequestMsg` | `GatasConnect` COBS parser | `Config` | Bluetooth type-12 action, accepted only for the current 8-bit boot ID; Config stores the latest action in an optional for dispatch on `IdleMsg`. No flash write or reset occurs in the request handler. |
+| `GatasConnectTx` | `GatasConnect` | `GatasConnectUDP`, `Bluetooth` | Framed binary output; each configuration broadcast is one type-5 COBS frame carrying the boot ID and dirty flag, without session targeting, including Bluetooth. The frame length and field offsets are unchanged. Bluetooth queues COBS only for current binary subscribers; subscription changes clear old buffered data. |
+| `GatasConnectRx` | `GatasConnectUDP`, `Bluetooth` | `GatasConnect` | Framed binary input with source transport only. Bluetooth assembles complete frames per connection; the shared parser clears partial frames on transport changes. Type 12 accepts exactly three decoded bytes (type, action, boot ID), only over Bluetooth with a matching boot ID, and bypasses the legacy startup holdback. |
+| `SelectAircraftRequestMsg` | `GatasConnect` | `Config` | Typed aircraft selection updates dirty state and retained RAM under the same mutex before ConfigUpdatedMsg. |
+| `SystemActionMsg` | `Config` (web handlers and pending device actions dispatched on `IdleMsg`) | `Idle` | Requests watchdog restart or USB boot; Idle owns the platform reset calls. These actions do not implicitly save flash. |
 | `WifiModeRequestMsg` | `GatasConnect` | `WifiService` | Companion-originated WiFi mode switch request derived from framed binary control traffic. |
 | `WifiConnectionStateMsg` | `WifiService` | `Dump1090Client`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP`, `DataPort`, `AirConnect`, `StaticGPS`, `Idle` | Shared network state. |
 | `AccessPointClientsMsg` | `WifiService` | `GDLoverUDP` | AP client list for UDP output policy. |
+| `IdleMsg` | `Idle` | `Config` | Dispatches the pending device action. Save attempts `configMutex` without waiting and calls `saveToFlash()` if acquired; Restart/USB boot publish `SystemActionMsg`. After execution, clears the optional if it still matches the executed action. A different action queued during execution remains pending; Save also remains pending if the configuration mutex is busy. |
 | `Every1SecMsg` | `Idle` | `DataPort`, `Bmp280`, `Bmp580` | PFLAU heartbeat and internal pressure sampling. |
-| `ConfigUpdatedMsg` | `Config` | `GpsDecoder`, `StaticGPS`, `Bmp280`, `Sx1262` / `Lr2021`, `Ogn1`, `ADSLAce`, `FanetAce`, `ADSBDecoder`, `AircraftTracker`, `RadioTunerRx`, `RadioTunerTx`, `Gdl90Service`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP` | Runtime config propagation. |
+| `ConfigUpdatedMsg` | `Config` | `GpsDecoder`, `StaticGPS`, `Bmp280`, `Sx1262` / `Lr2021`, `Ogn1`, `ADSLAce`, `FanetAce`, `ADSBDecoder`, `AircraftTracker`, `RadioTunerRx`, `RadioTunerTx`, `Gdl90Service`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP` | Runtime config propagation. `saveToFlash()` clears dirty state, serializes RAM, writes flash and publishes this notification; GatasConnect refreshes its cached dirty flag through `Configuration::isDirty()` for subsequent type-5 broadcasts. |
 | `Every5SecMsg` | `Idle` | `WifiService`, `AirConnect`, `ADSBDecoder`, `AircraftTracker` | Periodic maintenance. |
 | `Every30SecMsg` | `Idle` | `DataPort` | Slow periodic maintenance. |
 
@@ -499,7 +519,6 @@ package "Wifi Consumers" {
 | `ADSBMessageBinMsg` | Used as temporary frame storage by `Dump1090Client`, which calls `ADSBDecoder::receiveBinary(...)` directly. |
 | `Every15SecMsg` | Emitted by `Idle`, but there are no current subscribers. |
 | `Every300SecMsg` | Emitted by `Idle`, but there are no current subscribers. |
-| `IdleMsg` | Emitted by `Idle`, but there are no current subscribers. |
 
 ## Important Non-Bus Paths
 

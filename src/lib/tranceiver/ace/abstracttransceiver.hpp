@@ -2,6 +2,7 @@
 #include "ace/basemodule.hpp"
 #include "ace/coreutils.hpp"
 #include "ace/messages.hpp"
+#include "ace/spinlockguard.hpp"
 #include "etl/queue_mpmc_mutex.h"
 #include "etl/optional.h"
 #include "rxdataframequeue.hpp"
@@ -75,7 +76,8 @@ protected:
     etl::queue_mpmc_mutex<TxPacket, 3, etl::memory_model::MEMORY_MODEL_SMALL> txQueue;
     GATAS::RadioParameters rxRadioParameters{&PROTOCOL_NONE, &GATAS::RadioParameters::DEFAULT, 868'000'000, 0};
     // Used when new radioPatemers have arrived during RX requests
-    GATAS::RadioParameters newRxRadioParameters{&PROTOCOL_NONE, &GATAS::RadioParameters::DEFAULT, 868'000'000, 0};
+    SynchronizedValue<GATAS::RadioParameters> newRxRadioParameters{
+        CoreUtils::sharedSpinLock(), {&PROTOCOL_NONE, &GATAS::RadioParameters::DEFAULT, 868'000'000, 0}};
     GATAS::RadioParameters lastRadioParameters{&PROTOCOL_NONE, &GATAS::RadioParameters::DEFAULT, 868'000'000, 0};
 
     enum class RadioDirection : uint8_t { RX, TX };

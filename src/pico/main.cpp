@@ -16,6 +16,7 @@
 #include "pico/cyw43_arch.h"
 #include "pico/btstack_cyw43.h"
 #include "pico/cyw43_driver.h"
+#include "hardware/vreg.h"
 
 /* Vendor. */
 #include "etl/list.h"
@@ -67,6 +68,7 @@
 const char *GATAS_BUILD_TIMESTAMP = BUILD_TIMESTAMP;
 const char *GATAS_BUILD_GIT_TAG = BUILD_GIT_TAG;
 const uint32_t GATAS_BUILD_TIMESTAMP_EPOCH = BUILD_TIMESTAMP_EPOCH;
+
 
 void etlcpp_receive_error(const etl::exception &e)
 {
@@ -330,10 +332,13 @@ static bool load(const etl::string_view str, etl::imessage_bus &bus, Configurati
     auto result = module->postConstruct();
     if (result == GATAS::PostConstruct::OK)
     {
-        BaseModule::setModuleStatus(str, module);
         printf("-> start() ");
-        module->start();
-        return true;
+        const auto startResult = module->startAndRegister(str);
+        if (startResult == GATAS::PostConstruct::OK)
+        {
+            return true;
+        }
+        printf("-> start failed [%s] ", postConstructToString(startResult));
     }
     else
     {
@@ -481,9 +486,11 @@ static void loadModules(void *arg)
     ░░░░░░░░░  ░░░░░   ░░░░░    ░░░░░    ░░░░░   ░░░░░  ░░░░░░░░░
 
         GATAS Device ID: %lX
+        Clock: %dMhz Cores:%u
 
         )=",
-        static_cast<uint32_t>(config.internalStore()->gatasId));
+        static_cast<uint32_t>(config.internalStore()->gatasId),
+        (uint16_t)(clock_get_hz(clk_sys) / 1'000'000), (uint8_t)configNUMBER_OF_CORES);
     if (ledStatusIndicatorPin >= 0)
     {
         gpio_put(ledStatusIndicatorPin, 1);
@@ -686,12 +693,18 @@ void vLaunch(void)
 
     // Load all the modules
     TaskHandle_t task;
-    xTaskCreate(loadModules, "LoadModulesTask", configMINIMAL_STACK_SIZE + 768, NULL, tskIDLE_PRIORITY, &task);
+    if (xTaskCreate(loadModules, "LoadModulesTask", configMINIMAL_STACK_SIZE + 768, NULL, tskIDLE_PRIORITY, &task) != pdPASS)
+    {
+        panic("Failed to create module loader task");
+    }
     vTaskCoreAffinitySet(task, 1);
 
     // Dump some CPU diagnostics to terminal of all running tasks
 #if configGENERATE_RUN_TIME_STATS == 1 && configSHOW_RUN_TIME_STATS == 1
-    xTaskCreate(vDiagnosticsTask, "DiagTask", configMINIMAL_STACK_SIZE + 64, nullptr, tskIDLE_PRIORITY, nullptr);
+    if (xTaskCreate(vDiagnosticsTask, "DiagTask", configMINIMAL_STACK_SIZE + 64, nullptr, tskIDLE_PRIORITY, nullptr) != pdPASS)
+    {
+        printf("Failed to create diagnostics task\n");
+    }
 #endif
 
 #if NO_SYS && configUSE_CORE_AFFINITY && configNUMBER_OF_CORES > 1
@@ -725,11 +738,11 @@ void overflowTest()
 
 int main()
 {
-    bool at200Mhz = false;
-    if (set_sys_clock_khz(200000, true))
-    {
-        at200Mhz = true;
-    }
+#if GATAS_SYS_CLOCK_KHZ > 0
+    vreg_set_voltage(VREG_VOLTAGE_1_15);
+    busy_wait_ms(10);
+    set_sys_clock_khz(GATAS_SYS_CLOCK_KHZ, true);
+#endif
     stdio_init_all();
     overflowTest();
 
@@ -745,17 +758,14 @@ int main()
 #endif
 
 #if (configNUMBER_OF_CORES > 1)
-    printf("        Starting %s on both cores at %dMHZ:\n\n", rtos_name, at200Mhz ? 200 : 125);
     vLaunch();
 #elif (RUN_FREERTOS_ON_CORE == 1)
-    printf("        Starting %s on core 1:\n\n", rtos_name);
     multicore_launch_core1(vLaunch);
     while (true)
     {
         ;
     }
 #else
-    printf("        Starting %s on core 0 %dMHZ:\n\n", rtos_name, at200Mhz ? 200 : 125);
     vLaunch();
 #endif
 

@@ -73,7 +73,7 @@ class AirConnect : public BaseModule, public etl::message_router<AirConnect, GAT
             (void)data;
         }
 
-        TcpClientState() = default;
+        TcpClientState() = delete;
         TcpClientState(struct tcp_pcb *pcb_, AirConnect *airConnect_) : airConnect(airConnect_),
                                                                         bufferOverrunErr(0),
                                                                         tcpClient(pcb_, TcpClient::ReceiveHandler::create<TcpClientState, &TcpClientState::tcpReceiveHandler>(*this))
@@ -81,7 +81,10 @@ class AirConnect : public BaseModule, public etl::message_router<AirConnect, GAT
             (void)pcb_;
         }
 
-        DISALLOW_COPY_AND_MOVE(TcpClientState)
+        TcpClientState(const TcpClientState &) = delete;
+        TcpClientState &operator=(const TcpClientState &) = delete;
+        TcpClientState(TcpClientState &&) = delete;
+        TcpClientState &operator=(TcpClientState &&) = delete;
     };
 
     using ConnectedClients = etl::list<TcpClientState, GATAS_MAXIMUM_TCP_CLIENTS>;
@@ -104,7 +107,7 @@ private:
     void on_receive_unknown(const etl::imessage &msg);
 
     virtual void getData(etl::string_stream &stream, const etl::string_view path) const override;
-    void tcpAcceptHandler(struct tcp_pcb *pcb);
+    err_t tcpAcceptHandler(struct tcp_pcb *pcb);
 
 public:
     static constexpr const char *NAME = "AirConnect";

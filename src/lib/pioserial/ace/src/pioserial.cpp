@@ -36,6 +36,7 @@ GATAS::PostConstruct PioSerial::postConstruct()
     // Enable Rx
     if (!enableRx())
     {
+        releaseUnstarted();
         return GATAS::PostConstruct::HARDWARE_ERROR;
     }
 
@@ -46,6 +47,7 @@ GATAS::PostConstruct PioSerial::postConstruct()
         pio_irq += 1;
         if (irq_get_exclusive_handler(pio_irq))
         {
+            releaseUnstarted();
             return GATAS::PostConstruct::HARDWARE_ERROR;
         }
     }
@@ -65,11 +67,21 @@ GATAS::PostConstruct PioSerial::postConstruct()
         handler = pio1_irq1_func_handler;
         break;
     default:
+        releaseUnstarted();
         return GATAS::PostConstruct::HARDWARE_NOT_FOUND;
     }
 
     bi_decl(bi_2pins_with_func(static_cast<uint32_t>(txPin), static_cast<uint32_t>(rxPin), GPIO_FUNC_UART));
     return GATAS::PostConstruct::OK;
+}
+
+void PioSerial::releaseUnstarted()
+{
+    disableRx();
+    if (handlerIdx < interruptHandlers.size() && interruptHandlers[handlerIdx] == this)
+    {
+        interruptHandlers[handlerIdx] = nullptr;
+    }
 }
 
 void PioSerial::start()
@@ -110,6 +122,7 @@ void PioSerial::disableRx()
         // Remove the handler
         rxSmIndx = -1;
         rxOffset = 0;
+        rxPio = nullptr;
     }
 }
 

@@ -1,23 +1,30 @@
 # GATAS Conspicuity Device
 
 [![Build GaTas](https://github.com/rvt/openace/actions/workflows/ci.yml/badge.svg)](https://github.com/rvt/openace/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-v3.5.1-green)
+![version](https://img.shields.io/badge/version-unreleased-yellow)
 
 [<img src="doc/img/Discord-Logo-Blurple.png" height="45px">](https://discord.gg/J6mXTcWndS)
 
 [📋 Changelog](./CHANGELOG.md) | [🎯 Wiki](https://gatasconspicuity.github.io/gatasDoc/)
 
-The GATAS Conspicuity device is designed for General Aviation pilots flying in areas where multiple
-protocols, such as OGN, Flarm, ADS-L and FANET, are used. It can transmit and receive multiple
-protocols simultaneously (excluding sending ADS-B) using one or more transceiver modules. All
-received traffic is sent to your Electronic Flight Bag (EFB), such as SkyDemon, via the GDL90
-protocol via WIFI or NMEA via bluetooth or WIFI.
+GATAS is a conspicuity device for general aviation. It transmits and receives OGN, FLARM, ADS-L, and
+FANET, and can receive additional ADS-B traffic through GATAS Connect. It forwards traffic to
+electronic flight bags (EFBs) such as SkyDemon over GDL90 on Wi-Fi or NMEA on Bluetooth or Wi-Fi.
 
-The device is built around the Raspberry RP2040/RP2350 and can be configured with a custom PCB that
-supports either two transceivers or a simpler configuration with one with modules from Waveshare
-which makes it more of a plug-and-play. In both setups, it can send and receive all protocols using
-time-sharing technology. The device can store configurations for multiple aircraft, which can be
-selected through an easy-to-use web interface or via gatasServer
+GATAS runs on Raspberry Pi RP2040 and RP2350 microcontrollers. It supports a custom PCB with two
+transceivers or a single-transceiver setup using Waveshare modules. Supported radio protocols share
+airtime on each transceiver. You can store profiles for multiple aircraft and select the active
+aircraft through the built-in web interface or GATAS Server.
+
+## What's new in v3.6.0
+
+- Compatible GATAS Connect clients can save configuration, restart the device, and enter USB boot
+  mode over Bluetooth LE. Configuration broadcasts also report unsaved changes.
+  [Device actions](./doc/device-actions.md)
+- Static GPS checks that large NTP corrections are consistent before applying them to an already
+  synchronized clock. [Static GPS documentation](./src/lib/gps/README.md)
+- GDL90 reports corrected pressure altitude for OGN, FLARM, and ADS-L traffic.
+  [Full changelog](./CHANGELOG.md#v360---2026-11-15)
 
 Powered by a Li-Ion battery, the device includes a PCB with a USB-C charger. The estimated battery
 life is between 6 and 10 hours, though this is subject to further testing.
@@ -87,18 +94,24 @@ or other equipment.
 
 | Protocol     | Send UDP over WIFI | Receive UDP over WIFI | Send Bluetooth     | Send TCP over WIFI | Receiver over TCP WIFI |
 |--------------|--------------------|-----------------------|--------------------|--------------------|------------------------|
-| GDL90        | :heavy_check_mark: | N/A                   | N/A                | N/A                | N/A                    |
+| GDL90        | :heavy_check_mark: | N/A                   | Via gatasConnect*  | N/A                | N/A                    |
 | AirConnect   | N/A                | N/A                   | :heavy_check_mark: | :heavy_check_mark: | N/A                    |
 | Dump1090     | N/A                | N/A                   | N/A                | N/A                | :heavy_check_mark:     |
-| gatasConnect | :heavy_check_mark: | :heavy_check_mark:    | N/A                | N/A                | :heavy_check_mark:     |
+| gatasConnect | :heavy_check_mark: | :heavy_check_mark:    | :heavy_check_mark: | N/A                | :heavy_check_mark:     |
 
-\* Sending GDL90 over Bluetooth is not used in the industry so this is currently not setup. If this
-is really required, then this can be done. Do let me know the use case
+\* GDL90 is carried inside the GATAS COBS Bluetooth stream, not as a raw GDL90
+serial connection. GATAS automatically provides it to clients subscribed to the
+binary characteristic (FFE2), including GATAS Connect. No hardware bridge setting
+is required. The app's **Forward GDL90 to EFB** setting controls only forwarding
+to an EFB on the same phone or tablet; radar and alerts remain independent.
+Wi-Fi GDL90 output can run in parallel. Legacy `enableGdl90Bridge` values are
+ignored, including `false`; saving GatasConnect settings in the web interface
+removes that obsolete key.
 
 ### Tested with Electronic Flight Bag
 
-GATAS is currently tested with SkyDemon only, If you made it work with any other software on Phone
-or Tablet, do let me know so I can add or help out to make this work.
+SkyDemon is tested regularly in flight. The table also lists other EFBs and the connections that
+have been tested with them.
 
 | EFB              | GDL90 over WIFI    | Bluetooth          | DataPort (NMEA) WIFI | Note                                                     |
 |------------------|--------------------|--------------------|----------------------|----------------------------------------------------------|
@@ -141,6 +154,12 @@ your mobile's access point, how cool is that!
 
 - **Transmit:** ~52 bytes/second
 - **Receive:** ~1024 bytes/second at 30 aircraft. (supports up to 30 nearby aircraft)
+
+## Firmware clock selection
+
+Firmware builds use 266 MHz by default on both RP2040 and RP2350, with matching
+wireless clock dividers. The SDK board clock (`Default`) and 200 MHz remain
+selectable. See [Firmware clock selection](doc/build-clock.md).
 
 ## External Libraries and frameworks used
 
@@ -191,3 +210,4 @@ compatibility or other reasons.
 >
 > By using GATAS, you agree to the terms of this disclaimer and acknowledge that you are using the
 > device and its software at your own risk.
+

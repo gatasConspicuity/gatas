@@ -305,7 +305,7 @@ void AbstractTransceiver::radioTask(void *arg)
         xTaskNotifyWait(pdFALSE, ULONG_MAX, &notifyValue, waitTicks);
         if (notifyValue & TaskState::RX_CONFIG_PENDING)
         {
-            rxRadioParameters = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), newRxRadioParameters);
+            rxRadioParameters = newRxRadioParameters.load();
             doListen = true;
         }
 
@@ -435,7 +435,7 @@ void AbstractTransceiver::on_receive(const GATAS::RadioControlMsg &msg)
     if (!schedulerOnly && msg.radioNo == radioNo &&
         (idle || (parameters.config != nullptr && parameters.frequency != nullptr && supportsRx(parameters.frequency->capability))))
     {
-        newRxRadioParameters = SpinlockGuard::copyWithLock(CoreUtils::sharedSpinLock(), msg.radioParameters);
+        newRxRadioParameters.store(parameters);
         xTaskNotify(taskHandle, TaskState::RX_CONFIG_PENDING, eSetBits);
     }
 }

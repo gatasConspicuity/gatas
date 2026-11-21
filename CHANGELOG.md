@@ -5,31 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-[Unreleased]
+## [Unreleased]
 
 ### Added
 
--
+- Ownship V3 position reports include standard pressure altitude when a fresh
+  reading from the onboard pressure sensor is available. Requires a server
+  supporting ownship V3.
+- GATAS Connect automatically streams GDL90 to Bluetooth clients subscribed to
+  its binary data stream. Wi-Fi GDL90 output can run in parallel.
 
 ### Changed
 
--
-
-### Deprecated
-
--
+- Updated the Pico SDK to 2.3.1 and the FreeRTOS kernel to V11.3.3.
+- New RP2040 and RP2350 firmware builds default to 266 MHz. The SDK board clock
+  and 200 MHz remain selectable, with matching CYW43 wireless clock dividers.
 
 ### Removed
 
--
+- Removed the GDL90 bridge toggle from the web interface. Firmware ignores
+  saved `enableGdl90Bridge` values.
 
 ### Fixed
 
--
+- Ignore invalid or non-radio data sources in the configured radio protocol list.
 
-### Security
+## [v3.6.0] - 2026-11-15
 
--
+### Added
+
+- Added GATAS Connect device actions over BLE for saving configuration, restarting,
+  and entering USB boot mode.
+- Added supported actions, the current boot ID, and unsaved-configuration status
+  to periodic GATAS Connect configuration broadcasts.
+- Added pressure source and altitude to the AircraftTracker monitoring page.
+
+### Changed
+
+- Moved periodic GATAS Connect sends to a worker task to keep network work out
+  of FreeRTOS timer callbacks.
+- Static GPS now requires three consistent measurements before applying an NTP
+  correction greater than 100 ms after the clock has valid time.
+
+### Fixed
+
+- Corrected GDL90 pressure altitude for traffic received over OGN, FLARM, and ADS-L.
+- Configuration remains marked as unsaved when a flash write fails.
+- Improved runtime stability by fixing lwIP locking, Bluetooth connection reset
+  handling, and radio tuner reconfiguration. Modules now preserve startup errors
+  when task allocation fails.
 
 ## [v3.5.1] - 2026-10-15
 

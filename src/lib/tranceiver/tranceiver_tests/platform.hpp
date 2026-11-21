@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include "task.h"
 #include "hardware/gpio.h"
+#include "pico/stdlib.h"
 #include "pico/time.h"
 
 namespace RadioTest
@@ -31,7 +32,6 @@ inline void reset()
 #define NUM_BANK0_GPIOS 30
 inline void gpio_init(uint) {}
 inline void gpio_set_dir(uint, bool) {}
-inline void gpio_put(uint, bool) {}
 inline void gpio_pull_up(uint) {}
 inline bool gpio_get(uint) { if (RadioTest::busy) { time_us_Value += 1000; } return RadioTest::busy; }
 inline void busy_wait_us_32(uint32_t) {}

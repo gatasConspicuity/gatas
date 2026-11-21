@@ -19,6 +19,7 @@
 
 GATAS::PostConstruct GatasConnectUDP::postConstruct()
 {
+    LwipRAIILock lock;
     pcbSend = udp_new_ip_type(IPADDR_TYPE_ANY);
     if (pcbSend == nullptr)
     {
@@ -88,8 +89,9 @@ void GatasConnectUDP::resolveGatasServerCallback(const char *name, const ip_addr
     }
 }
 
-bool GatasConnectUDP::resolveIP()
+etl::optional<ip_addr_t> GatasConnectUDP::resolveIP()
 {
+    LwipRAIILock lock;
     if (gatasServerIPAddress.addr == IPADDR_NONE)
     {
         err_t err = dns_gethostbyname(gatasServerStr.c_str(), &gatasServerIPAddress, resolveGatasServerCallback, this);
@@ -98,7 +100,11 @@ bool GatasConnectUDP::resolveIP()
             GATAS_WARN("dns_gethostbyname failed for %s, retrying", gatasServerStr.c_str());
         }
     }
-    return gatasServerIPAddress.addr != IPADDR_NONE && !ip_addr_isloopback(&gatasServerIPAddress) && !ip_addr_isany(&gatasServerIPAddress);
+    if (gatasServerIPAddress.addr != IPADDR_NONE && !ip_addr_isloopback(&gatasServerIPAddress) && !ip_addr_isany(&gatasServerIPAddress))
+    {
+        return gatasServerIPAddress;
+    }
+    return etl::nullopt;
 }
 
 void GatasConnectUDP::on_receive(const GATAS::GatasConnectTx &msg)
@@ -108,7 +114,12 @@ void GatasConnectUDP::on_receive(const GATAS::GatasConnectTx &msg)
         return;
     }
 
-    if (!wifiConnected || !resolveIP())
+    if (!wifiConnected)
+    {
+        return;
+    }
+    const auto serverAddress = resolveIP();
+    if (!serverAddress)
     {
         return;
     }
@@ -148,7 +159,11 @@ void GatasConnectUDP::on_receive(const GATAS::GatasConnectTx &msg)
         return;
     }
 
-    auto err = udp_sendto(pcbSend, pbuf, &gatasServerIPAddress, GATAS_CONNECT_PORT);
+    err_t err;
+    {
+        LwipRAIILock lock;
+        err = udp_sendto(pcbSend, pbuf, &serverAddress.value(), GATAS_CONNECT_PORT);
+    }
     pbuf_free(pbuf);
     if (err == ERR_OK)
     {

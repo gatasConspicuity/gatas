@@ -6,6 +6,21 @@
 
 #define LWIP_SOCKET                 0
 
+// Use the SDK's actual CYW43 async-context ownership check: its FreeRTOS
+// integration overrides the generic lwIP core mutex implementation.
+#if GATAS_DEBUG == 1
+#ifdef __cplusplus
+extern "C" {
+#endif
+void gatas_lwip_mark_tcpip_thread(void);
+void gatas_lwip_assert_core_locked(void);
+#ifdef __cplusplus
+}
+#endif
+#define LWIP_MARK_TCPIP_THREAD() gatas_lwip_mark_tcpip_thread()
+#define LWIP_ASSERT_CORE_LOCKED() gatas_lwip_assert_core_locked()
+#endif
+
 #define MEM_ALIGNMENT               4
 #define MEMP_NUM_TCP_SEG            16
 #define MEMP_NUM_ARP_QUEUE          10

@@ -2,10 +2,16 @@
 #include "ace/coreutils.hpp"
 #include "pico/cyw43_arch.h"
 #include "hardware/watchdog.h"
+#include "pico/bootrom.h"
 
 void Idle::start()
 {
-    xTaskCreate(idleTask, Idle::NAME.cbegin(), configMINIMAL_STACK_SIZE + 1024, this, tskIDLE_PRIORITY + 6, &taskHandle);
+    if (xTaskCreate(idleTask, Idle::NAME.cbegin(), configMINIMAL_STACK_SIZE + 1024, this, tskIDLE_PRIORITY + 6, &taskHandle) != pdPASS)
+    {
+        cancel_repeating_timer(&timer);
+        BaseModule::setModuleStatus(NAME, GATAS::PostConstruct::TASK_ERROR);
+        return;
+    }
 
     getBus().subscribe(*this);
 };
@@ -20,6 +26,31 @@ void Idle::on_receive(const GATAS::WifiConnectionStateMsg &wcs)
 {
     wifiMode = wcs.wifiMode;
     calculatePattern();
+}
+
+void Idle::on_receive(const GATAS::SystemActionMsg &msg)
+{
+    performSystemAction(msg.action);
+}
+
+void Idle::performSystemAction(GATAS::DeviceAction action)
+{
+    switch (action)
+    {
+    case GATAS::DeviceAction::Restart:
+        watchdog_reboot(0, 0, 0);
+        break;
+    case GATAS::DeviceAction::UsbBoot:
+        reset_usb_boot(0, 0);
+        break;
+    default:
+        return;
+    }
+
+    while (true)
+    {
+        tight_loop_contents();
+    }
 }
 
 void Idle::calculatePattern()
@@ -53,9 +84,9 @@ void Idle::getData(etl::string_stream &stream, const etl::string_view path) cons
 
 GATAS::PostConstruct Idle::postConstruct()
 {
-    if (ledStatusIndicatorPin >= 0)
+    if (ledStatusIndicatorPin >= 0 && !add_repeating_timer_ms(1000 / 8, Idle::blinkCb, this, &timer))
     {
-        add_repeating_timer_ms(1000 / 8, Idle::blinkCb, this, &timer);
+        return GATAS::PostConstruct::TIMER_ERROR;
     }
     return GATAS::PostConstruct::OK;
 }

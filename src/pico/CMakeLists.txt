@@ -48,19 +48,7 @@ target_compile_options(gatas_build_options INTERFACE
 
 # Add buildtime timestamp Move this to a dedicated 'status' module to reduce
 # build times
-# Get the exact tag if the commit is tagged
-execute_process(
-    COMMAND git describe --exact-match --tags
-    WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-    RESULT_VARIABLE TAG_RESULT
-    OUTPUT_VARIABLE GIT_TAG
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-
-if(NOT TAG_RESULT EQUAL 0)
-    set(GIT_TAG "UNKNOWN_TAG")
-endif()
+include(${CMAKE_CURRENT_LIST_DIR}/../gatas_version.cmake)
 string(TIMESTAMP BUILD_TIMESTAMP_EPOCH "%s" UTC)
 
 set(BUILD_TIME_HEADER "${CMAKE_CURRENT_LIST_DIR}/generated/build_time.hpp")
@@ -81,6 +69,22 @@ endif()
 
 set(OUTPUT_NAME "GATAS_${PICO_PLATFORM}")
 project(${OUTPUT_NAME} C CXX ASM)
+
+set(GATAS_CLOCK_SPEED "266" CACHE STRING "System clock: Default (SDK), 200 or 266 MHz")
+set_property(CACHE GATAS_CLOCK_SPEED PROPERTY STRINGS Default 200 266)
+if(GATAS_CLOCK_SPEED STREQUAL "Default")
+  set(GATAS_SYS_CLOCK_KHZ 0)
+  # Preserve the SDK's board clock and CYW43 divider.
+elseif(GATAS_CLOCK_SPEED STREQUAL "200")
+  set(GATAS_SYS_CLOCK_KHZ 200000)
+  set(GATAS_CYW43_PIO_CLOCK_DIV_INT 3)
+elseif(GATAS_CLOCK_SPEED STREQUAL "266")
+  set(GATAS_SYS_CLOCK_KHZ 266000)
+  set(GATAS_CYW43_PIO_CLOCK_DIV_INT 4)
+else()
+  message(FATAL_ERROR "GATAS_CLOCK_SPEED must be Default, 200 or 266")
+endif()
+message(STATUS "GATAS system clock selection: ${GATAS_CLOCK_SPEED}")
 
 # Allow user to override this option from command line: -DGATAS_UART_OVER_USB=1
 option(GATAS_UART_OVER_USB "Enable UART over USB (1) or physical UART (0)" "")
@@ -123,7 +127,14 @@ set(FIRMWARE_LINK_OPTIONS
 
 pico_sdk_init()
 
-add_executable(${PROJECT_NAME} main.cpp IdleMemory.c)
+if(PICO_PLATFORM STREQUAL "rp2350-arm-s")
+  # The upstream port uses volatile ++/-- in headers included by C++20 code.
+  target_include_directories(FreeRTOS-Kernel SYSTEM INTERFACE
+    "${FREERTOS_KERNEL_PATH}/${FREERTOS_KERNEL_RP2040_RELATIVE_PATH}/non_secure"
+  )
+endif()
+
+add_executable(${PROJECT_NAME} main.cpp IdleMemory.c lwip_core_lock.c)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../vendor vendorLib)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../lib globalLib)
 
@@ -201,7 +212,13 @@ target_compile_definitions(
   PRIVATE FREE_RTOS_KERNEL_SMP=1
           portSUPPORT_SMP=1
           GATAS_UART_OVER_USB=${GATAS_UART_OVER_USB}
+          GATAS_SYS_CLOCK_KHZ=${GATAS_SYS_CLOCK_KHZ}
           PICO_USE_STACK_GUARDS=1)
+
+if(NOT GATAS_CLOCK_SPEED STREQUAL "Default")
+  target_compile_definitions(${PROJECT_NAME} PRIVATE
+    CYW43_PIO_CLOCK_DIV_INT=${GATAS_CYW43_PIO_CLOCK_DIV_INT})
+endif()
 
 # Enable debugging over PICO Debugger
 if(GATAS_UART_OVER_USB)

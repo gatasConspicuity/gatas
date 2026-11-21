@@ -26,13 +26,14 @@ inline void vEventGroupDelete(EventGroupHandle_t handle) {
     deletedGroupCalled = true;
 }
 
+inline EventBits_t mockEventWaitMask = UINT32_MAX;
 inline EventBits_t xEventGroupWaitBits(EventGroupHandle_t,
                                        EventBits_t bitsToWaitFor,
                                        BaseType_t clearOnExit,
                                        BaseType_t waitForAll,
                                        TickType_t ticksToWait) {
     printf("xEventGroupWaitBits() called (bits=0x%X)\n", bitsToWaitFor);
-    return bitsToWaitFor; // mock: simulate bits being set immediately
+    return bitsToWaitFor & mockEventWaitMask;
 }
 
 inline EventBits_t xEventGroupSetBits(EventGroupHandle_t, EventBits_t bitsToSet) {

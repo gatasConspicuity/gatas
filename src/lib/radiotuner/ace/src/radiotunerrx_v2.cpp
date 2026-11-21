@@ -24,7 +24,7 @@ GATAS::PostConstruct RadioTunerRx::postConstruct()
         return GATAS::PostConstruct::DEP_NOT_FOUND;
     }
 
-    if (xTaskCreate(radioTuneTask, RadioTunerRx::NAME.cbegin(), configMINIMAL_STACK_SIZE + 384, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    if (xTaskCreate(radioTuneTask, RadioTunerRx::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
     {
         return GATAS::PostConstruct::TASK_ERROR;
     }
@@ -195,9 +195,15 @@ void RadioTunerRx::on_receive(const GATAS::ConfigUpdatedMsg &msg)
 {
     if (msg.moduleName == Configuration::NAME)
     {
-        configuredDatasources = msg.config.gaTasConfig().protocols;
+        const auto protocols = msg.config.gaTasConfig().protocols;
+        if (!blockTasks())
+        {
+            return;
+        }
+        configuredDatasources = protocols;
         clearTrafficStats();
-        assignDataSourcesWithTrafficBias();
+        assignDataSourcesFromTask();
+        releaseTasks();
     }
 }
 
@@ -460,6 +466,8 @@ bool RadioTunerRx::blockTasks()
     if (!eventSync.wait(BIT_EVENT_DONE, pdMS_TO_TICKS(2000)))
     {
         GATAS_WARN("Failed to wait for event sync");
+        // Cancel a pause that may still be pending on a delayed worker.
+        releaseTasks();
         return false;
     }
     return true;

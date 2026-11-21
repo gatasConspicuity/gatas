@@ -5,6 +5,7 @@
 /* FreeRTOS */
 #include "FreeRTOS.h"
 #include "timers.h"
+#include "task.h"
 
 /* ETLCPP */
 #include "etl/message_bus.h"
@@ -23,7 +24,7 @@
  * framed binary protocol while transport specific modules subscribe to
  * GatasConnectTx and publish GatasConnectRx.
  */
-class GatasConnect : public BaseModule, public etl::message_router<GatasConnect, GATAS::WifiConnectionStateMsg, GATAS::ConfigUpdatedMsg, GATAS::GpsStatsMsg, GATAS::IngressAircraftPositionMsg, GATAS::GatasConnectRx, GATAS::GdlMsg>
+class GatasConnect : public BaseModule, public etl::message_router<GatasConnect, GATAS::WifiConnectionStateMsg, GATAS::ConfigUpdatedMsg, GATAS::GpsStatsMsg, GATAS::IngressAircraftPositionMsg, GATAS::GatasConnectRx, GATAS::GdlMsg, GATAS::GatasConnectBluetoothStateMsg>
 {
     friend class message_router;
 
@@ -34,17 +35,19 @@ class GatasConnect : public BaseModule, public etl::message_router<GatasConnect,
     uint64_t lastRadioTrafficUs = 0;
     uint8_t localConfigurationUpdateCnt = 0;
     TimerHandle_t requestTimer = nullptr;
+    TaskHandle_t workerTaskHandle = nullptr;
+    static constexpr uint32_t SEND_REQUEST = 1;
     const GATAS::GatasConnectOutput gatasConnectOutput = GATAS::GatasConnectOutput::UDPAndBluetooth;
     uint32_t lastUdpTrafficUs = 0;
     bool hasUdpTraffic = false;
-    // GDL90 over BlueTooth. Needs gatas companion
-    bool gdl90BridgeEnabled = false;
+    uint8_t gdl90BleSubscribers = 0;
 
     uint32_t icaoAddress = 0;
     bool privacy = false;
     uint32_t gatasIp = 0;
     uint32_t pinCode = 0;
     uint64_t gatasId = 0;
+    bool configurationDirty = false;
     bool groundStation = false;
     GATAS::WifiMode wifiMode = GATAS::WifiMode::NC;
 
@@ -65,16 +68,18 @@ private:
     void on_receive(const GATAS::IngressAircraftPositionMsg &msg);
     void on_receive(const GATAS::GatasConnectRx &msg);
     void on_receive(const GATAS::GdlMsg &msg);
+    void on_receive(const GATAS::GatasConnectBluetoothStateMsg &msg);
 
     static void requestTimerCallbackTrampoline(TimerHandle_t xTimer);
-    void requestTimerCallback(TimerHandle_t xTimer);
+    static void workerTaskTrampoline(void *arg);
+    void workerTask();
     void sendOwnshipPosition();
     void sendAircraftConfiguration();
 
     void getConfig(const Configuration &config);
 public:
     static constexpr const char *NAME = "GatasConnect";
-    GatasConnect(etl::imessage_bus &bus, Configuration &config, GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), ownshipState(ownshipState_), cobsStreamHandler(bus, config, ownshipState_)
+    GatasConnect(etl::imessage_bus &bus, Configuration &config, GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), ownshipState(ownshipState_), cobsStreamHandler(bus, ownshipState_)
     {
         getConfig(config);
     }

@@ -11,6 +11,7 @@
 #include <etl/to_arithmetic.h>
 #include "ace/cobs.hpp"
 #include "lib_crc.hpp"
+#include "constants.hpp"
 #include "coreutils.hpp"
 #include "models.hpp"
 #include "ace/measure.hpp"
@@ -20,6 +21,7 @@ class BinaryMessages
 public:
     // Upper bound for one framed COBS payload including the trailing zero delimiter.
     static constexpr size_t MAX_COBS_FRAME_SIZE = 256;
+    static constexpr size_t DEVICE_ACTION_REQUEST_SIZE_V1 = 3;
 
     /**
      * Object that can be used by binary messages to indicate how many bytes it will consume
@@ -43,7 +45,7 @@ public:
         {
             AIRCRAFT_POSITION_TYPE_V1 = 1,     // Deprecated BinaryMessage type of an aircraft other than our own, this can be injexted in the system to process and display
             AIRCRAFT_POSITION_REQUEST_V1 = 2,  // Binary message of a request for other aircraft from gatasConnect
-                                               //          AIRCRAFT_CONFIGURATIONS_V1 = 3,   // Deprecated, see AIRCRAFT_CONFIGURATIONS_V2 Current GATAS COnfiguration 1.0.0-prerelease
+                                               // AIRCRAFT_CONFIGURATIONS_V1 = 3,   // Deprecated, see AIRCRAFT_CONFIGURATIONS_V2 Current GATAS COnfiguration 1.0.0-prerelease
             SET_ICAO_ADDRESS_V1 = 4,           // Set a new aircraft configuration based on hexcode, this is like if you set from teh AI a other aircraft
             AIRCRAFT_CONFIGURATIONS_V2 = 5,    // Current GATAS COnfiguration V2
             GDL90_V1 = 6,                      // Packed GDL90 message for bridge transports
@@ -51,7 +53,9 @@ public:
             AIRCRAFT_POSITION_TYPE_V2 = 8,     // BinaryMessage type of an aircraft other than our own, this can be injexted in the system to process and display
             AIRCRAFT_POSITION_TYPE_V3 = 9,     // Aircraft position with pressure altitude and QNH
             AIRCRAFT_POSITION_REQUEST_V2 = 10, // Request aircraft positions using the versioned response format
-            OWNSHIP_PRESSURE_V1 = 11, // Ownship ambient pressure and QNH
+            OWNSHIP_PRESSURE_V1 = 11,          // Ownship ambient pressure and QNH
+            DEVICE_ACTION_REQUEST_V1 = 12,     // Action and current 8-bit boot ID
+            AIRCRAFT_POSITION_REQUEST_V3 = 14, // Ownship with measured standard pressure altitude
         };
 
         ETL_DECLARE_ENUM_TYPE(DataType, uint8_t)
@@ -66,10 +70,25 @@ public:
         ETL_ENUM_TYPE(AIRCRAFT_POSITION_TYPE_V3, "Aircraft Data with pressure altitude and QNH")
         ETL_ENUM_TYPE(AIRCRAFT_POSITION_REQUEST_V2, "Versioned conspicuity data request")
         ETL_ENUM_TYPE(OWNSHIP_PRESSURE_V1, "Ownship ambient pressure and QNH")
+        ETL_ENUM_TYPE(DEVICE_ACTION_REQUEST_V1, "Device action request")
+        ETL_ENUM_TYPE(AIRCRAFT_POSITION_REQUEST_V3, "Ownship with measured pressure altitude")
         ETL_END_ENUM_TYPE
     };
 
+    static etl::optional<GATAS::DeviceActionRequest> deserializeDeviceActionRequestV1(etl::span<const uint8_t> data)
+    {
+
+        if (data.size() != DEVICE_ACTION_REQUEST_SIZE_V1 || data[0] != DataType::DEVICE_ACTION_REQUEST_V1 ||
+            data[1] < static_cast<uint8_t>(GATAS::DeviceAction::Save) ||
+            data[1] > static_cast<uint8_t>(GATAS::DeviceAction::UsbBoot))
+        {
+            return etl::nullopt;
+        }
+        return GATAS::DeviceActionRequest{static_cast<GATAS::DeviceAction>(data[1]), data[2]};
+    }
+
     static constexpr uint8_t AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK = 0x03U;
+    static constexpr uint8_t AIRCRAFT_CONFIGURATION_DIRTY_FLAG = 0x04U;
     static constexpr uint8_t AIRCRAFT_CONFIGURATION_PRIVACY_FLAG = 0x08U;
 
     static constexpr int32_t LEGACY_ELLIPSOID_HEIGHT_OFFSET_M = 100;
@@ -325,44 +344,80 @@ public:
         writer.write_unchecked(static_cast<int16_t>(ownship.verticalSpeed * 100.f), 16U);
     }
 
-    static void serializeOwnshipPositionV1(etl::bit_stream_writer &writer, const GATAS::OwnshipPositionInfo &ownship)
+    // Deprecated
+    // static void serializeOwnshipPositionV1(etl::bit_stream_writer &writer, const GATAS::OwnshipPositionInfo &ownship)
+    // {
+    //     serializeOwnshipPosition(writer, ownship);
+    // }
+
+    // Deprecated
+    // static void serializeOwnshipPositionV2(etl::bit_stream_writer &writer, const GATAS::OwnshipPositionInfo &ownship)
+    // {
+    //     serializeOwnshipPosition(writer, ownship, DataType::AIRCRAFT_POSITION_REQUEST_V2);
+    //     writer.write_unchecked(3U, 8U); // Request aircraft position response V3 with pressure altitude and QNH.
+    // }
+
+    // Deprecated
+    // static size_t serializeOwnshipPositionV1(uint8_t *out, size_t outSize, const GATAS::OwnshipPositionInfo &ownship)
+    // {
+    //     const size_t rawSize = serializeOwnshipPositionSizeV1().items(1);
+    //     const size_t framedSize = serializeOwnshipPositionFramedSizeV1();
+    //     if (outSize < framedSize || rawSize > MAX_COBS_FRAME_SIZE)
+    //     {
+    //         return 0;
+    //     }
+
+    //     uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
+    //     etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
+    //     serializeOwnshipPositionV1(writer, ownship);
+    //     return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
+    // }
+
+    // Deprecated
+    // static size_t serializeOwnshipPositionV2(uint8_t *out, size_t outSize, const GATAS::OwnshipPositionInfo &ownship)
+    // {
+    //     const size_t rawSize = serializeOwnshipPositionSizeV2().items(1);
+    //     const size_t framedSize = serializeOwnshipPositionFramedSizeV2();
+    //     if (outSize < framedSize || rawSize > MAX_COBS_FRAME_SIZE)
+    //     {
+    //         return 0;
+    //     }
+
+    //     uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
+    //     etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
+    //     serializeOwnshipPositionV2(writer, ownship);
+    //     return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
+    // }
+
+    // Absolute pressure altitude in metres at 1013.25 hPa. Never upload calculated pressure.
+    static void serializeOwnshipPositionV3(etl::bit_stream_writer &writer,
+                                          const GATAS::OwnshipPositionInfo &ownship,
+                                          etl::optional<GATAS::SelectedPressureAltitude> pressureAltitude)
     {
-        serializeOwnshipPosition(writer, ownship);
+        serializeOwnshipPosition(writer, ownship, DataType::AIRCRAFT_POSITION_REQUEST_V3);
+        int16_t altitude = INT16_MIN;
+        if (pressureAltitude && pressureAltitude->method == GATAS::PressureSource::PressureSensor &&
+            std::isfinite(pressureAltitude->metres) &&
+            pressureAltitude->metres >= -32767.0f && pressureAltitude->metres <= 32767.0f)
+        {
+            altitude = static_cast<int16_t>(std::round(pressureAltitude->metres));
+        }
+        writer.write_unchecked(altitude, 16U);
+        writer.write_unchecked(3U, 8U);
     }
 
-    static void serializeOwnshipPositionV2(etl::bit_stream_writer &writer, const GATAS::OwnshipPositionInfo &ownship)
+    static size_t serializeOwnshipPositionV3(uint8_t *out, size_t outSize,
+                                            const GATAS::OwnshipPositionInfo &ownship,
+                                            etl::optional<GATAS::SelectedPressureAltitude> pressureAltitude)
     {
-        serializeOwnshipPosition(writer, ownship, DataType::AIRCRAFT_POSITION_REQUEST_V2);
-        writer.write_unchecked(3U, 8U); // Request aircraft position response V3 with pressure altitude and QNH.
-    }
-
-    static size_t serializeOwnshipPositionV1(uint8_t *out, size_t outSize, const GATAS::OwnshipPositionInfo &ownship)
-    {
-        const size_t rawSize = serializeOwnshipPositionSizeV1().items(1);
-        const size_t framedSize = serializeOwnshipPositionFramedSizeV1();
-        if (outSize < framedSize || rawSize > MAX_COBS_FRAME_SIZE)
+        const size_t rawSize = serializeOwnshipPositionSizeV3().items(1);
+        if (outSize < serializeOwnshipPositionFramedSizeV3() || rawSize > MAX_COBS_FRAME_SIZE)
         {
             return 0;
         }
-
         uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
         etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
-        serializeOwnshipPositionV1(writer, ownship);
-        return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
-    }
-
-    static size_t serializeOwnshipPositionV2(uint8_t *out, size_t outSize, const GATAS::OwnshipPositionInfo &ownship)
-    {
-        const size_t rawSize = serializeOwnshipPositionSizeV2().items(1);
-        const size_t framedSize = serializeOwnshipPositionFramedSizeV2();
-        if (outSize < framedSize || rawSize > MAX_COBS_FRAME_SIZE)
-        {
-            return 0;
-        }
-
-        uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
-        etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
-        serializeOwnshipPositionV2(writer, ownship);
+        serializeOwnshipPositionV3(writer, ownship, pressureAltitude);
         return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
     }
 
@@ -386,22 +441,36 @@ public:
         return getCOBSBufferSize(serializeOwnshipPositionSizeV1().items(1), true);
     }
 
+    constexpr static BinaryMessages::SizeType serializeOwnshipPositionSizeV3()
+    {
+        return BinaryMessages::SizeType{.base = 0, .size = serializeOwnshipPositionSizeV2().items(1) + 2};
+    }
+
+    static size_t serializeOwnshipPositionFramedSizeV3()
+    {
+        return getCOBSBufferSize(serializeOwnshipPositionSizeV3().items(1), true);
+    }
+
     static size_t serializeOwnshipPositionFramedSizeV2()
     {
         return getCOBSBufferSize(serializeOwnshipPositionSizeV2().items(1), true);
     }
 
-    static void serializeAircraftConfigurationV2(etl::bit_stream_writer &writer, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode, bool privacy)
+    static void serializeAircraftConfigurationV2(etl::bit_stream_writer &writer, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode, uint8_t bootId, bool dirtyFlag, bool privacy)
     {
         writer.write_unchecked(DataType(DataType::AIRCRAFT_CONFIGURATIONS_V2).get_value(), 8U);
         const uint8_t flags = (static_cast<uint8_t>(wifiMode) & AIRCRAFT_CONFIGURATION_WIFI_MODE_MASK)
+            | (dirtyFlag ? AIRCRAFT_CONFIGURATION_DIRTY_FLAG : 0U)
             | (privacy ? AIRCRAFT_CONFIGURATION_PRIVACY_FLAG : 0U);
-        writer.write_unchecked(flags, 8U); // Bits 0-1 encode Wi-Fi mode, bit 3 keeps the sender out of the fleet.
+        writer.write_unchecked(flags, 8U); // Bits 0-1: WiFi mode NC/AP/CLIENT; bit 2: dirty; bit 3: privacy
         writer.write_unchecked(gatasId, 32U);
         writer.write_unchecked(gatasIp, 32U);
         writer.write_unchecked(icaoAddressSnap, 24U);
 
-        writer.write_unchecked(0, 32U);       // Version
+        writer.write_unchecked<uint8_t>(GATAS::VERSION_MAJOR);
+        writer.write_unchecked<uint8_t>(GATAS::VERSION_MINOR);
+        writer.write_unchecked<uint8_t>(GATAS::VERSION_BUGFIX);
+        writer.write_unchecked<uint8_t>(bootId);
         writer.write_unchecked(pinCode, 24U); // gatasConnect Pincode
 
         // options how to set the addres as a response
@@ -418,7 +487,7 @@ public:
         }
     }
 
-    static size_t serializeAircraftConfigurationV2(uint8_t *out, size_t outSize, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode, bool privacy)
+    static size_t serializeAircraftConfigurationV2(uint8_t *out, size_t outSize, uint32_t gatasId, uint32_t icaoAddressSnap, const etl::span<uint32_t> &addresses, uint32_t gatasIp, uint32_t pinCode, GATAS::WifiMode wifiMode, uint8_t bootId, bool dirtyFlag, bool privacy)
     {
         const size_t rawSize = serializeAircraftConfigurationSizeV2().items(addresses.size());
         const size_t framedSize = serializeAircraftConfigurationFramedSizeV2(addresses.size());
@@ -429,7 +498,7 @@ public:
 
         uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
         etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
-        serializeAircraftConfigurationV2(writer, gatasId, icaoAddressSnap, addresses, gatasIp, pinCode, wifiMode, privacy);
+        serializeAircraftConfigurationV2(writer, gatasId, icaoAddressSnap, addresses, gatasIp, pinCode, wifiMode, bootId, dirtyFlag, privacy);
         return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
     }
 
