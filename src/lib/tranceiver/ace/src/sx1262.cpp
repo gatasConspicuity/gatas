@@ -307,13 +307,17 @@ void Sx1262::configureLoraPacket(const GATAS::RadioParameters &newParameters,
 void Sx1262::listen()
 {
     sx126x_cfg_rx_boosted(this, true);
+    consumedRxCounts = {};
+    pendingRxRead = false;
+    pendingLoraCrcError = false;
+    sx126x_reset_stats(this);
 
     disablePinInterrupt(dio1Pin);
     sx126x_clear_irq_status(this, SX126X_IRQ_ALL);
     sx126x_set_dio_irq_params(this, SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT, SX126X_IRQ_RX_DONE | SX126X_IRQ_TIMEOUT, SX126X_IRQ_NONE, SX126X_IRQ_NONE);
     enablePinInterrupt(dio1Pin, DIO1_EVENT);
 
-    sx126x_set_rx(this, SX126X_MAX_TIMEOUT_IN_MS);
+    sx126x_set_rx_with_timeout_in_rtc_step(this, SX126X_RX_CONTINUOUS);
 }
 
 void Sx1262::sendPacket(const GATAS::RadioParameters &parameters, const uint8_t *data, uint8_t length, uint32_t timeoutMs)
@@ -333,118 +337,122 @@ void Sx1262::sendPacket(const GATAS::RadioParameters &parameters, const uint8_t 
 
 void Sx1262::receiveGFSKPacket()
 {
-    // 13.5.3 GetPacketStatus
-    sx126x_pkt_status_gfsk_t pkt_status{};
-    sx126x_get_gfsk_pkt_status(this, &pkt_status);
-    if (hasHalError())
-    {
-        return;
-    }
-    if (pkt_status.rx_status.pkt_received && pkt_status.rx_status.abort_error == 0)
-    {
-        statistics.receivedPackets += 1;
-        uint8_t receivedFrameLength = receivedPacketLength();
-
-        if (receivedFrameLength >= 4)
-        {
-            // ADSL OHR has a lot of false packets, we eurly detect them and drop them
-            if (lastRadioParameters.config->dataSource() == GATAS::DataSource::ADSLO_HDR && (receivedFrameLength % 4 != 0))
-            {
-                GATAS_WARN("Dropping invalid ADSL HDR packet");
-                return;
-            }
-
-            if (auto frameData = static_cast<uint8_t *>(getGlobalPool().alloc(receivedFrameLength)))
-            {
-                GATAS::DataFrame rxFrame{
-                    .epochSeconds = CoreUtils::secondsSinceEpoch(),
-                    .frequency = lastRadioParameters.hopFrequency,
-                    .config = lastRadioParameters.config,
-                    .frame = {getGlobalPool(), frameData},
-                    .length = receivedFrameLength,
-                    .rssidBm = pkt_status.rssi_avg,
-                };
-
-                sx126x_read_buffer(this, groundStation ? GROUNDSTATION_RX_BASE : DEFAULT_RX_BASE, rxFrame.frame.get(), receivedFrameLength);
-                if (!hasHalError())
-                {
-                    rxDataFrameQueue->push(etl::move(rxFrame));
-                }
-            }
-        }
-        else
-        {
-            GATAS_WARN("Incorrect frame length received %d", receivedFrameLength);
-        }
-    }
-    else
-    {
-        // If we get here, there is some mis configuration going on
-        checkAndClearDeviceErrors();
-        GATAS_INFO("pkt_status.rx_status.pkt_received %d %d %d %d %d %d",
-                   pkt_status.rx_status.pkt_received, pkt_status.rx_status.abort_error, pkt_status.rx_status.length_error,
-                   pkt_status.rx_status.crc_error, pkt_status.rx_status.pkt_sent, pkt_status.rx_status.adrs_error);
-    }
+    receivePacket();
 }
 
 void Sx1262::receiveLORAPacket()
 {
-    // 13.5.3 GetPacketStatus
-    sx126x_chip_status_t chip_status{};
-    sx126x_get_status(this, &chip_status);
-    if (hasHalError())
+    receivePacket();
+}
+
+etl::optional<Sx1262::RxCounts> Sx1262::receivedPacketCounts()
+{
+    if (lastRadioParameters.frequency->mode == GATAS::Modulation::LORA)
     {
-        return;
-    }
-    if (chip_status.cmd_status == SX126X_CMD_STATUS_DATA_AVAILABLE)
-    {
-        sx126x_pkt_status_lora_t pkt_status{};
-        sx126x_get_lora_pkt_status(this, &pkt_status);
-        if (hasHalError())
+        sx126x_stats_lora_t counts{};
+        if (sx126x_get_lora_stats(this, &counts) == SX126X_STATUS_OK)
         {
-            return;
-        }
-
-        statistics.receivedPackets += 1;
-        uint8_t receivedFrameLength = receivedPacketLength();
-
-        if (receivedFrameLength >= 4)
-        {
-            if (auto frameData = static_cast<uint8_t *>(getGlobalPool().alloc(receivedFrameLength)))
-            {
-                GATAS::DataFrame rxFrame{
-                    .epochSeconds = CoreUtils::secondsSinceEpoch(),
-                    .frequency = lastRadioParameters.hopFrequency,
-                    .config = lastRadioParameters.config,
-                    .frame = {getGlobalPool(), frameData},
-                    .length = receivedFrameLength,
-                    .rssidBm = pkt_status.signal_rssi_pkt_in_dbm,
-                };
-
-                sx126x_read_buffer(this, groundStation ? GROUNDSTATION_RX_BASE : DEFAULT_RX_BASE, rxFrame.frame.get(), receivedFrameLength);
-                if (!hasHalError())
-                {
-                    rxDataFrameQueue->push(etl::move(rxFrame));
-                }
-            }
-        }
-        else
-        {
-            GATAS_WARN("Incorrect frame length received %d", receivedFrameLength);
+            return RxCounts{counts.nb_pkt_received, counts.nb_pkt_crc_error};
         }
     }
     else
     {
-        // If we get here, there is some mis configuration going on
-        checkAndClearDeviceErrors();
+        sx126x_stats_gfsk_t counts{};
+        if (sx126x_get_gfsk_stats(this, &counts) == SX126X_STATUS_OK)
+        {
+            // Our GFSK profiles disable hardware CRC. Protocol checks run after
+            // software decoding, so this hardware counter is not applicable.
+            return RxCounts{counts.nb_pkt_received, 0};
+        }
     }
+    return etl::nullopt;
 }
 
-uint8_t Sx1262::receivedPacketLength() const
+void Sx1262::receivePacket()
 {
-    sx126x_rx_buffer_status_t rx_buffer_status{0, 0};
-    sx126x_get_rx_buffer_status(this, &rx_buffer_status);
-    return rx_buffer_status.pld_len_in_bytes;
+    pendingRxRead = false;
+    // The chip retains only the latest packet's status. Check its completion
+    // count around the read so a newer packet cannot mix payload and metadata.
+    // Bound retries to keep the SPI bus available to other devices.
+    for (uint8_t attempt = 0; attempt < 2; ++attempt)
+    {
+        const auto before = receivedPacketCounts();
+        if (!before || (before->received == consumedRxCounts.received &&
+                        before->loraCrcErrors == consumedRxCounts.loraCrcErrors))
+        {
+            return;
+        }
+
+        bool valid = true;
+        int8_t rssi = 0;
+        if (lastRadioParameters.frequency->mode == GATAS::Modulation::LORA)
+        {
+            sx126x_irq_mask_t raw = 0;
+            sx126x_get_irq_status(this, &raw);
+            // Retain the error from the task's acknowledged IRQ and check for
+            // another error arriving since then. A latched CRC error can cover
+            // multiple coalesced packets; reject conservatively in that case.
+            const bool loraCrcError = pendingLoraCrcError || (raw & SX126X_IRQ_CRC_ERROR);
+            valid = !loraCrcError;
+            sx126x_pkt_status_lora_t packet{};
+            sx126x_get_lora_pkt_status(this, &packet);
+            rssi = packet.signal_rssi_pkt_in_dbm;
+        }
+        else
+        {
+            sx126x_pkt_status_gfsk_t packet{};
+            sx126x_get_gfsk_pkt_status(this, &packet);
+            valid = valid && packet.rx_status.pkt_received && !packet.rx_status.abort_error &&
+                    !packet.rx_status.length_error && !packet.rx_status.adrs_error;
+            rssi = packet.rssi_avg;
+        }
+
+        sx126x_rx_buffer_status_t buffer{};
+        sx126x_get_rx_buffer_status(this, &buffer);
+        if (hasHalError())
+        {
+            return;
+        }
+        const uint8_t length = buffer.pld_len_in_bytes;
+        valid = valid && length >= 4 &&
+                (!lastRadioParameters.config->manchester || length % 2 == 0) &&
+                (lastRadioParameters.config->dataSource() != GATAS::DataSource::ADSLO_HDR || length % 4 == 0);
+        auto data = valid ? static_cast<uint8_t *>(getGlobalPool().alloc(length)) : nullptr;
+        GATAS::DataFrame frame{
+            .epochSeconds = CoreUtils::secondsSinceEpoch(),
+            .frequency = lastRadioParameters.hopFrequency,
+            .config = lastRadioParameters.config,
+            .frame = {getGlobalPool(), data},
+            .length = length,
+            .rssidBm = rssi};
+        if (data != nullptr)
+        {
+            // Continuous RX advances this pointer and wraps through the 256-byte
+            // buffer. The configured RX base is only the first packet's address.
+            sx126x_read_buffer(this, buffer.buffer_start_pointer, data, length);
+        }
+        const auto after = receivedPacketCounts();
+        if (!after || hasHalError())
+        {
+            return;
+        }
+        if (before->received != after->received || before->loraCrcErrors != after->loraCrcErrors)
+        {
+            continue;
+        }
+        consumedRxCounts = *after;
+        pendingLoraCrcError = false;
+        if (data != nullptr)
+        {
+            ++statistics.receivedPackets;
+            rxDataFrameQueue->push(etl::move(frame));
+        }
+        return;
+    }
+    // A completion may have coalesced with the IRQ already acknowledged by the
+    // task. Preserve work explicitly instead of relying on another rising edge.
+    pendingRxRead = true;
+    xTaskNotify(taskHandle, TaskState::DIO1_EVENT, eSetBits);
 }
 
 bool Sx1262::waitBusy(uint16_t minimumDelay) const
@@ -478,7 +486,15 @@ etl::optional<AbstractTransceiver::Irq> Sx1262::readIrq()
     sx126x_irq_mask_t raw = 0;
     if (sx126x_get_irq_status(this, &raw) != SX126X_STATUS_OK) { return etl::nullopt; }
     uint8_t events = 0;
-    if (raw & SX126X_IRQ_RX_DONE) { events |= IRQ_RX_DONE; }
+    if (raw & SX126X_IRQ_RX_DONE)
+    {
+        pendingLoraCrcError = lastRadioParameters.frequency->mode == GATAS::Modulation::LORA &&
+                              (raw & SX126X_IRQ_CRC_ERROR);
+    }
+    if ((raw & SX126X_IRQ_RX_DONE) || pendingRxRead)
+    {
+        events |= IRQ_RX_DONE;
+    }
     if (raw & SX126X_IRQ_TX_DONE) { events |= IRQ_TX_DONE; }
     if (raw & SX126X_IRQ_TIMEOUT) { events |= IRQ_TIMEOUT; }
     return Irq{raw, events};

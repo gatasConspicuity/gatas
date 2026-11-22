@@ -26,6 +26,12 @@ slots at `GATAS_MAX_RADIOS`. The common base
 handles radio control, TX frames, GPS gating and configuration updates; each chip
 implements the hardware operations. See [LR2021 setup](lr2021.md).
 
+Both chips listen continuously within each receive slot. Packet completion hands
+frames to `RxDataFrameQueue` without restarting RX. A new `RadioControlMsg`
+assignment or queued TX stops RX and drains pending completions using the old
+profile before changing settings. LR2021 drains complete fixed-size FIFO captures;
+ambiguous variable-length packet metadata or FIFO overflow triggers recovery.
+
 ## Bus Semantics
 
 - The firmware uses `GATAS::ThreadSafeBus<24>` from `src/lib/core/ace/messagerouter.hpp`.

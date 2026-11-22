@@ -130,7 +130,7 @@
 #define GATAS_EMAFLOAT_K_FACTOR_2PS ( 1.2f )
 
 // Maximum radios that can be controlled
-#define GATAS_MAX_RADIOS ( 2 )
+#define GATAS_MAX_RADIOS ( 3 )
 // Maximum number of datasources per radio that can be handled
 #define GATAS_MAX_SOURCE_PER_RADIO ( 3 )
 

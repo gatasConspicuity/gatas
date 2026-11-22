@@ -30,6 +30,8 @@ Per zone the following information is stored:
 
 Set `capabilities` under the physical device name, such as `Lr2021_0` or `Sx1262_1`, based on the installed RF path and antenna. Restart to apply this setting. The same list applies to RX and TX. Transmission also requires `txEnabled`, and `Ook1090` is receive-only.
 
+A `capabilities` entry in the selected hardware profile's radio pin map overrides the top-level radio setting. The GATAS Custom profile (`PICO_2RADIO`) enables `Ook1090` on `Lr2021_0` this way.
+
 | Capability | RF profiles |
 | --- | --- |
 | `Gfsk868` | GFSK in the 868/869 MHz band |

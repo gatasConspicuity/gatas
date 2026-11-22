@@ -3,6 +3,7 @@
 #include <cstring>
 #include <vector>
 #include <stdexcept>
+#include <functional>
 #include "task.h"
 #include "hardware/gpio.h"
 #include "pico/stdlib.h"
@@ -19,11 +20,13 @@ inline size_t responseOffset = 0;
 inline std::vector<char> transfers;
 inline std::vector<uint32_t> notifications;
 inline size_t notificationIndex = 0;
+inline std::function<void(size_t)> onWake;
 struct EndTask {};
 inline void reset()
 {
     busy = false; shortTransfer = false; writes.clear(); reads.clear();
     response.clear(); responseOffset = 0; transfers.clear(); notifications.clear(); notificationIndex = 0;
+    onWake = {};
 }
 }
 #define GPIO_OUT 1
@@ -42,6 +45,10 @@ inline void xTaskNotifyGive(TaskHandle_t) {}
 inline int testNotifyWait(uint32_t, uint64_t, uint32_t *value, TickType_t)
 {
     if (RadioTest::notificationIndex >= RadioTest::notifications.size()) { throw RadioTest::EndTask{}; }
+    if (RadioTest::onWake)
+    {
+        RadioTest::onWake(RadioTest::notificationIndex);
+    }
     *value = RadioTest::notifications[RadioTest::notificationIndex++];
     return pdPASS;
 }

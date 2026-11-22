@@ -31,7 +31,7 @@ const char *postConstructToString(GATAS::PostConstruct reason);
 class Configuration;
 class BaseModule
 {
-    static constexpr uint8_t MAX_MODULES = 40;
+    static constexpr uint8_t MAX_MODULES = 44;
     // Mutex to be used during load/unloading and changes in interrupts
     inline static SemaphoreHandle_t baseMutex = nullptr;
     inline static GATAS::GlobalPoolConfiguration globalPool;

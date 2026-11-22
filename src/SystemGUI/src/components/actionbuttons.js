@@ -5,6 +5,8 @@ class ActionButtons extends El {
     created() {
         this.state = this.$observable({
             restartDlg: false,
+            eraseBrDlg: false,
+            erasingBr: false,
             changeHwDlg: false,
             startApDlg: false,
             apStarted: false
@@ -14,6 +16,16 @@ class ActionButtons extends El {
     _restart() {
       store.restart();
       this.state.restartDlg = false;
+    }
+
+    async _eraseBr() {
+        this.state.erasingBr = true;
+        try {
+            await store.eraseBr();
+        } finally {
+            this.state.erasingBr = false;
+            this.state.eraseBrDlg = false;
+        }
     }
 
     _usbBoot() {
@@ -34,6 +46,30 @@ class ActionButtons extends El {
 
     _usbBootButton(html) {
         return html`<button class="secondary" onclick=${() => (this.state.usbBootDlg = true)}>Upload firmware</button>`;
+    }
+
+    _eraseBrButton(html) {
+        return html`<button class="danger" onclick=${() => (this.state.eraseBrDlg = true)}>Erase BR</button>
+          ${this.state.eraseBrDlg ? this._eraseBrDialog(html) : ""}`;
+    }
+
+    _eraseBrDialog(html) {
+        return html`<div class="app-modal" role="dialog" aria-modal="true" aria-labelledby="erase-br-title">
+      <div class="app-modal__surface">
+        <article>
+          <header>
+            <h4 id="erase-br-title">Erase BR?</h4>
+          </header>
+          <div class="app-modal__body">
+            <p>This erases the configuration from flash and RAM. Restart the device to load the default configuration.</p>
+          </div>
+          <footer class="app-modal__actions">
+            <button type="button" class="danger" onclick=${this._eraseBr} ${this.state.erasingBr ? "disabled" : ""}>Erase BR</button>
+            <button type="button" class="secondary" onclick=${() => (this.state.eraseBrDlg = false)} ${this.state.erasingBr ? "disabled" : ""}>Cancel</button>
+          </footer>
+        </article>
+      </div>
+    </div>`;
     }
 
     _restartAreYouSureDlg(html) {
@@ -187,7 +223,8 @@ class ActionButtons extends El {
           <div>${this._restartButton(html)}</div>
           <div>${this._usbBootButton(html)}</div>
           <div>${this._changeHwButton(html)}</div>
-          <div>${this._startApButton(html)}</div>          
+          <div>${this._startApButton(html)}</div>
+          ${store.state.debug ? html`<div>${this._eraseBrButton(html)}</div>` : ""}
         </div>
       </section>
     `;

@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <algorithm>
 #include "ace/messagerouter.hpp"
 #include "ace/messages.hpp"
 #include <iostream>
@@ -476,7 +477,7 @@ TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
         REQUIRE(config.floatValueByPath(7.5f, "test", "missing") == 7.5f);
     }
 
-    SECTION("Config status includes gatasId")
+    SECTION("Config status includes gatasId and debug mode")
     {
         etl::string<256> output;
         etl::string_stream stream(output);
@@ -486,6 +487,12 @@ TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
         JsonDocument status;
         REQUIRE(deserializeJson(status, output.c_str()) == DeserializationError::Ok);
         REQUIRE(status["gatasId"].is<uint32_t>());
+        REQUIRE(status["debug"].is<bool>());
+#if GATAS_DEBUG == 1
+        REQUIRE(status["debug"].as<bool>());
+#else
+        REQUIRE_FALSE(status["debug"].as<bool>());
+#endif
     }
 
     SECTION("Persistent comparison survives store rewind")
@@ -531,24 +538,29 @@ TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
         REQUIRE(coldBoot.persistentMatchesVolatile());
     }
 
-#if GATAS_DEBUG == 1
     SECTION("Erase stored configuration")
     {
-        REQUIRE(config.setData("{}", "/api/Config/EraseBr.json") == true);
+        REQUIRE(config.setData("123", "/api/Config/testValue.json"));
+        REQUIRE(config.setData("{}", "/api/Config/SaveBr.json"));
+        REQUIRE(config.setData("456", "/api/Config/testValue.json"));
 
-        for (auto value : pstore)
-        {
-            REQUIRE(value == 0xFF);
-        }
+#if GATAS_DEBUG == 1
+        REQUIRE(config.setData("{}", "/api/Config/EraseBr.json"));
+        REQUIRE(std::all_of(std::begin(pstore), std::end(pstore), [](uint8_t byte) { return byte == 0xFF; }));
+        REQUIRE(std::all_of(std::begin(vstore), std::end(vstore), [](uint8_t byte) { return byte == 0xFF; }));
+        REQUIRE(volatileStore.writtenSize() == 0);
 
-        for (auto value : vstore)
-        {
-            REQUIRE(value == 0xFF);
-        }
-
-        REQUIRE(config.valueByPath(1, "signature", "") == 250801);
-    }
+        Config restartedConfig(bus, volatileStore, permanentStore, binaryStore, DEFAULT_GATAS_CONFIG);
+        REQUIRE(restartedConfig.postConstruct() == GATAS::PostConstruct::OK);
+        REQUIRE(restartedConfig.valueByPath(0, "signature", "") == GATAS_FLASH_SIGNATURE);
+        REQUIRE(restartedConfig.valueByPath(0, "testValue", "") == 0);
+#else
+        REQUIRE_FALSE(config.setData("{}", "/api/Config/EraseBr.json"));
+        REQUIRE(config.valueByPath(0, "testValue", "") == 456);
+        REQUIRE(pstore[0] == '{');
+        REQUIRE(vstore[0] == '{');
 #endif
+    }
 
     SECTION("Invalid JSON does not partially overwrite an aircraft")
     {

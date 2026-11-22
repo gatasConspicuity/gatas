@@ -138,6 +138,11 @@ void Config::getData(etl::string_stream &stream, const etl::string_view fullPath
         stream << "\"configuration\":\"" << loadLocationToString(statistics.location) << "\"";
         stream << ",\"pStoreSize\":" << statistics.persistentStoreSize;
         stream << ",\"gatasId\":" << static_cast<uint32_t>(internalStore()->gatasId);
+#if GATAS_DEBUG == 1
+        stream << ",\"debug\":true";
+#else
+        stream << ",\"debug\":false";
+#endif
         stream << "}";
     }
     else
@@ -223,18 +228,17 @@ bool Config::setData(const etl::string_view data, const etl::string_view fullPat
             {
                 requestSucceeded = saveToFlash();
             }
-#if GATAS_DEBUG == 1
-            // Added for automated testing. This endpoint is excluded from release firmware.
             else if (path.back() == "EraseBr")
             {
-                auto persistentBytesErased = permanentStore.erase();
-                volatileStore.erase();
-                if (persistentBytesErased > 0)
+#if GATAS_DEBUG == 1
+                if (permanentStore.erase() > 0)
                 {
                     statistics.persistentStoreSize = 0;
+                    requestSucceeded = volatileStore.erase() > 0;
                 }
-                requestSucceeded = true;
+#endif
             }
+#if GATAS_DEBUG == 1
             else if (path.back() == "CompareBr")
             {
                 requestSucceeded = persistentMatchesVolatile();

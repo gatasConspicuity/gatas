@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include "ace/lr2021.hpp"
 #include "../lr2021driver/inc/lr20xx_hal.h"
 #include "mockconfig.h"
@@ -30,6 +31,8 @@ class Config : public MockConfig
 public:
     using MockConfig::MockConfig;
     const GATAS::PinTypeMap pinMap(etl::string_view, etl::string_view = {}) const override { return pins(); }
+    GATAS::ConfigString hardware;
+    etl::optional<GATAS::ConfigString> customCapabilities;
     GATAS::ConfigString capabilities = "Gfsk868,Lora868,Gfsk915";
     int valueByPath(int fallback, etl::string_view name, etl::string_view key) const override
     {
@@ -38,6 +41,14 @@ public:
     const GATAS::ConfigString strValueByPath(etl::string_view fallback, etl::string_view name,
                                             etl::string_view key) const override
     {
+        if (name == "hardware" && key == "type")
+        {
+            return hardware;
+        }
+        if (name == "PICO_2RADIO/Lr2021_0" && key == "capabilities" && customCapabilities)
+        {
+            return *customCapabilities;
+        }
         if (name == "Lr2021_1" && key == "capabilities")
         {
             return capabilities;
@@ -67,7 +78,13 @@ class TestLr2021 : public Lr2021
 public:
     using Lr2021::Lr2021;
     using Lr2021::decodeOokFrame;
-    void attach(SpiModule &spi) { spiHall = &spi; }
+    using Lr2021::listen;
+    using Lr2021::receiveOOKPacket;
+    using Lr2021::receiveGFSKPacket;
+    using Lr2021::receiveLORAPacket;
+    bool serviceIrq() { return readIrq().has_value(); }
+    uint32_t received() const { return statistics.receivedPackets; }
+    void attach(SpiModule &spi, RxDataFrameQueue &queue) { spiHall = &spi; rxDataFrameQueue = &queue; }
     void configure(const GATAS::RadioParameters &parameters, bool tx, uint8_t length)
     {
         clearHalError();
@@ -81,8 +98,9 @@ struct Fixture
     etl::message_bus<8> bus;
     Config config{bus};
     Spi spi{bus};
+    RxDataFrameQueue queue{bus, config};
     TestLr2021 radio{bus, config, 0, 0};
-    Fixture() { RadioTest::reset(); radio.attach(spi); xSemaphoreTakeValue = pdTRUE; }
+    Fixture() { RadioTest::reset(); radio.attach(spi, queue); xSemaphoreTakeValue = pdTRUE; }
 };
 const std::vector<uint8_t> &command(uint16_t opcode)
 {
@@ -92,19 +110,52 @@ const std::vector<uint8_t> &command(uint16_t opcode)
     }
     throw std::runtime_error("missing opcode");
 }
+
+void lrReply(std::initializer_list<uint8_t> data)
+{
+    RadioTest::response.insert(RadioTest::response.end(), {0, 0});
+    RadioTest::response.insert(RadioTest::response.end(), data);
+}
+
+void lrPacketCount(uint16_t count, bool lora = false)
+{
+    std::vector<uint8_t> bytes(lora ? 12 : 16, 0);
+    bytes[2] = static_cast<uint8_t>(count >> 8);
+    bytes[3] = static_cast<uint8_t>(count);
+    RadioTest::response.insert(RadioTest::response.end(), bytes.begin(), bytes.end());
+}
+
+size_t commandCount(uint16_t opcode)
+{
+    return std::count_if(RadioTest::writes.begin(), RadioTest::writes.end(), [opcode](const auto &bytes)
+    {
+        return bytes.size() >= 2 && bytes[0] == (opcode >> 8) && bytes[1] == (opcode & 255);
+    });
+}
 }
 
 TEST_CASE("LR2021 reads use separate command and response CS transactions")
 {
     Fixture f;
-    const uint8_t cmd[]{0x01, 0x01};
-    uint8_t data[2]{};
-    RadioTest::response = {0xff, 0x12, 0x34};
-    REQUIRE(lr20xx_hal_read(&f.radio, cmd, 2, data, 2) == LR20XX_HAL_STATUS_OK);
+    SECTION("GetErrors reads the error flags after both status bytes")
+    {
+        RadioTest::response = {0x04, 0x21, 0x00, 0x40};
+        lr20xx_system_errors_t errors = 0;
+        REQUIRE(LR20XX_STATUS_OK == lr20xx_system_get_errors(&f.radio, &errors));
+        REQUIRE(0x0040 == errors);
+        REQUIRE(command(0x0110) == std::vector<uint8_t>{0x01, 0x10});
+    }
+    SECTION("GetVersion reads both firmware version bytes")
+    {
+        RadioTest::response = {0x04, 0x21, 0x01, 0x0d};
+        lr20xx_system_version_t version{};
+        REQUIRE(LR20XX_STATUS_OK == lr20xx_system_get_version(&f.radio, &version));
+        REQUIRE(0x01 == version.major);
+        REQUIRE(0x0d == version.minor);
+        REQUIRE(command(0x0101) == std::vector<uint8_t>{0x01, 0x01});
+    }
     REQUIRE(RadioTest::transfers == std::vector<char>{'S','W','D','S','R','R','D'});
-    REQUIRE(RadioTest::reads == std::vector<size_t>{1, 2});
-    REQUIRE(data[0] == 0x12);
-    REQUIRE(data[1] == 0x34);
+    REQUIRE(RadioTest::reads == std::vector<size_t>{2, 2});
 }
 
 TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
@@ -119,6 +170,14 @@ TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
     REQUIRE(command(0x0282) == std::vector<uint8_t>{2, 0x82, 0, 16, 0, 0, 27, 0});
     REQUIRE(command(0x0284) == std::vector<uint8_t>{2, 0x84, 0, 0, 0, 0x95, 0x88});
     REQUIRE(command(0x0288) == std::vector<uint8_t>{2, 0x88, 0x02, 0x85, 15, 0, 0});
+    REQUIRE(std::vector<uint8_t>{2, 0x1a, 13} == command(0x021a));
+    for (const auto &write : RadioTest::writes)
+    {
+        if (write.size() >= 5 && write[0] == 1 && write[1] == 5)
+        {
+            REQUIRE_FALSE((write[2] == 0xf3 && write[3] == 0x0e && write[4] == 0x14));
+        }
+    }
     RadioTest::writes.clear();
     f.radio.configure(profile, false, 0);
     REQUIRE(RadioTest::writes.empty());
@@ -128,6 +187,7 @@ TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
     f.radio.configure(parameters, false, 0);
     REQUIRE_FALSE(f.radio.hasHalError());
     REQUIRE(command(0x0105) == std::vector<uint8_t>{1, 5, 0xf3, 1, 0x50, 0, 0, 0, 0xff, 0, 0, 0, 0});
+    REQUIRE(std::vector<uint8_t>{2, 0x1a, 0} == command(0x021a));
 }
 
 TEST_CASE("LR2021 reconstructs a DF17 frame from the OOK FIFO chips")
@@ -146,6 +206,166 @@ TEST_CASE("LR2021 reconstructs a DF17 frame from the OOK FIFO chips")
         data[2] = 0;
         REQUIRE_FALSE(TestLr2021::decodeOokFrame(data.data()));
     }
+}
+
+TEST_CASE("LR2021 drains complete OOK captures and leaves partial captures for the next completion")
+{
+    Fixture f;
+    const GATAS::RfConfig rf{GATAS::Modulation::OOK, 1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
+    const GATAS::LinkLayerConfig adsb{10, GATAS::DataSource::ADSB, false, 14, 0, 0, 0, {}};
+    f.radio.configure({&adsb, &rf, rf.baseFrequency, 0}, false, 0);
+    f.radio.listen();
+    REQUIRE(std::vector<uint8_t>{2, 0x0c, 0xff, 0xff, 0xff} == command(0x020c));
+    RadioTest::reset();
+    const std::vector<uint8_t> capture{0xa6, 0x65, 0x55, 0x69, 0x59, 0x56, 0xa6,
+        0x66, 0x95, 0xa5, 0x5a, 0x95, 0x59, 0xa6, 0x69, 0x96, 0x55, 0xa5, 0x95,
+        0x99, 0xa5, 0x59, 0x95, 0x69, 0x5a, 0x99, 0x6a};
+    auto first = capture;
+    bool invalidFirst = false;
+    SECTION("two valid captures") {}
+    SECTION("an invalid capture does not block the next one")
+    {
+        first[1] = 0;
+        invalidFirst = true;
+    }
+    lrReply({0, 27, 80, 80, 0, 0});
+    lrReply({0, 58}); // Two full captures and four bytes of the next one.
+    RadioTest::response.insert(RadioTest::response.end(), first.begin(), first.end());
+    RadioTest::response.insert(RadioTest::response.end(), capture.begin(), capture.end());
+    f.radio.receiveOOKPacket();
+    REQUIRE_FALSE(f.radio.hasHalError());
+    REQUIRE((invalidFirst ? 1 : 2) == f.radio.received());
+    REQUIRE(2 == commandCount(0x0001));
+    REQUIRE(0 == commandCount(0x011e)); // No FIFO clear between captures.
+    REQUIRE(0 == commandCount(0x020c)); // No RX restart.
+    REQUIRE(RadioTest::response.size() == RadioTest::responseOffset);
+}
+
+TEST_CASE("LR2021 drains fixed GFSK captures without consuming a partial packet")
+{
+    Fixture f;
+    f.radio.configure(parameters, false, 0);
+    f.radio.listen();
+    RadioTest::reset();
+    lrReply({0, 52, 80, 80, 0, 0});
+    lrReply({0, 110}); // Two 52-byte Manchester captures, six partial bytes.
+    RadioTest::response.resize(RadioTest::response.size() + 104, 0x55);
+    f.radio.receiveGFSKPacket();
+    REQUIRE_FALSE(f.radio.hasHalError());
+    REQUIRE(2 == f.radio.received());
+    REQUIRE(2 == commandCount(0x0001));
+    REQUIRE(0 == commandCount(0x011e));
+    REQUIRE(RadioTest::response.size() == RadioTest::responseOffset);
+}
+
+TEST_CASE("LR2021 preserves variable packet boundaries or recovers when metadata is lost")
+{
+    Fixture f;
+    auto config = link;
+    config.packetLength = 0;
+    config.manchester = false;
+    auto profile = parameters;
+    profile.config = &config;
+    f.radio.configure(profile, false, 0);
+    f.radio.listen();
+    RadioTest::reset();
+    SECTION("different packet lengths are consumed separately")
+    {
+        lrPacketCount(1);
+        lrReply({0, 6, 80, 80, 0, 0});
+        lrPacketCount(1);
+        lrReply({0, 6});
+        RadioTest::response.insert(RadioTest::response.end(), {1, 2, 3, 4, 5, 6});
+        f.radio.receiveGFSKPacket();
+        REQUIRE_FALSE(f.radio.hasHalError());
+        lrPacketCount(2);
+        lrReply({0, 10, 80, 80, 0, 0});
+        lrPacketCount(2);
+        lrReply({0, 10});
+        RadioTest::response.resize(RadioTest::response.size() + 10, 0x55);
+        f.radio.receiveGFSKPacket();
+        REQUIRE_FALSE(f.radio.hasHalError());
+        REQUIRE(2 == f.radio.received());
+        REQUIRE(2 == commandCount(0x0001));
+        REQUIRE(0 == commandCount(0x020c));
+        REQUIRE(RadioTest::response.size() == RadioTest::responseOffset);
+    }
+    SECTION("coalesced completions cannot apply the latest length to an older packet")
+    {
+        lrPacketCount(2);
+        lrReply({0, 10, 80, 80, 0, 0});
+        lrPacketCount(2);
+        f.radio.receiveGFSKPacket();
+        REQUIRE(f.radio.hasHalError());
+        REQUIRE(0 == f.radio.received());
+        REQUIRE(0 == commandCount(0x0001));
+    }
+    SECTION("a completion during the metadata read requires recovery")
+    {
+        lrPacketCount(1);
+        lrReply({0, 6, 80, 80, 0, 0});
+        lrPacketCount(2);
+        f.radio.receiveGFSKPacket();
+        REQUIRE(f.radio.hasHalError());
+        REQUIRE(0 == commandCount(0x0001));
+    }
+}
+
+TEST_CASE("LR2021 FIFO overflow requests recovery before reading corrupted boundaries")
+{
+    Fixture f;
+    RadioTest::response = {0, 0, 0, 0, 0, 1}; // FIFO RX IRQ.
+    lrReply({0x10, 0}); // Overflow.
+    REQUIRE_FALSE(f.radio.serviceIrq());
+    REQUIRE(f.radio.hasHalError());
+    REQUIRE(0 == commandCount(0x0001));
+    f.radio.configure(parameters, false, 0);
+    f.radio.listen();
+    REQUIRE_FALSE(f.radio.hasHalError());
+    REQUIRE(1 == commandCount(0x011e));
+    REQUIRE(std::vector<uint8_t>{2, 0x0c, 0xff, 0xff, 0xff} == command(0x020c));
+}
+
+TEST_CASE("LR2021 explicit LoRa drains a rejected packet before accepting the next one")
+{
+    Fixture f;
+    auto config = link;
+    config.packetLength = 0;
+    config.manchester = false;
+    auto rf = *parameters.frequency;
+    rf.mode = GATAS::Modulation::LORA;
+    rf.channelBandwidth = 250'000;
+    auto profile = parameters;
+    profile.config = &config;
+    profile.frequency = &rf;
+    f.radio.configure(profile, false, 0);
+    f.radio.listen();
+    RadioTest::reset();
+    RadioTest::response = {0, 0, 0, 0x44, 0, 0}; // CRC_ERROR + RX_DONE.
+    REQUIRE(f.radio.serviceIrq());
+    lrPacketCount(1, true);
+    lrReply({0, 4, 0, 80, 80, 0, 0, 0, 0});
+    lrPacketCount(1, true);
+    lrReply({0, 4});
+    RadioTest::response.insert(RadioTest::response.end(), {1, 2, 3, 4});
+    f.radio.receiveLORAPacket();
+    REQUIRE_FALSE(f.radio.hasHalError());
+    REQUIRE(0 == f.radio.received());
+    REQUIRE(1 == commandCount(0x0001)); // Bad CRC bytes were still consumed.
+
+    RadioTest::response.insert(RadioTest::response.end(), {0, 0, 0, 4, 0, 0}); // RX_DONE only.
+    REQUIRE(f.radio.serviceIrq());
+    lrPacketCount(2, true);
+    lrReply({0, 6, 0, 80, 80, 0, 0, 0, 0});
+    lrPacketCount(2, true);
+    lrReply({0, 6});
+    RadioTest::response.insert(RadioTest::response.end(), {1, 2, 3, 4, 5, 6});
+    f.radio.receiveLORAPacket();
+    REQUIRE_FALSE(f.radio.hasHalError());
+    REQUIRE(1 == f.radio.received());
+    REQUIRE(2 == commandCount(0x0001));
+    REQUIRE(0 == commandCount(0x020c));
+    REQUIRE(RadioTest::response.size() == RadioTest::responseOffset);
 }
 TEST_CASE("LR2021 direct FIFO read uses one transaction without dummy byte")
 {
@@ -243,6 +463,11 @@ public:
     int acknowledgements = 0;
     int listens = 0;
     int sends = 0;
+    int standbys = 0;
+    int configurations = 0;
+    std::vector<uint8_t> irqEvents;
+    size_t irqIndex = 0;
+    std::vector<uint32_t> receivedFrequencies;
     std::vector<uint8_t> transmitted;
     explicit FakeRadio(etl::imessage_bus &bus, Spi &spi,
                        uint8_t capabilities = GATAS::LEGACY_RADIO_CAPABILITIES,
@@ -255,18 +480,23 @@ public:
         }
     }
     bool initializeRadio() override { return true; }
-    void configureRadio(const GATAS::RadioParameters &value, RadioDirection, uint8_t) override { lastRadioParameters = value; }
+    void configureRadio(const GATAS::RadioParameters &value, RadioDirection, uint8_t) override { ++configurations; lastRadioParameters = value; }
     void listen() override { ++listens; }
-    RadioStatus standBy(Standby) override { return RadioStatus::OK; }
-    etl::optional<Irq> readIrq() override { ++irqReads; return Irq{1, IRQ_TX_DONE}; }
+    RadioStatus standBy(Standby) override { ++standbys; return RadioStatus::OK; }
+    etl::optional<Irq> readIrq() override
+    {
+        ++irqReads;
+        return Irq{1, irqIndex < irqEvents.size() ? irqEvents[irqIndex++] : static_cast<uint8_t>(IRQ_TX_DONE)};
+    }
     RadioStatus acknowledgeIrq(uint32_t) override
     {
         ++acknowledgements;
         if (failAck) { failAck = false; return RadioStatus::ERROR; }
         return RadioStatus::OK;
     }
-    void receiveGFSKPacket() override {}
-    void receiveLORAPacket() override {}
+    void receiveGFSKPacket() override { receivedFrequencies.push_back(lastRadioParameters.hopFrequency); }
+    void receiveLORAPacket() override { receivedFrequencies.push_back(lastRadioParameters.hopFrequency); }
+    void receiveOOKPacket() override { receivedFrequencies.push_back(lastRadioParameters.hopFrequency); }
     void sendPacket(const GATAS::RadioParameters &, const uint8_t *data, uint8_t length, uint32_t) override
     {
         ++sends;
@@ -297,6 +527,96 @@ TEST_CASE("shared transceiver gates TX on GPS and logical slot")
     REQUIRE(radio.queued() == 0);
     enqueue(radio);
     REQUIRE(radio.queued() == 1);
+}
+
+TEST_CASE("RX packet completion keeps the scheduled slot listening for every modem")
+{
+    Fixture f;
+    FakeRadio radio(f.bus, f.spi, 0xff);
+    auto rf = *parameters.frequency;
+    SECTION("GFSK") { rf.mode = GATAS::Modulation::GFSK; }
+    SECTION("LoRa") { rf.mode = GATAS::Modulation::LORA; }
+    SECTION("OOK") { rf.mode = GATAS::Modulation::OOK; }
+    auto profile = parameters;
+    profile.frequency = &rf;
+    radio.on_receive(GATAS::RadioControlMsg{profile, 0});
+    RadioTest::notifications = {8, 1, 1};
+    radio.irqEvents = {1, 1};
+    REQUIRE_THROWS_AS(radio.run(), RadioTest::EndTask);
+    REQUIRE(2 == radio.receivedFrequencies.size());
+    REQUIRE(1 == radio.listens);
+    REQUIRE(1 == radio.configurations);
+    REQUIRE(0 == radio.standbys);
+}
+
+TEST_CASE("continuous RX drains the old slot before a frequency hop and resumes after TX")
+{
+    Fixture f;
+    FakeRadio radio(f.bus, f.spi);
+    radio.fix(true);
+    auto next = parameters;
+    next.hopFrequency += 200'000;
+    radio.on_receive(GATAS::RadioControlMsg{parameters, 0});
+    RadioTest::notifications = {8, 1, 8, 1, 4, 1, 1};
+    radio.irqEvents = {1, 1, 1, 1, 2, 1};
+    RadioTest::onWake = [&](size_t index)
+    {
+        if (index == 2)
+        {
+            radio.on_receive(GATAS::RadioControlMsg{next, 0});
+        }
+        if (index == 4)
+        {
+            enqueue(radio);
+        }
+    };
+    REQUIRE_THROWS_AS(radio.run(), RadioTest::EndTask);
+    REQUIRE(std::vector<uint32_t>{parameters.hopFrequency, parameters.hopFrequency,
+                                 next.hopFrequency, next.hopFrequency, next.hopFrequency} == radio.receivedFrequencies);
+    REQUIRE(2 == radio.standbys);
+    REQUIRE(3 == radio.listens);
+    REQUIRE(1 == radio.sends);
+    REQUIRE(1 == radio.completed());
+}
+
+TEST_CASE("continuous RX preserves a packet across an IRQ acknowledgement failure")
+{
+    Fixture f;
+    FakeRadio radio(f.bus, f.spi);
+    radio.on_receive(GATAS::RadioControlMsg{parameters, 0});
+    radio.failAck = true;
+    radio.irqEvents = {1};
+    RadioTest::notifications = {8, 1};
+    REQUIRE_THROWS_AS(radio.run(), RadioTest::EndTask);
+    REQUIRE(1 == radio.receivedFrequencies.size());
+    REQUIRE(1 == radio.irqReads);
+    REQUIRE(2 == radio.acknowledgements);
+    REQUIRE(2 == radio.listens);
+}
+
+TEST_CASE("a receive slot change during TX is applied after transmission completes")
+{
+    Fixture f;
+    FakeRadio radio(f.bus, f.spi);
+    radio.fix(true);
+    enqueue(radio);
+    auto next = parameters;
+    next.hopFrequency += 200'000;
+    RadioTest::notifications = {4, 8, 1, 1};
+    radio.irqEvents = {2, 1};
+    RadioTest::onWake = [&](size_t index)
+    {
+        if (index == 1)
+        {
+            radio.on_receive(GATAS::RadioControlMsg{next, 0});
+        }
+    };
+    REQUIRE_THROWS_AS(radio.run(), RadioTest::EndTask);
+    REQUIRE(1 == radio.sends);
+    REQUIRE(1 == radio.completed());
+    REQUIRE(1 == radio.listens);
+    REQUIRE(2 == radio.configurations);
+    REQUIRE(std::vector<uint32_t>{next.hopFrequency} == radio.receivedFrequencies);
 }
 
 TEST_CASE("scheduler-only radio advertises capabilities and discards radio requests")
@@ -369,6 +689,32 @@ TEST_CASE("1090 MHz OOK is opt-in and receive only on LR2021")
     REQUIRE_FALSE(radio.supportsTx(RadioCapability::Ook1090));
 }
 
+TEST_CASE("LR2021 capabilities can differ by board profile")
+{
+    using GATAS::RadioCapability;
+    Fixture f;
+    f.config.customCapabilities = GATAS::ConfigString("Gfsk868,Lora868,Gfsk915,Ook1090");
+    f.config.capabilities = "Gfsk868,Ook1090";
+
+    SECTION("Custom board enables 1090 MHz reception on radio zero")
+    {
+        f.config.hardware = "PICO_2RADIO";
+        TestLr2021 customRadio(f.bus, f.config, 0, 0);
+        REQUIRE(customRadio.supportsRx(RadioCapability::Ook1090));
+        REQUIRE(customRadio.supportsRx(RadioCapability::Gfsk868));
+        REQUIRE_FALSE(customRadio.supportsTx(RadioCapability::Ook1090));
+    }
+
+    SECTION("Dual board keeps the top-level setting on radio one")
+    {
+        f.config.hardware = "GATAS_DUAL_LR2021";
+        TestLr2021 otherRadio(f.bus, f.config, 0, 0);
+        TestLr2021 adsbRadio(f.bus, f.config, 1, 1);
+        REQUIRE_FALSE(otherRadio.supportsRx(RadioCapability::Ook1090));
+        REQUIRE(adsbRadio.supportsRx(RadioCapability::Ook1090));
+    }
+}
+
 TEST_CASE("transceiver rejects unsupported RX and TX requests")
 {
     Fixture f;
@@ -388,6 +734,12 @@ class TestSx1262 : public Sx1262
 {
 public:
     explicit TestSx1262(etl::imessage_bus &bus, Spi &spi) : Sx1262(bus, pins(), 0, true, false, 0) { spiHall = &spi; }
+    using Sx1262::listen;
+    using Sx1262::receiveGFSKPacket;
+    using Sx1262::receiveLORAPacket;
+    void attachQueue(RxDataFrameQueue &queue) { rxDataFrameQueue = &queue; }
+    uint32_t received() const { return statistics.receivedPackets; }
+    bool pendingReceive() { const auto irq = readIrq(); return irq && (irq->events & IRQ_RX_DONE); }
     void configure(const GATAS::RadioParameters &parameters, bool tx, uint8_t length)
     {
         configureRadio(parameters, tx ? RadioDirection::TX : RadioDirection::RX, length);
@@ -420,6 +772,177 @@ TEST_CASE("unconfigured hardware fails cleanly before accessing GPIO")
     etl::message_bus<8> bus;
     Sx1262 sx(bus, GATAS::PinTypeMap{}, 0, false, false, 0);
     REQUIRE(sx.postConstruct() == GATAS::PostConstruct::HARDWARE_NOT_CONFIGURED);
+}
+
+namespace
+{
+void sxCounts(uint16_t received, uint16_t crcErrors = 0)
+{
+    RadioTest::response.insert(RadioTest::response.end(), {
+        static_cast<uint8_t>(received >> 8), static_cast<uint8_t>(received),
+        static_cast<uint8_t>(crcErrors >> 8), static_cast<uint8_t>(crcErrors), 0, 0});
+}
+
+void sxCapture(uint16_t before, uint16_t after, uint8_t pointer, bool lora = false,
+               bool badCrc = false, uint16_t historicalCrcErrors = 0)
+{
+    const uint16_t crcErrors = historicalCrcErrors + (badCrc ? 1 : 0);
+    sxCounts(before, crcErrors);
+    if (lora)
+    {
+        RadioTest::response.insert(RadioTest::response.end(), {0, static_cast<uint8_t>(badCrc ? 0x40 : 0)});
+        RadioTest::response.insert(RadioTest::response.end(), {160, 0, 160});
+    }
+    else
+    {
+        RadioTest::response.insert(RadioTest::response.end(), {2, 160, 160});
+    }
+    RadioTest::response.insert(RadioTest::response.end(), {8, pointer});
+    if (!lora || !badCrc)
+    {
+        RadioTest::response.resize(RadioTest::response.size() + 8, 0x55);
+    }
+    sxCounts(after, crcErrors);
+}
+}
+
+TEST_CASE("SX1262 continuous RX follows the circular buffer and ignores stale completion notifications")
+{
+    Fixture f;
+    TestSx1262 sx(f.bus, f.spi);
+    sx.attachQueue(f.queue);
+    auto profile = parameters;
+    auto rf = *profile.frequency;
+    bool lora = false;
+    SECTION("GFSK") {}
+    SECTION("LoRa")
+    {
+        lora = true;
+        rf.mode = GATAS::Modulation::LORA;
+        rf.channelBandwidth = 250'000;
+    }
+    profile.frequency = &rf;
+    sx.configure(profile, false, 0);
+    sx.listen();
+    REQUIRE(std::vector<uint8_t>{0x82, 0xff, 0xff, 0xff} == sxCommand(0x82));
+    RadioTest::reset();
+    sxCapture(1, 1, 250, lora);
+    sxCapture(2, 2, 2, lora); // Next packet wraps around the 256-byte buffer.
+    sxCounts(2); // A queued notification for a packet already read.
+    for (uint8_t i = 0; i < 3; ++i)
+    {
+        if (lora)
+        {
+            sx.receiveLORAPacket();
+        }
+        else
+        {
+            sx.receiveGFSKPacket();
+        }
+    }
+    REQUIRE_FALSE(sx.hasHalError());
+    REQUIRE(2 == sx.received());
+    std::vector<uint8_t> pointers;
+    for (const auto &write : RadioTest::writes)
+    {
+        REQUIRE(0x82 != write[0]); // No RX restart during packet reads.
+        if (write[0] == 0x1e)
+        {
+            pointers.push_back(write[1]);
+        }
+    }
+    REQUIRE(std::vector<uint8_t>{250, 2} == pointers);
+    REQUIRE(RadioTest::response.size() == RadioTest::responseOffset);
+}
+
+TEST_CASE("SX1262 retries a packet read if a new completion changes its metadata")
+{
+    Fixture f;
+    TestSx1262 sx(f.bus, f.spi);
+    sx.attachQueue(f.queue);
+    sx.configure(parameters, false, 0);
+    sx.listen();
+    RadioTest::reset();
+    sxCapture(1, 2, 54);
+    sxCapture(2, 2, 62);
+    sx.receiveGFSKPacket();
+    REQUIRE_FALSE(sx.hasHalError());
+    REQUIRE(1 == sx.received());
+    REQUIRE(RadioTest::response.size() == RadioTest::responseOffset);
+}
+
+TEST_CASE("SX1262 bounds retries and retains work when IRQ completions coalesce")
+{
+    Fixture f;
+    TestSx1262 sx(f.bus, f.spi);
+    sx.attachQueue(f.queue);
+    sx.configure(parameters, false, 0);
+    sx.listen();
+    RadioTest::reset();
+    sxCapture(1, 2, 54);
+    sxCapture(2, 3, 62);
+    sx.receiveGFSKPacket();
+    REQUIRE(0 == sx.received());
+    REQUIRE(sx.pendingReceive()); // No hardware IRQ is required for the retry.
+    sxCapture(3, 3, 70);
+    sx.receiveGFSKPacket();
+    REQUIRE_FALSE(sx.hasHalError());
+    REQUIRE(1 == sx.received());
+}
+
+TEST_CASE("SX1262 rejects LoRa IRQ CRC errors but accepts historical CRC counts")
+{
+    Fixture f;
+    TestSx1262 sx(f.bus, f.spi);
+    sx.attachQueue(f.queue);
+    auto profile = parameters;
+    auto rf = *profile.frequency;
+    rf.mode = GATAS::Modulation::LORA;
+    rf.channelBandwidth = 250'000;
+    profile.frequency = &rf;
+    sx.configure(profile, false, 0);
+    sx.listen();
+    RadioTest::reset();
+    SECTION("CRC error is still latched in hardware")
+    {
+        sxCapture(1, 1, 54, true, true);
+        sx.receiveLORAPacket();
+        REQUIRE(0 == sx.received());
+    }
+    SECTION("CRC error was already acknowledged by the radio task")
+    {
+        RadioTest::response = {0, 0x42}; // RX_DONE | CRC_ERROR.
+        REQUIRE(sx.pendingReceive());
+        sxCapture(1, 1, 54, true, true);
+        // The hardware IRQ was cleared, so only the saved IRQ marks it bad.
+        RadioTest::response[8] = 0;
+        RadioTest::response[9] = 0;
+        sx.receiveLORAPacket();
+        REQUIRE(0 == sx.received());
+    }
+    SECTION("a past CRC error does not reject the latest good packet")
+    {
+        sxCapture(2, 2, 54, true, false, 1);
+        sx.receiveLORAPacket();
+        REQUIRE(1 == sx.received());
+    }
+    REQUIRE_FALSE(sx.hasHalError());
+    REQUIRE(RadioTest::response.size() == RadioTest::responseOffset);
+}
+
+TEST_CASE("SX1262 GFSK ignores the unused hardware CRC counter")
+{
+    Fixture f;
+    TestSx1262 sx(f.bus, f.spi);
+    sx.attachQueue(f.queue);
+    sx.configure(parameters, false, 0);
+    sx.listen();
+    RadioTest::reset();
+    sxCapture(1, 1, 54, false, false, 1);
+    sx.receiveGFSKPacket();
+    REQUIRE_FALSE(sx.hasHalError());
+    REQUIRE(1 == sx.received());
+    REQUIRE(RadioTest::response.size() == RadioTest::responseOffset);
 }
 
 TEST_CASE("failed transceivers can be deleted through BaseModule while preserving failure status")

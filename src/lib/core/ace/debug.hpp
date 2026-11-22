@@ -15,6 +15,10 @@
 
 #if GATAS_DEBUG == 1
 
+#include <stdio.h>
+#include "pico.h"
+#include "task.h"
+
 static constexpr const char *basename(const char *path)
 {
     const char *last = path;

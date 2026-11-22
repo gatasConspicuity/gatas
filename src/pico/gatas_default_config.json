@@ -112,7 +112,7 @@
     "distanceIgnore": 100000
   },
   "Dump1090Client": {
-    "ip": "192.168.178.105",
+    "ip": "0.0.0.0",
     "port": 30002
   },
   "GDLoverUDP": {
@@ -120,14 +120,6 @@
       4000
     ],
     "ips": [
-      {
-        "ip": "192.168.178.192",
-        "port": 4000
-      },
-      {
-        "ip": "192.168.178.191",
-        "port": 4000
-      }
     ]
   },
   "_comment": "I forgot why I needed these here, but the plan is to rewrite this to something more simple",
@@ -145,7 +137,7 @@
     "ntpServer": "time.cloudflare.com"
   },
   "SerialADSB": {},
-  "_commentPinMaps": "Hardware specific items are only handled by pinmapping",
+  "_commentPinMaps": "Board pin maps and optional per-radio capabilities overrides.",
   "PICO_2RADIO": {
     "AceSpi_0": {
       "clk": 2,
@@ -155,6 +147,13 @@
       "rst": 5,
       "_comment_spi": "This indicates the PICO's SPI number, not this device",
       "spi": 0
+    },
+    "_comment_AceSpi_1": "OpenACE V0.0.2 debug SPI1. SCK is J1-22, MOSI is ADS-B footprint pad 5, and MISO is J1-13.",
+    "AceSpi_1": {
+      "clk": 26,
+      "mosi": 27,
+      "miso": 8,
+      "spi": 1
     },
     "UbloxM8N": {
       "tx": 0,
@@ -171,7 +170,8 @@
       "cs": 6
     },
     "port5": {
-      "O0": 26
+      "_comment_O0": "Disable the status LED output because GP26 is SPI1 SCK.",
+      "O0": -1
     },
     "port6": {
       "O0": 7
@@ -197,6 +197,14 @@
       "dio1": 19,
       "_comment_dev": "This indicates the SPI Device number AceSpi_0",
       "dev": 0
+    },
+    "_comment_Lr2021_0": "SPI1 Wio-LR2021. CS is J1-23, BUSY is J1-21, and DIO7 is J1-11. RESET shares GP5 on J1-9 with AceSpi_0.",
+    "Lr2021_0": {
+      "cs": 20,
+      "busy": 21,
+      "dio1": 9,
+      "dev": 1,
+      "capabilities": "Gfsk868,Lora868,Gfsk915,Ook1090"
     },
     "Bmp280": {
       "cs": 14,
@@ -275,8 +283,8 @@
     },
     "_comment_AceSpi_0": "SPI Port",
     "AceSpi_0": {
-      "clk": 6,
-      "mosi": 7,
+      "clk": 2,
+      "mosi": 3,
       "miso": 4,
       "_comment_spi": "This indicates the PICO's SPI number, not this device",
       "spi": 0
@@ -294,25 +302,29 @@
     "_comment_Lr2021_0": "Seed Studio https://www.seeedstudio.com/Seeed-Studio-Wio-LR2021-Wireless-module-868-915MHz-Tape-reel-p-6831.html",
     "Lr2021_0": {
       "cs": 5,
-      "busy": 8,
-      "dio1": 9,
+      "busy": 7,
+      "dio1": 6,
       "_comment_dev": "This indicates the SPI Device number AceSpi_0",
       "dev": 0
     },
     "_comment_Lr2021_1": "Seed Studio https://www.seeedstudio.com/Seeed-Studio-Wio-LR2021-Wireless-module-868-915MHz-Tape-reel-p-6831.html",
     "Lr2021_1": {
-      "cs": 3,
-      "busy": 2,
-      "dio1": 20,
-      "_comment_dev": "This indicates the SPI Device number AceSpi_0",
+      "cs": 13,
+      "busy": 9,
+      "dio1": 14,
+      "_comment_dev": "This indicates the SPI Device number AceSpi_1",
       "dev": 1
     },
     "port5": {
       "O0": 26
     },
-    "Bmp280": {
-      "cs": 21,
-      "dev": 0
+    "Bmp580": {
+      "sda": 20,
+      "scl": 21
+    },
+    "uart": {
+      "tx": 18,
+      "rx": 19
     }
   },
   "Lr2021_0": {"txEnabled": false, "capabilities": "Gfsk868,Lora868,Gfsk915", "offset": 0, "irqDio": 7, "tcxoVoltage": -1, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1},

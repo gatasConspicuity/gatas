@@ -39,8 +39,8 @@ lr20xx_hal_status_t lr20xx_hal_read(const void *context, const uint8_t *command,
         return LR20XX_HAL_STATUS_ERROR;
     }
     SelectedRadio selected(hw);
-    uint8_t dummy;
-    return status(hw.read(&dummy, 1) && hw.read(data, dataLength));
+    uint8_t statusBytes[2];
+    return status(hw.read(statusBytes, sizeof(statusBytes)) && hw.read(data, dataLength));
 }
 
 lr20xx_hal_status_t lr20xx_hal_direct_read(const void *context, uint8_t *data, uint16_t length)

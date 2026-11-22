@@ -12,7 +12,7 @@ GATAS::PostConstruct AircraftTracker::postConstruct()
     {
         return GATAS::PostConstruct::MUTEX_ERROR;
     }
-    if (xTaskCreate(aircraftTrackerTrampoline, AircraftTracker::NAME.cbegin(), configMINIMAL_STACK_SIZE + 768, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
+    if (xTaskCreate(aircraftTrackerTrampoline, AircraftTracker::NAME.cbegin(), configMINIMAL_STACK_SIZE + 512, this, tskIDLE_PRIORITY + 2, &taskHandle) != pdPASS)
     {
         vSemaphoreDelete(trackedAircraftMutex);
         return GATAS::PostConstruct::TASK_ERROR;

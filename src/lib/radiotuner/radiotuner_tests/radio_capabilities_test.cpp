@@ -78,6 +78,51 @@ TEST_CASE("RX assigns mixed radios and fills gaps only with compatible profiles"
     REQUIRE(tuner.radioCtxList[0].protocolTimings.empty());
 }
 
+TEST_CASE("Three mixed radios can schedule RX and select the third radio for TX")
+{
+    etl::message_bus<8> bus;
+    MockConfig config(bus);
+    GATAS::OwnshipState ownship;
+    TestRadio lora(bus, 0, RadioCapability::Lora868, RadioCapability::Lora868);
+    TestRadio ook(bus, 1, RadioCapability::Ook1090, RadioCapability::Ook1090);
+    ook.txEnabled = false;
+    TestRadio gfsk(bus, 2, RadioCapability::Gfsk868, RadioCapability::Gfsk868);
+    RadioTunerRx rx(bus, config, ownship);
+    rx.radioCtxList.emplace_back(&rx, lora);
+    rx.radioCtxList.emplace_back(&rx, ook);
+    rx.radioCtxList.emplace_back(&rx, gfsk);
+    rx.currentZone.set(CountryRegulations::Zone::ZONE1);
+    rx.configuredDatasources = {
+        {DataSource::FANET, DataSourceMode::RX},
+        {DataSource::ADSB, DataSourceMode::RX},
+        {DataSource::FLARM, DataSourceMode::RX}};
+
+    etl::array<uint8_t, static_cast<uint8_t>(DataSource::_TRANSPROTOCOLS)> boost{};
+    rx.assignDataSourcesImpl(boost);
+
+    const etl::array<DataSource, 3> expected{DataSource::FANET, DataSource::ADSB, DataSource::FLARM};
+    REQUIRE(3 == rx.radioCtxList.size());
+    for (size_t i = 0; i < expected.size(); ++i)
+    {
+        bool assigned = false;
+        for (const auto &entry : rx.radioCtxList[i].protocolTimings)
+        {
+            if (entry.protocolTimeConfig != nullptr)
+            {
+                REQUIRE(expected[i] == entry.protocolTimeConfig->radioConfig.dataSource());
+                assigned = true;
+            }
+        }
+        REQUIRE(assigned);
+    }
+
+    RadioTunerTx tx(bus, config, ownship);
+    tx.radios[0] = &lora;
+    tx.radios[1] = &ook;
+    tx.radios[2] = &gfsk;
+    REQUIRE(2 == tx.selectRadio(DataSource::FLARM, RadioCapability::Gfsk868));
+}
+
 TEST_CASE("TX falls back when the RX assignment cannot transmit the requested profile")
 {
     etl::message_bus<8> bus;

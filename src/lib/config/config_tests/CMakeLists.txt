@@ -62,6 +62,7 @@ set( ACE_SOURCE_FILES
 
 foreach(name ${TARGETS_IDIOMATIC_EXAMPLES})
   add_executable(${name} ${ACE_SOURCE_FILES} ${name}.cpp)
+  target_compile_definitions(${name} PRIVATE $<$<CONFIG:Debug>:GATAS_DEBUG=1>)
 
   # Run test for each target
   set(UNIT_TEST ${name})

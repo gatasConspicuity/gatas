@@ -1,5 +1,6 @@
 import { El } from "@frameable/el";
 
+const eraseBrPath = "/api/Config/EraseBr.json";
 let instance;
 
 export class GaTasStore {
@@ -25,6 +26,7 @@ export class GaTasStore {
       page: "", // Default startup page
       currentModule: "",
       connected: false,
+      debug: false,
       aircraftId: "",
       aircraftsObj: {},
       aircrafts: [],
@@ -78,6 +80,7 @@ export class GaTasStore {
   async init() {
     // Fetch config.json
     const config = await this.fetch("/api/Config.json");
+    this.state.debug = config.debug === true;
     this.state.gatasId = (config.gatasId).toString(16).toUpperCase();
 
     // Fetch current aircraft and hw config
@@ -212,6 +215,17 @@ export class GaTasStore {
       body: {},
     });
   }
+
+  async eraseBr() {
+    const data = await this.fetch(eraseBrPath, {
+      method: "POST",
+      body: "{}",
+    });
+    if (!data.error) {
+      this.state.configModified = false;
+    }
+  }
+
   restart() {
     return store.fetch(`/api/Config/Restart.json`, {
       method: "POST",
@@ -251,7 +265,7 @@ export class GaTasStore {
         }
         if (path.includes("SaveBr.json")) {
           this.state.configModified = false;
-        } else if (["POST", "DELETE", "PATCH"].includes(requestOptions?.method)) {
+        } else if (path !== eraseBrPath && ["POST", "DELETE", "PATCH"].includes(requestOptions?.method)) {
           this.state.configModified = true;
         }
         this.state.connected = true;

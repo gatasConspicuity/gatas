@@ -206,8 +206,8 @@ void AbstractTransceiver::radioTask(void *arg)
             if ((irq & IRQ_RX_DONE) && completedOperation == Operation::RX)
             {
                 rxPacketPending = true;
-                operation = Operation::IDLE;
-                doListen = true;
+                // Continuous RX remains active for the scheduled slot. Only a
+                // new RX assignment, TX, timeout or recovery restarts it.
             }
             pendingAck = result->raw;
         }
@@ -399,7 +399,16 @@ uint8_t AbstractTransceiver::readCapabilities(const Configuration &config, etl::
         {RadioCapability::Gfsk915, "Gfsk915"},
         {RadioCapability::Ook1090, "Ook1090"},
     };
-    const auto configured = config.strValueByPath("", name, "capabilities");
+    auto boardRadioPath = config.strValueByPath("", "hardware", "type");
+    if (!boardRadioPath.empty())
+    {
+        boardRadioPath.append("/");
+    }
+    boardRadioPath.append(name);
+    const auto defaults = config.strValueByPath("", name, "capabilities");
+    const auto configured = config.strValueByPath(
+        defaults.is_truncated() ? etl::string_view(",") : etl::string_view(defaults.data(), defaults.size()),
+        boardRadioPath, "capabilities");
     etl::string_view remaining(configured.data(), configured.size());
     uint8_t mask = 0;
     while (!remaining.empty())

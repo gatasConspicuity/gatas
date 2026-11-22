@@ -64,7 +64,7 @@ GATAS::PostConstruct AbstractGnss::postConstruct()
 void AbstractGnss::start()
 {
     // Create the consumer before enabling the serial interrupt producer.
-    if (xTaskCreate(receiveTask, AbstractGnss::NAME.cbegin(), configMINIMAL_STACK_SIZE + 768, this, tskIDLE_PRIORITY + 3, &taskHandle) != pdPASS)
+    if (xTaskCreate(receiveTask, AbstractGnss::NAME.cbegin(), configMINIMAL_STACK_SIZE + 512, this, tskIDLE_PRIORITY + 3, &taskHandle) != pdPASS)
     {
         if (usePioSerial)
         {

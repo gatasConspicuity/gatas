@@ -488,6 +488,7 @@ static void loadModules(void *arg)
         GATAS Device ID: %lX
         Clock: %dMhz Cores:%u
 
+
         )=",
         static_cast<uint32_t>(config.internalStore()->gatasId),
         (uint16_t)(clock_get_hz(clk_sys) / 1'000'000), (uint8_t)configNUMBER_OF_CORES);
@@ -748,13 +749,6 @@ int main()
 
 #if GATAS_DEBUG == 1
     etl::error_handler::set_callback<etlcpp_receive_error>();
-#endif
-
-    const char *rtos_name;
-#if (configNUMBER_OF_CORES > 1)
-    rtos_name = "GaTas FreeRTOS SMP";
-#else
-    rtos_name = "GaTas FreeRTOS";
 #endif
 
 #if (configNUMBER_OF_CORES > 1)

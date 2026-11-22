@@ -10,7 +10,7 @@
 
 GATAS::PostConstruct WifiService::postConstruct()
 {
-    if (xTaskCreate(wifiTaskTrampoline, WifiService::NAME.cbegin(), configMINIMAL_STACK_SIZE + 256, this, tskIDLE_PRIORITY, &taskHandle) != pdPASS)
+    if (xTaskCreate(wifiTaskTrampoline, WifiService::NAME.cbegin(), configMINIMAL_STACK_SIZE + 128, this, tskIDLE_PRIORITY, &taskHandle) != pdPASS)
     {
         return GATAS::PostConstruct::TASK_ERROR;
     }

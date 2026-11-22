@@ -31,7 +31,7 @@ add_executable(tranceiver_test
     ${driver}/src/lr20xx_radio_ook.c
     ${driver}/src/lr20xx_workarounds.c)
 target_compile_features(tranceiver_test PRIVATE cxx_std_20)
-target_compile_definitions(tranceiver_test PRIVATE UNIT_TESTING GATAS_MAXIMUM_TCP_CLIENTS=4 GATAS_MAX_RADIOS=2 GATAS_MAX_SOURCE_PER_RADIO=3)
+target_compile_definitions(tranceiver_test PRIVATE UNIT_TESTING GATAS_MAXIMUM_TCP_CLIENTS=4 GATAS_MAX_RADIOS=3 GATAS_MAX_SOURCE_PER_RADIO=3)
 target_include_directories(tranceiver_test PRIVATE ../../mocks ../../core ../../utils ../ ${driver}/inc)
 target_compile_options(tranceiver_test PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_CURRENT_SOURCE_DIR}/platform.hpp>")
 target_link_libraries(tranceiver_test PRIVATE Catch2WithMain etl)
