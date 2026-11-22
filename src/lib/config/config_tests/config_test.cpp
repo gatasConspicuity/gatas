@@ -408,6 +408,18 @@ TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
 
     SECTION("pinMap")
     {
+        SECTION("radio hardware settings do not become GPIO pins")
+        {
+            const auto pins = config.pinMap("Lr2021_0");
+            REQUIRE(4 == pins.size());
+            REQUIRE(20 == pins.at(GATAS::PinType::CS));
+            REQUIRE(21 == pins.at(GATAS::PinType::BUSY));
+            REQUIRE(9 == pins.at(GATAS::PinType::DIO1));
+            REQUIRE(1 == pins.at(GATAS::PinType::DEV));
+            REQUIRE(7 == config.valueByPath(0, "PICO_2RADIO/Lr2021_0", "irqDio"));
+            REQUIRE(-1 == config.valueByPath(0, "PICO_2RADIO/Lr2021_0", "tcxoVoltage"));
+        }
+
         SECTION("Bmp580 I2C pins")
         {
             const auto map = config.pinMap("Bmp580");

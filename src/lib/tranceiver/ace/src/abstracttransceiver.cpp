@@ -389,6 +389,25 @@ void AbstractTransceiver::radioTask(void *arg)
     }
 }
 
+GATAS::ConfigString AbstractTransceiver::hardwareConfigPath(const Configuration &config, etl::string_view name)
+{
+    auto path = config.strValueByPath("", "hardware", "type");
+    if (path.empty() || path.is_truncated())
+    {
+        return {};
+    }
+    path.append("/");
+    path.append(name);
+    return path.is_truncated() ? GATAS::ConfigString{} : path;
+}
+
+int AbstractTransceiver::readHardwareValue(const Configuration &config, etl::string_view name,
+                                         etl::string_view key, int defaultValue)
+{
+    const auto path = hardwareConfigPath(config, name);
+    return path.empty() ? defaultValue : config.valueByPath(defaultValue, path, key);
+}
+
 uint8_t AbstractTransceiver::readCapabilities(const Configuration &config, etl::string_view name,
                                               uint8_t supported)
 {
@@ -399,16 +418,8 @@ uint8_t AbstractTransceiver::readCapabilities(const Configuration &config, etl::
         {RadioCapability::Gfsk915, "Gfsk915"},
         {RadioCapability::Ook1090, "Ook1090"},
     };
-    auto boardRadioPath = config.strValueByPath("", "hardware", "type");
-    if (!boardRadioPath.empty())
-    {
-        boardRadioPath.append("/");
-    }
-    boardRadioPath.append(name);
-    const auto defaults = config.strValueByPath("", name, "capabilities");
-    const auto configured = config.strValueByPath(
-        defaults.is_truncated() ? etl::string_view(",") : etl::string_view(defaults.data(), defaults.size()),
-        boardRadioPath, "capabilities");
+    const auto path = hardwareConfigPath(config, name);
+    const auto configured = path.empty() ? GATAS::ConfigString{} : config.strValueByPath("", path, "capabilities");
     etl::string_view remaining(configured.data(), configured.size());
     uint8_t mask = 0;
     while (!remaining.empty())

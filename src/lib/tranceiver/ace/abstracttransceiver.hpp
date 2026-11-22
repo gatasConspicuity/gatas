@@ -95,6 +95,9 @@ protected:
     RadioStatus sendQueuedPacket(const TxPacket &);
     static void taskTrampoline(void *);
     void radioTask(void *);
+    static GATAS::ConfigString hardwareConfigPath(const Configuration &, etl::string_view name);
+    static int readHardwareValue(const Configuration &, etl::string_view name,
+                                 etl::string_view key, int defaultValue);
 
 public:
     AbstractTransceiver(etl::imessage_bus &bus, const GATAS::PinTypeMap &pins, uint8_t number,

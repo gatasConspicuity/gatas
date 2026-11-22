@@ -88,15 +88,13 @@
   "Bmp280": {
     "compensation": 0
   },
-  "_comment_radioCapabilities": "Per-radio capabilities are comma-separated names. Ook1090 is receive-only.",
+  "_comment_radioSettings": "Per-device txEnabled and frequency calibration offset in Hz. Board-specific settings belong under the hardware profiles.",
   "Sx1262_0": {
     "txEnabled": 1,
-    "capabilities": "Gfsk868,Lora868,Gfsk915",
     "offset": 0
   },
   "Sx1262_1": {
     "txEnabled": 1,
-    "capabilities": "Gfsk868,Lora868,Gfsk915",
     "offset": 0
   },
   "Flarm": {
@@ -137,7 +135,7 @@
     "ntpServer": "time.cloudflare.com"
   },
   "SerialADSB": {},
-  "_commentPinMaps": "Board pin maps and optional per-radio capabilities overrides.",
+  "_commentPinMaps": "Board pin maps and radio hardware settings. Capabilities are comma-separated names; Ook1090 is receive-only. TCXO voltage -1 selects a crystal; 0..7 select Semtech voltage codes. TCXO startup time is in microseconds. Restart to apply hardware settings.",
   "PICO_2RADIO": {
     "AceSpi_0": {
       "clk": 2,
@@ -188,6 +186,7 @@
       "cs": 22,
       "busy": 11,
       "dio1": 10,
+      "capabilities": "Gfsk868,Lora868,Gfsk915",
       "_comment_dev": "This indicates the SPI Device number example AceSpi_0",
       "dev": 0
     },
@@ -195,16 +194,22 @@
       "cs": 12,
       "busy": 13,
       "dio1": 19,
+      "capabilities": "Gfsk868,Lora868,Gfsk915",
       "_comment_dev": "This indicates the SPI Device number AceSpi_0",
       "dev": 0
     },
-    "_comment_Lr2021_0": "SPI1 Wio-LR2021. CS is J1-23, BUSY is J1-21, and DIO7 is J1-11. RESET shares GP5 on J1-9 with AceSpi_0.",
+    "_comment_Lr2021_0": "SPI1 Waveshare Core2021-HF with a 32 MHz crystal. CS is J1-23, BUSY is J1-21, and DIO7 is J1-11. RESET shares GP5 on J1-9 with AceSpi_0.",
     "Lr2021_0": {
       "cs": 20,
       "busy": 21,
       "dio1": 9,
       "dev": 1,
-      "capabilities": "Gfsk868,Lora868,Gfsk915,Ook1090"
+      "capabilities": "Gfsk868,Lora868,Gfsk915,Ook1090",
+      "irqDio": 7,
+      "tcxoVoltage": -1,
+      "tcxoStartupUs": 5000,
+      "rxSwitchDio": -1,
+      "txSwitchDio": -1
     },
     "Bmp280": {
       "cs": 14,
@@ -234,6 +239,7 @@
       "cs": 3,
       "busy": 2,
       "dio1": 20,
+      "capabilities": "Gfsk868,Lora868,Gfsk915",
       "_comment_dev": "This indicates the SPI Device number AceSpi_0",
       "dev": 0
     },
@@ -259,7 +265,13 @@
       "cs": 5,
       "busy": 8,
       "dio1": 22,
-      "dev": 1
+      "dev": 1,
+      "capabilities": "Gfsk868,Lora868,Gfsk915,Ook1090",
+      "irqDio": 7,
+      "tcxoVoltage": 6,
+      "tcxoStartupUs": 5000,
+      "rxSwitchDio": -1,
+      "txSwitchDio": -1
     },
     "_comment_Bmp580": "GATASPulseLR2021 U3 on I2C1. Enabling Bmp580 reserves GP26 from the status LED.",
     "Bmp580": {
@@ -305,7 +317,13 @@
       "busy": 7,
       "dio1": 6,
       "_comment_dev": "This indicates the SPI Device number AceSpi_0",
-      "dev": 0
+      "dev": 0,
+      "capabilities": "Gfsk868,Lora868,Gfsk915",
+      "irqDio": 7,
+      "tcxoVoltage": 6,
+      "tcxoStartupUs": 5000,
+      "rxSwitchDio": -1,
+      "txSwitchDio": -1
     },
     "_comment_Lr2021_1": "Seed Studio https://www.seeedstudio.com/Seeed-Studio-Wio-LR2021-Wireless-module-868-915MHz-Tape-reel-p-6831.html",
     "Lr2021_1": {
@@ -313,7 +331,13 @@
       "busy": 9,
       "dio1": 14,
       "_comment_dev": "This indicates the SPI Device number AceSpi_1",
-      "dev": 1
+      "dev": 1,
+      "capabilities": "Gfsk868,Lora868,Gfsk915,Ook1090",
+      "irqDio": 7,
+      "tcxoVoltage": 6,
+      "tcxoStartupUs": 5000,
+      "rxSwitchDio": -1,
+      "txSwitchDio": -1
     },
     "port5": {
       "O0": 26
@@ -327,6 +351,6 @@
       "rx": 19
     }
   },
-  "Lr2021_0": {"txEnabled": false, "capabilities": "Gfsk868,Lora868,Gfsk915", "offset": 0, "irqDio": 7, "tcxoVoltage": -1, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1},
-  "Lr2021_1": {"txEnabled": false, "capabilities": "Gfsk868,Lora868,Gfsk915,Ook1090", "offset": 0, "irqDio": 7, "tcxoVoltage": 6, "tcxoStartupUs": 5000, "rxSwitchDio": -1, "txSwitchDio": -1}
+  "Lr2021_0": {"txEnabled": false, "offset": 0},
+  "Lr2021_1": {"txEnabled": false, "offset": 0}
 }

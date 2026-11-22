@@ -158,6 +158,18 @@
             "dio1": 19,
             "spi": 0
         },
+        "Lr2021_0": {
+            "cs": 20,
+            "busy": 21,
+            "dio1": 9,
+            "dev": 1,
+            "capabilities": "Gfsk868,Lora868,Gfsk915,Ook1090",
+            "irqDio": 7,
+            "tcxoVoltage": -1,
+            "tcxoStartupUs": 5000,
+            "rxSwitchDio": -1,
+            "txSwitchDio": -1
+        },
         "Bmp280": {
             "cs": 14,
             "busy": 15

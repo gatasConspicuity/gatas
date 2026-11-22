@@ -28,9 +28,9 @@ Per zone the following information is stored:
 
 ## Transceiver capabilities
 
-Set `capabilities` under the physical device name, such as `Lr2021_0` or `Sx1262_1`, based on the installed RF path and antenna. Restart to apply this setting. The same list applies to RX and TX. Transmission also requires `txEnabled`, and `Ook1090` is receive-only.
+Set `capabilities` under the physical device name inside the selected hardware profile, such as `PICO_2RADIO/Lr2021_0` or `WAVESHARE_LITE/Sx1262_0`, based on the installed RF path and antenna. Restart to apply this setting. The same list applies to RX and TX. Transmission also requires the top-level radio's `txEnabled`, and `Ook1090` is receive-only.
 
-A `capabilities` entry in the selected hardware profile's radio pin map overrides the top-level radio setting. The GATAS Custom profile (`PICO_2RADIO`) enables `Ook1090` on `Lr2021_0` this way.
+Capabilities are read only from the hardware profile, with no top-level fallback. The GATAS Custom profile (`PICO_2RADIO`) enables `Ook1090` on `Lr2021_0`. Per-device frequency calibration `offset` (Hz) and the runtime `txEnabled` toggle remain in the top-level radio entries.
 
 | Capability | RF profiles |
 | --- | --- |

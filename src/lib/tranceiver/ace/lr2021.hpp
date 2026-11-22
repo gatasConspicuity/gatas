@@ -69,11 +69,11 @@ public:
                               readCapabilities(config, NAMES[number],
                                                GATAS::LEGACY_RADIO_CAPABILITIES | static_cast<uint8_t>(GATAS::RadioCapability::Ook1090)),
                               SCHEDULER_ONLY),
-          irqDio(config.valueByPath(7, NAMES[number], "irqDio")),
-          tcxoVoltage(config.valueByPath(-1, NAMES[number], "tcxoVoltage")),
-          tcxoStartupUs(config.valueByPath(5000, NAMES[number], "tcxoStartupUs")),
-          rxSwitchDio(config.valueByPath(-1, NAMES[number], "rxSwitchDio")),
-          txSwitchDio(config.valueByPath(-1, NAMES[number], "txSwitchDio"))
+          irqDio(readHardwareValue(config, NAMES[number], "irqDio", 7)),
+          tcxoVoltage(readHardwareValue(config, NAMES[number], "tcxoVoltage", -1)),
+          tcxoStartupUs(readHardwareValue(config, NAMES[number], "tcxoStartupUs", 5000)),
+          rxSwitchDio(readHardwareValue(config, NAMES[number], "rxSwitchDio", -1)),
+          txSwitchDio(readHardwareValue(config, NAMES[number], "txSwitchDio", -1))
     {
     }
 

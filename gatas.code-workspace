@@ -14,6 +14,12 @@
 		},
 		{
 			"path": "src/vendor/FLARM"
+		},
+		{
+			"path": "../GATASOmni"
+		},
+		{
+			"path": "../GATASPulseLR2021"
 		}
 	],
 	"settings": {

@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <map>
+#include <string>
 #include "ace/lr2021.hpp"
 #include "../lr2021driver/inc/lr20xx_hal.h"
 #include "mockconfig.h"
@@ -31,11 +33,19 @@ class Config : public MockConfig
 public:
     using MockConfig::MockConfig;
     const GATAS::PinTypeMap pinMap(etl::string_view, etl::string_view = {}) const override { return pins(); }
-    GATAS::ConfigString hardware;
+    GATAS::ConfigString hardware = "PICO_2RADIO";
     etl::optional<GATAS::ConfigString> customCapabilities;
     GATAS::ConfigString capabilities = "Gfsk868,Lora868,Gfsk915";
+    std::map<std::string, int> values;
+    mutable std::vector<std::string> valueReads;
     int valueByPath(int fallback, etl::string_view name, etl::string_view key) const override
     {
+        const auto path = std::string(name.data(), name.size()) + "/" + std::string(key.data(), key.size());
+        valueReads.push_back(path);
+        if (const auto found = values.find(path); found != values.end())
+        {
+            return found->second;
+        }
         return name == "Lr2021_1" && key == "txEnabled" ? 1 : fallback;
     }
     const GATAS::ConfigString strValueByPath(etl::string_view fallback, etl::string_view name,
@@ -49,9 +59,15 @@ public:
         {
             return *customCapabilities;
         }
-        if (name == "Lr2021_1" && key == "capabilities")
+        GATAS::ConfigString radioPath(hardware);
+        radioPath.append("/Lr2021_1");
+        if (name == radioPath && key == "capabilities")
         {
             return capabilities;
+        }
+        if (name == "Lr2021_0" || name == "Lr2021_1")
+        {
+            return GATAS::ConfigString("Ook1090"); // Stale top-level settings must be ignored.
         }
         return GATAS::ConfigString(fallback);
     }
@@ -84,6 +100,11 @@ public:
     using Lr2021::receiveLORAPacket;
     bool serviceIrq() { return readIrq().has_value(); }
     uint32_t received() const { return statistics.receivedPackets; }
+    uint32_t offset() const { return offsetHz; }
+    static int hardwareValue(const Configuration &config, etl::string_view name, etl::string_view key, int fallback)
+    {
+        return readHardwareValue(config, name, key, fallback);
+    }
     void attach(SpiModule &spi, RxDataFrameQueue &queue) { spiHall = &spi; rxDataFrameQueue = &queue; }
     void configure(const GATAS::RadioParameters &parameters, bool tx, uint8_t length)
     {
@@ -657,7 +678,7 @@ TEST_CASE("shared task preserves Manchester encoding and retries IRQ acknowledge
     REQUIRE(radio.listens == 1);
 }
 
-TEST_CASE("transceiver capabilities use the physical name and apply to RX and TX")
+TEST_CASE("transceiver capabilities use the hardware profile and physical name for RX and TX")
 {
     using GATAS::RadioCapability;
     Fixture f;
@@ -705,7 +726,7 @@ TEST_CASE("LR2021 capabilities can differ by board profile")
         REQUIRE_FALSE(customRadio.supportsTx(RadioCapability::Ook1090));
     }
 
-    SECTION("Dual board keeps the top-level setting on radio one")
+    SECTION("Dual board uses its own radio capability lists")
     {
         f.config.hardware = "GATAS_DUAL_LR2021";
         TestLr2021 otherRadio(f.bus, f.config, 0, 0);
@@ -713,6 +734,62 @@ TEST_CASE("LR2021 capabilities can differ by board profile")
         REQUIRE_FALSE(otherRadio.supportsRx(RadioCapability::Ook1090));
         REQUIRE(adsbRadio.supportsRx(RadioCapability::Ook1090));
     }
+}
+
+TEST_CASE("LR2021 board settings use the selected profile while calibration and TX stay per device")
+{
+    Fixture f;
+    f.config.customCapabilities = GATAS::ConfigString("Gfsk868,Ook1090");
+    f.config.values = {
+        {"Lr2021_0/offset", 250},
+        {"Lr2021_0/txEnabled", 1},
+        {"Lr2021_0/irqDio", 5},
+        {"Lr2021_0/tcxoVoltage", 6},
+        {"Lr2021_0/tcxoStartupUs", 10},
+        {"Lr2021_0/rxSwitchDio", 5},
+        {"Lr2021_0/txSwitchDio", 5},
+        {"PICO_2RADIO/Lr2021_0/offset", 999},
+        {"PICO_2RADIO/Lr2021_0/txEnabled", 0},
+        {"PICO_2RADIO/Lr2021_0/irqDio", 7},
+        {"PICO_2RADIO/Lr2021_0/tcxoVoltage", -1},
+        {"PICO_2RADIO/Lr2021_0/tcxoStartupUs", 5000},
+        {"PICO_2RADIO/Lr2021_0/rxSwitchDio", 8},
+        {"PICO_2RADIO/Lr2021_0/txSwitchDio", 9},
+        {"GATAS_DUAL_LR2021/Lr2021_0/tcxoVoltage", 6}};
+    f.config.valueReads.clear();
+    TestLr2021 radio(f.bus, f.config, 0, 0);
+    REQUIRE(250 == radio.offset());
+    REQUIRE(radio.supportsTx(GATAS::RadioCapability::Gfsk868));
+    for (const auto key : {"irqDio", "tcxoVoltage", "tcxoStartupUs", "rxSwitchDio", "txSwitchDio"})
+    {
+        const auto boardPath = std::string("PICO_2RADIO/Lr2021_0/") + key;
+        const auto oldPath = std::string("Lr2021_0/") + key;
+        REQUIRE(f.config.valueReads.end() != std::find(f.config.valueReads.begin(), f.config.valueReads.end(), boardPath));
+        REQUIRE(f.config.valueReads.end() == std::find(f.config.valueReads.begin(), f.config.valueReads.end(), oldPath));
+    }
+    REQUIRE(-1 == TestLr2021::hardwareValue(f.config, "Lr2021_0", "tcxoVoltage", 99));
+    REQUIRE(8 == TestLr2021::hardwareValue(f.config, "Lr2021_0", "rxSwitchDio", -1));
+    f.config.hardware = "GATAS_DUAL_LR2021";
+    REQUIRE(6 == TestLr2021::hardwareValue(f.config, "Lr2021_0", "tcxoVoltage", 99));
+    REQUIRE(-1 == TestLr2021::hardwareValue(f.config, "Lr2021_0", "rxSwitchDio", -1));
+
+    f.config.values["Lr2021_0/offset"] = 500;
+    f.config.values["Lr2021_0/txEnabled"] = 0;
+    radio.on_receive(GATAS::ConfigUpdatedMsg{f.config, etl::string_view("Lr2021_0")});
+    REQUIRE(500 == radio.offset());
+    REQUIRE_FALSE(radio.supportsTx(GATAS::RadioCapability::Gfsk868));
+}
+
+TEST_CASE("hardware settings never fall back to stale top-level radio settings")
+{
+    Fixture f;
+    f.config.values["Lr2021_0/tcxoVoltage"] = 6;
+    f.config.customCapabilities.reset();
+    REQUIRE(-1 == TestLr2021::hardwareValue(f.config, "Lr2021_0", "tcxoVoltage", -1));
+    REQUIRE(0 == AbstractTransceiver::readCapabilities(f.config, "Lr2021_0", 0xff));
+    f.config.hardware.clear();
+    REQUIRE(-1 == TestLr2021::hardwareValue(f.config, "Lr2021_0", "tcxoVoltage", -1));
+    REQUIRE(0 == AbstractTransceiver::readCapabilities(f.config, "Lr2021_0", 0xff));
 }
 
 TEST_CASE("transceiver rejects unsupported RX and TX requests")
