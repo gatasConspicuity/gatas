@@ -22,7 +22,7 @@
 #include "ace/messages.hpp"
 #include "ace/coreutils.hpp"
 #include "ace/basemodule.hpp"
-#include "ace/datasourcetimestatstable.hpp"
+#include "ace/protocoltimestatstable.hpp"
 
 #include "adsl/adsl.hpp"
 
@@ -55,7 +55,7 @@ class ADSLAce : public BaseModule, ADSL::Connector, public etl::message_router<A
     ADSL::Protocol protocol;
     const GATAS::OwnshipState &ownshipState;
 
-    GATAS::DataSourceTimeStatsTable<3> datasourceTimeStats;
+    GATAS::ConspicuityProtocolTimeStatsTable<3> protocolTimeStats;
 
     GATAS::GpsStats gpsStats;
     uint32_t distanceIgnore = MAX_IGNORE_DISTANCE;
@@ -123,9 +123,9 @@ private:
     virtual bool adsl_sendFrame(const void *ctx, const uint8_t *data, size_t lengthBytes) override;
 
     // Called when a payload/header/status is received by the protocol layer
-    virtual void adsl_receivedTraffic(const ADSL::Header &header, const ADSL::TrafficPayload &tp) override;
+    virtual void adsl_receivedTraffic(const void *ctx, const ADSL::Header &header, const ADSL::TrafficPayload &tp) override;
     virtual void adsl_receivedStatus(const ADSL::Header &header, const ADSL::StatusPayload &tp) override;
-    virtual void adsl_receivedUplinkTraffic(const ADSL::Header &header, etl::span<const ADSL::UplinkEntry> entries) override;
+    virtual void adsl_receivedUplinkTraffic(const void *ctx, const ADSL::Header &header, etl::span<const ADSL::UplinkEntry> entries) override;
     virtual void adsl_buildStatusPayload(const void *ctx, ADSL::StatusPayload &sp) override;
 
     uint8_t *adsl_alloc(const void *ctx, size_t sizeBytes) override;

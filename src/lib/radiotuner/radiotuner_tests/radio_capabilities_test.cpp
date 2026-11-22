@@ -10,8 +10,8 @@
 
 namespace
 {
-using GATAS::DataSource;
-using GATAS::DataSourceMode;
+using GATAS::ConspicuityProtocol;
+using GATAS::ProtocolMode;
 using GATAS::RadioCapability;
 
 class TestRadio : public Radio
@@ -45,15 +45,15 @@ TEST_CASE("RX assigns mixed radios and fills gaps only with compatible profiles"
     tuner.radioCtxList.emplace_back(&tuner, lora);
     tuner.radioCtxList.emplace_back(&tuner, gfsk);
     tuner.currentZone.set(CountryRegulations::Zone::ZONE1);
-    tuner.configuredDatasources = {
-        {DataSource::FLARM, DataSourceMode::RX},
-        {DataSource::FANET, DataSourceMode::RX}};
+    tuner.configuredProtocols = {
+        {ConspicuityProtocol::FLARM, ProtocolMode::RX},
+        {ConspicuityProtocol::FANET, ProtocolMode::RX}};
 
-    etl::array<uint8_t, static_cast<uint8_t>(DataSource::_TRANSPROTOCOLS)> boost{};
-    tuner.assignDataSourcesImpl(boost);
+    etl::array<uint8_t, GATAS::RADIO_PROTOCOLS.size()> boost{};
+    tuner.assignProtocolsImpl(boost);
 
     REQUIRE(tuner.radioCtxList[0].protocolTimings.size() == 1);
-    REQUIRE(tuner.radioCtxList[0].protocolTimings[0].protocolTimeConfig->radioConfig.dataSource() == DataSource::FANET);
+    REQUIRE(tuner.radioCtxList[0].protocolTimings[0].protocolTimeConfig->radioConfig.protocol() == ConspicuityProtocol::FANET);
     bool hasFlarm = false;
     bool hasGap = false;
     for (const auto &entry : tuner.radioCtxList[1].protocolTimings)
@@ -64,7 +64,7 @@ TEST_CASE("RX assigns mixed radios and fills gaps only with compatible profiles"
         }
         else
         {
-            REQUIRE(entry.protocolTimeConfig->radioConfig.dataSource() == DataSource::FLARM);
+            REQUIRE(entry.protocolTimeConfig->radioConfig.protocol() == ConspicuityProtocol::FLARM);
             hasFlarm = true;
         }
     }
@@ -73,8 +73,8 @@ TEST_CASE("RX assigns mixed radios and fills gaps only with compatible profiles"
 
     tuner.radioCtxList.clear();
     tuner.radioCtxList.emplace_back(&tuner, lora);
-    tuner.configuredDatasources = {{DataSource::FLARM, DataSourceMode::RX}};
-    tuner.assignDataSourcesImpl(boost);
+    tuner.configuredProtocols = {{ConspicuityProtocol::FLARM, ProtocolMode::RX}};
+    tuner.assignProtocolsImpl(boost);
     REQUIRE(tuner.radioCtxList[0].protocolTimings.empty());
 }
 
@@ -92,15 +92,15 @@ TEST_CASE("Three mixed radios can schedule RX and select the third radio for TX"
     rx.radioCtxList.emplace_back(&rx, ook);
     rx.radioCtxList.emplace_back(&rx, gfsk);
     rx.currentZone.set(CountryRegulations::Zone::ZONE1);
-    rx.configuredDatasources = {
-        {DataSource::FANET, DataSourceMode::RX},
-        {DataSource::ADSB, DataSourceMode::RX},
-        {DataSource::FLARM, DataSourceMode::RX}};
+    rx.configuredProtocols = {
+        {ConspicuityProtocol::FANET, ProtocolMode::RX},
+        {ConspicuityProtocol::ADSB, ProtocolMode::RX},
+        {ConspicuityProtocol::FLARM, ProtocolMode::RX}};
 
-    etl::array<uint8_t, static_cast<uint8_t>(DataSource::_TRANSPROTOCOLS)> boost{};
-    rx.assignDataSourcesImpl(boost);
+    etl::array<uint8_t, GATAS::RADIO_PROTOCOLS.size()> boost{};
+    rx.assignProtocolsImpl(boost);
 
-    const etl::array<DataSource, 3> expected{DataSource::FANET, DataSource::ADSB, DataSource::FLARM};
+    const etl::array<ConspicuityProtocol, 3> expected{ConspicuityProtocol::FANET, ConspicuityProtocol::ADSB, ConspicuityProtocol::FLARM};
     REQUIRE(3 == rx.radioCtxList.size());
     for (size_t i = 0; i < expected.size(); ++i)
     {
@@ -109,7 +109,7 @@ TEST_CASE("Three mixed radios can schedule RX and select the third radio for TX"
         {
             if (entry.protocolTimeConfig != nullptr)
             {
-                REQUIRE(expected[i] == entry.protocolTimeConfig->radioConfig.dataSource());
+                REQUIRE(expected[i] == entry.protocolTimeConfig->radioConfig.protocol());
                 assigned = true;
             }
         }
@@ -120,7 +120,7 @@ TEST_CASE("Three mixed radios can schedule RX and select the third radio for TX"
     tx.radios[0] = &lora;
     tx.radios[1] = &ook;
     tx.radios[2] = &gfsk;
-    REQUIRE(2 == tx.selectRadio(DataSource::FLARM, RadioCapability::Gfsk868));
+    REQUIRE(2 == tx.selectRadio(ConspicuityProtocol::FLARM, RadioCapability::Gfsk868));
 }
 
 TEST_CASE("TX falls back when the RX assignment cannot transmit the requested profile")
@@ -134,22 +134,22 @@ TEST_CASE("TX falls back when the RX assignment cannot transmit the requested pr
     tuner.radios[0] = &rx;
     tuner.radios[1] = &tx;
 
-    REQUIRE(tuner.selectRadio(DataSource::FLARM, RadioCapability::Gfsk868) == 1);
+    REQUIRE(tuner.selectRadio(ConspicuityProtocol::FLARM, RadioCapability::Gfsk868) == 1);
     tuner.on_receive(GATAS::RadioControlMsg{
         {&CountryRegulations::PROTOCOL_FLARM, &CountryRegulations::Europe_m, 868'200'000, 0}, 0});
-    REQUIRE(tuner.selectRadio(DataSource::FLARM, RadioCapability::Gfsk868) == 1);
-    REQUIRE_FALSE(tuner.selectRadio(DataSource::FLARM, RadioCapability::Gfsk915));
+    REQUIRE(tuner.selectRadio(ConspicuityProtocol::FLARM, RadioCapability::Gfsk868) == 1);
+    REQUIRE_FALSE(tuner.selectRadio(ConspicuityProtocol::FLARM, RadioCapability::Gfsk915));
 
-    const auto timings = CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, DataSource::FLARM);
+    const auto timings = CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, ConspicuityProtocol::FLARM);
     REQUIRE_FALSE(timings.empty());
-    tuner.dataSourceTxEvents.push_back({&timings.front(), 0});
+    tuner.protocolTxEvents.push_back({&timings.front(), 0});
     etl::string<512> status;
     etl::string_stream stream(status);
     tuner.getData(stream, "");
     REQUIRE(status.find("\"radio\":1") != status.npos);
 
     tx.txEnabled = false;
-    REQUIRE_FALSE(tuner.selectRadio(DataSource::FLARM, RadioCapability::Gfsk868));
+    REQUIRE_FALSE(tuner.selectRadio(ConspicuityProtocol::FLARM, RadioCapability::Gfsk868));
     status.clear();
     tuner.getData(stream, "");
     REQUIRE(status.find("\"radio\":null") != status.npos);
@@ -165,19 +165,19 @@ TEST_CASE("1090 MHz ADS-B is scheduled before GNSS on an OOK-capable receiver on
     RadioTunerRx tuner(bus, config, ownship);
     tuner.radioCtxList.emplace_back(&tuner, legacy);
     tuner.radioCtxList.emplace_back(&tuner, ook);
-    tuner.configuredDatasources = {{DataSource::ADSB, DataSourceMode::RX}};
+    tuner.configuredProtocols = {{ConspicuityProtocol::ADSB, ProtocolMode::RX}};
 
-    etl::array<uint8_t, static_cast<uint8_t>(DataSource::_TRANSPROTOCOLS)> boost{};
-    tuner.assignDataSourcesImpl(boost);
+    etl::array<uint8_t, GATAS::RADIO_PROTOCOLS.size()> boost{};
+    tuner.assignProtocolsImpl(boost);
     REQUIRE(tuner.radioCtxList[0].protocolTimings.empty());
     const auto &schedule = tuner.radioCtxList[1].protocolTimings;
     REQUIRE(schedule.size() == 1);
     REQUIRE(schedule[0].protocolTimeConfig->rfConfig.baseFrequency == 1'090'000'000);
     REQUIRE(schedule[0].end() == 1000);
-    REQUIRE(CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, DataSource::ADSB).empty());
+    REQUIRE(CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, ConspicuityProtocol::ADSB).empty());
 
-    tuner.configuredDatasources.clear();
-    tuner.assignDataSourcesImpl(boost);
+    tuner.configuredProtocols.clear();
+    tuner.assignProtocolsImpl(boost);
     REQUIRE(schedule.empty());
     REQUIRE(tuner.radioCtxList[1].idlePending);
 }

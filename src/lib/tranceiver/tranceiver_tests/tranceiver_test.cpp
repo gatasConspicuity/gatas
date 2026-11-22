@@ -112,7 +112,7 @@ public:
         configureRadio(parameters, tx ? RadioDirection::TX : RadioDirection::RX, length);
     }
 };
-const GATAS::LinkLayerConfig link{1, GATAS::DataSource::OGN, true, 26, 16, 32, 8, {0x11, 0x22, 0x33, 0x44, 0, 0, 0, 0}};
+const GATAS::LinkLayerConfig link{1, GATAS::ConspicuityProtocol::OGN, true, 26, 16, 32, 8, {0x11, 0x22, 0x33, 0x44, 0, 0, 0, 0}};
 GATAS::RadioParameters parameters{&link, &GATAS::RadioParameters::DEFAULT, 868200000, 0};
 struct Fixture
 {
@@ -183,7 +183,7 @@ TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
 {
     Fixture f;
     const GATAS::RfConfig rf{GATAS::Modulation::OOK, 1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
-    const GATAS::LinkLayerConfig adsb{10, GATAS::DataSource::ADSB, false, 14, 0, 0, 0, {}};
+    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, false, 14, 0, 0, 0, {}};
     const GATAS::RadioParameters profile{&adsb, &rf, rf.baseFrequency, 0};
     f.radio.configure(profile, false, 0);
     REQUIRE_FALSE(f.radio.hasHalError());
@@ -233,7 +233,7 @@ TEST_CASE("LR2021 drains complete OOK captures and leaves partial captures for t
 {
     Fixture f;
     const GATAS::RfConfig rf{GATAS::Modulation::OOK, 1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
-    const GATAS::LinkLayerConfig adsb{10, GATAS::DataSource::ADSB, false, 14, 0, 0, 0, {}};
+    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, false, 14, 0, 0, 0, {}};
     f.radio.configure({&adsb, &rf, rf.baseFrequency, 0}, false, 0);
     f.radio.listen();
     REQUIRE(std::vector<uint8_t>{2, 0x0c, 0xff, 0xff, 0xff} == command(0x020c));

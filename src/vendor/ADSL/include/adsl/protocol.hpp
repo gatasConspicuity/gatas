@@ -496,9 +496,10 @@ namespace ADSL
      * @tparam MAXFRAMESIZE The size of the name payload.
      * @param rssddBm The received signal strength in dBm.
      * @param buffer The byte buffer containing the packet data.
+     * @param ctx Caller-supplied context forwarded synchronously to traffic callbacks.
      * @return The MessageType
      */
-    RxStatudeCode handleRx(int16_t rssddBm, etl::span<uint32_t> wordBuffer)
+    RxStatudeCode handleRx(int16_t rssddBm, etl::span<uint32_t> wordBuffer, const void *ctx = nullptr)
     {
 
       // printf("Received packet size: %d, RSSI: %d dBm\n", wordBuffer.size() * sizeof(uint32_t), rssddBm);
@@ -575,7 +576,7 @@ namespace ADSL
             {
               trackNeighbourProtocol(header.address().asUint(), static_cast<uint8_t>(receivedNetworkPayload.protocolVersion()));
             }
-            connector->adsl_receivedTraffic(header, payload);
+            connector->adsl_receivedTraffic(ctx, header, payload);
             accepted = RxStatudeCode::OK;
           }
           else
@@ -609,7 +610,7 @@ namespace ADSL
           {
             reader.skip(remainder * 8);
           }
-          connector->adsl_receivedUplinkTraffic(header, etl::span<const UplinkEntry>(entries.data(), entries.size()));
+          connector->adsl_receivedUplinkTraffic(ctx, header, etl::span<const UplinkEntry>(entries.data(), entries.size()));
           accepted = RxStatudeCode::OK;
         }
         else

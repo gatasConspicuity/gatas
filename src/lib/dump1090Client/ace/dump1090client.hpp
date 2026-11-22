@@ -10,7 +10,7 @@
 #include "ace/tcpbufferedclient.hpp"
 
 /**
- * Dump1090 Client for development purposes transform a NMEA String into a ADSB Message
+ * Converts dump1090 TCP lines into binary Mode S bus messages.
  * Note: This module is experimental
  */
 class Dump1090Client : public BaseModule,
@@ -21,14 +21,12 @@ class Dump1090Client : public BaseModule,
     struct
     {
         uint32_t totalReceived = 0;
+        uint32_t poolDrops = 0;
         uint32_t reConnects = 0;
     } statistics;
 
-    etl::imessage_bus *bus;
-
     bool wifiConnected = false;
     uint32_t networkAddress = 0;
-    BinaryReceiver *receiver = nullptr;
     using TcpClient = TcpBufferedClient<48, 10>;
     TcpClient tcpClient;
 

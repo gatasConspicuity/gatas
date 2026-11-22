@@ -19,7 +19,7 @@
 #include "ace/basemodule.hpp"
 #include "ace/messages.hpp"
 #include "ace/coreutils.hpp"
-#include "ace/datasourcetimestatstable.hpp"
+#include "ace/protocoltimestatstable.hpp"
 
 class Flarm2024 : public BaseModule, public etl::message_router<Flarm2024, GATAS::RadioRxManchesterMsg, GATAS::RadioTxPositionRequestMsg>
 {
@@ -38,7 +38,7 @@ private:
         uint32_t messageTypeNot0x02 = 0;
     } statistics;
 
-    GATAS::DataSourceTimeStatsTable<2> datasourceTimeStats;
+    GATAS::ConspicuityProtocolTimeStatsTable<2> protocolTimeStats;
 
     const GATAS::OwnshipState &ownshipState;
     GATAS::Config::GaTasConfiguration gaTasConfiguration;

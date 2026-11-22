@@ -29,16 +29,17 @@ namespace ADSL
          */
         virtual bool adsl_sendFrame(const void *ctx, uint8_t const *data, size_t lengthBytes) = 0;
 
-        // Called when a payload/header/status is received by the protocol layer
-        virtual void adsl_receivedTraffic(const Header &header, const ADSL::TrafficPayload &tp) = 0;
+        // The receive context is borrowed from handleRx for the duration of the callback.
+        virtual void adsl_receivedTraffic(const void *ctx, const Header &header, const ADSL::TrafficPayload &tp) = 0;
         virtual void adsl_receivedStatus(const ADSL::Header &header, const ADSL::StatusPayload &sp) = 0;
 
         /**
          * @brief Called once with all decoded targets in a received Traffic Uplink packet.
+         * @param ctx      Caller-supplied context from handleRx.
          * @param header   The packet header (uplink sender's address / type).
          * @param entries  Span of all decoded uplink entries in this packet.
          */
-        virtual void adsl_receivedUplinkTraffic(const Header &header, etl::span<const ADSL::UplinkEntry> entries) = 0;
+        virtual void adsl_receivedUplinkTraffic(const void *ctx, const Header &header, etl::span<const ADSL::UplinkEntry> entries) = 0;
 
         /**
          * Request to build a status payload

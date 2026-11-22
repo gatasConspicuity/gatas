@@ -19,9 +19,9 @@ class RxDataFrameQueue : public BaseModule, public etl::message_router<RxDataFra
 private:
     friend class message_router;
 
-    struct DataSourceMatch
+    struct RadioFrameMatch
     {
-        GATAS::DataSource dataSource;
+        GATAS::ConspicuityProtocol protocol;
         uint8_t bitsToShift;
         uint8_t frameLength;
     };
@@ -65,5 +65,5 @@ public:
 
     bool push(GATAS::DataFrame &&frame);
 
-    DataSourceMatch decideDataSource(GATAS::DataSource ds, uint32_t frame[], uint8_t frameLength);
+    RadioFrameMatch classifyCombinedFrame(const GATAS::LinkLayerConfig &config, uint32_t frame[], uint8_t frameLength);
 };

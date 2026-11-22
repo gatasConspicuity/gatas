@@ -32,6 +32,114 @@ TEST_CASE("Aircraft position V1 decodes the Rust unsigned ellipsoid-height range
     REQUIRE(position->address == 0x010203U);
 }
 
+TEST_CASE("Legacy COBS traffic codes are translated independently of ingress", "[binarymessages]")
+{
+    using GATAS::ConspicuityProtocol;
+    time_us_Value = 20'000'000;
+    CoreUtils::setPPS(0);
+    CoreUtils::setOffsetMsSinceEpoch(20'000);
+
+    using Decoder = decltype(&BinaryMessages::deserializeAircraftPositionV1);
+    const struct
+    {
+        uint8_t messageId;
+        uint8_t fixedSize;
+        uint8_t protocolOffset;
+        Decoder decode;
+    } versions[] = {
+        {1, 24, 5, BinaryMessages::deserializeAircraftPositionV1},
+        {8, 28, 7, BinaryMessages::deserializeAircraftPositionV2},
+        {9, 32, 7, BinaryMessages::deserializeAircraftPositionV3}
+    };
+    const etl::array expected{
+        ConspicuityProtocol::FLARM, ConspicuityProtocol::ADSL_M_BAND, ConspicuityProtocol::ADSL_O_BAND_HDR,
+        ConspicuityProtocol::FANET, ConspicuityProtocol::OGN, ConspicuityProtocol::ADSB, ConspicuityProtocol::MLAT};
+
+    for (const auto &version : versions)
+    {
+        CAPTURE(version.messageId);
+        uint8_t raw[32] = {};
+        raw[0] = version.messageId;
+        if (version.protocolOffset == 7)
+        {
+            raw[1] = 0x4A;
+            raw[2] = 0x38; // 19,000 ms into the minute
+        }
+        raw[version.protocolOffset - 1] = 1; // ICAO regardless of wire protocol
+        auto decode = [&]()
+        {
+            etl::bit_stream_reader reader(raw, version.fixedSize, etl::endian::big);
+            return version.decode(0.0f, 0.0f, reader);
+        };
+
+        for (size_t code = 0; code < expected.size(); ++code)
+        {
+            CAPTURE(code);
+            raw[version.protocolOffset] = static_cast<uint8_t>(code);
+            const auto position = decode();
+            REQUIRE(position.has_value());
+            CHECK(expected[code] == position->protocol);
+            CHECK(GATAS::TrafficIngress::Connect == position->ingress);
+            CHECK(GATAS::AddressType::ICAO == position->addressType);
+        }
+
+        for (uint8_t code : {7, 253, 254, 255})
+        {
+            CAPTURE(code);
+            raw[version.protocolOffset] = code;
+            CHECK_FALSE(decode().has_value());
+        }
+    }
+}
+
+TEST_CASE("Rust and Kotlin traffic frames decode with the existing layouts", "[binarymessages]")
+{
+    time_us_Value = 20'000'000;
+    CoreUtils::setPPS(0);
+    CoreUtils::setOffsetMsSinceEpoch(20'000);
+
+    // Rust gatas-protocol and Kotlin Companion produced identical V1 and V2 bytes.
+    const uint8_t v1[] = {
+        0x0a, 0x01, 0x01, 0x02, 0x03, 0x01, 0x05, 0x1e, 0xfe, 0x92, 0x04, 0x02, 0x62, 0x5a,
+        0x01, 0x02, 0xc8, 0x01, 0x03, 0x13, 0x88, 0x01, 0x07, 0x01, 0x04, 0x54, 0x45, 0x53, 0x54, 0x00};
+    const uint8_t v2[] = {
+        0x0c, 0x08, 0x4a, 0x38, 0x01, 0x02, 0x03, 0x01, 0x05, 0x1e, 0xfe, 0x92, 0x04, 0x02, 0x62, 0x5a,
+        0x01, 0x02, 0xc8, 0x01, 0x03, 0x13, 0x88, 0x01, 0x09, 0x01, 0x1e, 0x14, 0x04, 0x54, 0x45, 0x53, 0x54, 0x00};
+    // Rust gatas-protocol V3 carries 90 m pressure altitude and QNH 1013.3 hPa.
+    const uint8_t v3[] = {
+        0x0c, 0x09, 0x4a, 0x38, 0x01, 0x02, 0x03, 0x01, 0x05, 0x1e, 0xfe, 0x92, 0x04, 0x02, 0x62, 0x5a,
+        0x03, 0x04, 0x4c, 0x01, 0x03, 0x13, 0x88, 0x01, 0x0d, 0x01, 0x1e, 0x14, 0x04, 0x42, 0x27, 0x95,
+        0x04, 0x54, 0x45, 0x53, 0x54, 0x00};
+
+    using Decoder = decltype(&BinaryMessages::deserializeAircraftPositionV1);
+    const struct
+    {
+        etl::span<const uint8_t> frame;
+        Decoder decode;
+        int32_t pressureAltitude;
+    } fixtures[] = {
+        {v1, BinaryMessages::deserializeAircraftPositionV1, GATAS::INVALID_BARO_ALTITUDE},
+        {v2, BinaryMessages::deserializeAircraftPositionV2, GATAS::INVALID_BARO_ALTITUDE},
+        {v3, BinaryMessages::deserializeAircraftPositionV3, 90}
+    };
+    for (const auto &fixture : fixtures)
+    {
+        uint8_t raw[sizeof(v3)] = {};
+        const auto length = decodeCOBS(fixture.frame.data(), fixture.frame.size(), raw, sizeof(raw));
+        REQUIRE(length > 0);
+        etl::bit_stream_reader reader(raw, length, etl::endian::big);
+        const auto position = fixture.decode(52.0f, 4.0f, reader);
+        REQUIRE(position.has_value());
+        CHECK(GATAS::TrafficIngress::Connect == position->ingress);
+        CHECK(GATAS::ConspicuityProtocol::ADSB == position->protocol);
+        CHECK(GATAS::AddressType::ICAO == position->addressType);
+        CHECK(0x010203U == position->address);
+        CHECK("TEST" == position->callSign);
+        CHECK(100 == position->ellipseHeight);
+        CHECK(fixture.pressureAltitude == position->pressureAlt);
+    }
+}
+
 TEST_CASE("Aircraft configuration exposes WiFi mode and dirty state in flags", "[binarymessages]")
 {
     etl::array<uint32_t, 2> addresses = {0x010203, 0x040506};

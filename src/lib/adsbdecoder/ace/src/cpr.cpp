@@ -140,7 +140,8 @@ float cprDlonFunction(float lat, bool  fflag, bool surface=false)
  *    simplicity. This may provide a position that is less fresh of a few
  *    seconds.
  */
-void decodeCPR(bool fflag, uint32_t even_cprlat, uint32_t even_cprlon, uint32_t odd_cprlat, uint32_t odd_cprlon, float *pfLat, float *pfLon)
+etl::optional<CprPosition> decodeCPR(bool fflag, uint32_t even_cprlat, uint32_t even_cprlon,
+                                     uint32_t odd_cprlat, uint32_t odd_cprlon)
 {
     constexpr float AirDlat0 = 360.0f / 60;
     constexpr float AirDlat1 = 360.0f / 59;
@@ -162,13 +163,18 @@ void decodeCPR(bool fflag, uint32_t even_cprlat, uint32_t even_cprlon, uint32_t 
 
     // Check to see that the latitude is in range: -90 .. +90
     if (rlat0 < -90.0f || rlat0 > 90.0f || rlat1 < -90.0f || rlat1 > 90.0f)
-        return; // bad data
+    {
+        return etl::nullopt;
+    }
 
     float cprLat0 = cprNLFunction(rlat0);
     float cprLat1 = cprNLFunction(rlat1);
 
     /* Check that both are in the same latitude zone, or abort. */
-    if (cprNLFunction(rlat0) != cprLat1) return;
+    if (cprLat0 != cprLat1)
+    {
+        return etl::nullopt;
+    }
 
     /* Compute ni and the longitude index m */
     if (fflag)
@@ -190,6 +196,5 @@ void decodeCPR(bool fflag, uint32_t even_cprlat, uint32_t even_cprlon, uint32_t 
     }
     rlon -= floorf( (rlon + 180.0f) / 360.0f ) * 360.0f;
 
-    *pfLat = rlat;
-    *pfLon = rlon;
+    return CprPosition{rlat, rlon};
 }

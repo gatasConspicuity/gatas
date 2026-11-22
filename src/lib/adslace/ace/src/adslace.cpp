@@ -31,7 +31,7 @@ void ADSLAce::getData(etl::string_stream &stream, const etl::string_view path) c
 {
     (void)path;
     stream << "{";
-    datasourceTimeStats.toStream(stream);
+    protocolTimeStats.toStream(stream);
     stream << "\"receivedAircraftPositions:k\":" << statistics.receivedAircraftPositions;
     stream << ",\"transmittedAircraftPositions:k\":" << statistics.transmittedAircraftPositions;
     stream << ",\"uplinksPacketsSend:k\":" << statistics.uplinksPacketsSend;
@@ -51,18 +51,18 @@ void ADSLAce::getData(etl::string_stream &stream, const etl::string_view path) c
 
 void ADSLAce::on_receive(const GATAS::RadioRxMsg &msg)
 {
-    if (msg.dataSource != GATAS::DataSource::ADSLO_HDR)
+    if (msg.protocol != GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR)
     {
         return;
     }
     protocol.crcCheckOnReceive = true;
-    auto status = protocol.handleRx(msg.rssidBm, msg.frame32Span()); // Currently expected that the frame size is always a multiple of 4
+    auto status = protocol.handleRx(msg.rssidBm, msg.frame32Span(), static_cast<const GATAS::RadioRxMsgBase *>(&msg));
 
     // clang-format off
     switch (status)
     {
         case ADSL::Protocol::RxStatudeCode::OK: {
-            datasourceTimeStats.addReceiveStat(msg.frequency, CoreUtils::msInSecond());
+            protocolTimeStats.addReceiveStat(msg.frequency, CoreUtils::msInSecond());
             break;
         }
         case ADSL::Protocol::RxStatudeCode::CRC_FAILED:                   { statistics.fecErr += 1; break;}
@@ -77,7 +77,7 @@ void ADSLAce::on_receive(const GATAS::RadioRxMsg &msg)
 
 void ADSLAce::on_receive(const GATAS::RadioRxManchesterMsg &msg)
 {
-    if (msg.dataSource != GATAS::DataSource::ADSLM)
+    if (msg.protocol != GATAS::ConspicuityProtocol::ADSL_M_BAND)
     {
         return;
     }
@@ -95,10 +95,10 @@ void ADSLAce::on_receive(const GATAS::RadioRxManchesterMsg &msg)
         auto frameBytes = msg.frameSpan();
         msg.lengthBytes = frameBytes[0]; // Length it stored on first byte
         etl::mem_move(frameBytes.data() + 1, frameBytes.size() - 1, frameBytes.data());
-        status = protocol.handleRx(msg.rssidBm, msg.frame32Span());
+        status = protocol.handleRx(msg.rssidBm, msg.frame32Span(), static_cast<const GATAS::RadioRxMsgBase *>(&msg));
 
         // TODO: change this somehow such that we only show packets that where in range
-        datasourceTimeStats.addReceiveStat(msg.frequency, CoreUtils::msInSecond());
+        protocolTimeStats.addReceiveStat(msg.frequency, CoreUtils::msInSecond());
     }
 
     switch (status)
@@ -147,8 +147,8 @@ void ADSLAce::on_receive(const GATAS::GpsStatsMsg &msg)
 
 void ADSLAce::on_receive(const GATAS::RadioTxPositionRequestMsg &msg)
 {
-    auto adslm = msg.radioParameters.config->isTxDataSource(GATAS::DataSource::ADSLM);
-    auto adslhdr = msg.radioParameters.config->isTxDataSource(GATAS::DataSource::ADSLO_HDR);
+    auto adslm = msg.radioParameters.config->isTxProtocol(GATAS::ConspicuityProtocol::ADSL_M_BAND);
+    auto adslhdr = msg.radioParameters.config->isTxProtocol(GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR);
 
     if (!(adslm || adslhdr) || msg.radioParameters.id == 1)
     {
@@ -201,8 +201,9 @@ void ADSLAce::on_receive(const GATAS::EgressAircraftPositionsMsg &msg)
 }
 
 // Called when a payload/header/status is received by the protocol layer
-void ADSLAce::adsl_receivedTraffic(const ADSL::Header &header, const ADSL::TrafficPayload &tp)
+void ADSLAce::adsl_receivedTraffic(const void *ctx, const ADSL::Header &header, const ADSL::TrafficPayload &tp)
 {
+    const auto &frame = *static_cast<const GATAS::RadioRxMsgBase *>(ctx);
     auto ownship = ownshipState.location.load();
     statistics.receivedAircraftPositions += 1;
 
@@ -231,7 +232,8 @@ void ADSLAce::adsl_receivedTraffic(const ADSL::Header &header, const ADSL::Traff
             "",
             header.address().asUint(),
             addressMapToAddressType(header.addressMappingTable()),
-            GATAS::DataSource::ADSLM,
+            GATAS::TrafficIngress::Transceiver,
+            frame.protocol,
             mapAircraftCategory(tp.aircraftCategory()),
             false,
             false,
@@ -244,7 +246,7 @@ void ADSLAce::adsl_receivedTraffic(const ADSL::Header &header, const ADSL::Traff
             static_cast<int16_t>(tp.groundTrack()),
             0.f,
             fromOwn.distance},
-        0};
+        frame.rssidBm};
     getBus().receive(aircraftPosition);
     (void)tp;
 }
@@ -256,15 +258,17 @@ void ADSLAce::adsl_receivedStatus(const ADSL::Header &header, const ADSL::Status
     GATAS_INFO("Received Status Payload");
 }
 
-void ADSLAce::adsl_receivedUplinkTraffic(const ADSL::Header &header, etl::span<const ADSL::UplinkEntry> entries)
+void ADSLAce::adsl_receivedUplinkTraffic(const void *ctx, const ADSL::Header &header, etl::span<const ADSL::UplinkEntry> entries)
 {
     (void)header;
+    const auto &frame = *static_cast<const GATAS::RadioRxMsgBase *>(ctx);
     auto ownship = ownshipState.location.load();
 
     static_assert(ADSL::Protocol::MAX_UPLINK_TARGETS <= GATAS::IngressAircraftPositionsMsg::MAX_POSITIONS);
     // Build directly into the owning message: a separate vector would keep
     // two full ten-aircraft batches on the receive task's stack during dispatch.
     GATAS::IngressAircraftPositionsMsg aircraftPositions;
+    aircraftPositions.rssidBm = frame.rssidBm;
     auto &positions = aircraftPositions.positions;
     statistics.uplinksPacketsReceived += 1;
     for (const auto &entry : entries)
@@ -292,7 +296,8 @@ void ADSLAce::adsl_receivedUplinkTraffic(const ADSL::Header &header, etl::span<c
             "",
             entry.address().asUint(),
             addressMapToAddressType(entry.addressMappingTable()),
-            GATAS::DataSource::ADSLO_HDR,
+            GATAS::TrafficIngress::RadioRelay,
+            frame.protocol,
             mapAircraftCategory(tp.aircraftCategory()),
             false,
             false,

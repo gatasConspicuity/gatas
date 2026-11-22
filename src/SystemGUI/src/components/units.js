@@ -113,7 +113,7 @@ const _chunkString = (str, size, sep = "'") => {
  * - `b`: boolean-style output (`✓` when value > 0, otherwise disabled symbol)
  * - `bin`: 8-bit binary view rendered as dots
  * - `el`: elapsed seconds as human-readable time
- * - `dts`: datasource timing bitmap split into 0..500ms and 500..1000ms bands
+ * - `dts`: protocol timing bitmap split into 0..500ms and 500..1000ms bands
  *
  * For regular units, formatting rules are resolved from `UNIT_TABLE` and use
  * locale-aware number formatting with fixed fraction digits per rule.
@@ -141,7 +141,7 @@ const formatUnit = (value, unit, locale = navigator.language) => {
         return formatTime(value);
     }
 
-    // Datasource time stats: show two 500ms halves on separate lines.
+    // Protocol timing stats: show two 500ms halves on separate lines.
     if (unit == 'dts') {
       const chunks = value.match(/.{1,50}/g) || [value];
       value = chunks

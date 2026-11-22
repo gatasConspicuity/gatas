@@ -40,7 +40,7 @@ struct TestConnector : public Connector
         return true;
     }
 
-    virtual void adsl_receivedTraffic(const Header &header, const TrafficPayload &tp) override
+    virtual void adsl_receivedTraffic(const void *, const Header &header, const TrafficPayload &tp) override
     {
         lastTrafficPayload = tp;
         trafficSet = true;
@@ -59,7 +59,7 @@ struct TestConnector : public Connector
     int uplinkCount = 0;
     UplinkEntry lastUplinkEntry{};
 
-    virtual void adsl_receivedUplinkTraffic(const Header &header, etl::span<const UplinkEntry> entries) override
+    virtual void adsl_receivedUplinkTraffic(const void *, const Header &header, etl::span<const UplinkEntry> entries) override
     {
         for (const auto &entry : entries)
         {

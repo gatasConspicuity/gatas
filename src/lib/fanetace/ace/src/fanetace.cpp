@@ -79,7 +79,7 @@ void FanetAce::on_receive(const GATAS::ConfigUpdatedMsg &msg)
 
 void FanetAce::on_receive(const GATAS::RadioTxPositionRequestMsg &msg)
 {
-    if (msg.radioParameters.config->isTxDataSource(GATAS::DataSource::FANET))
+    if (msg.radioParameters.config->isTxProtocol(GATAS::ConspicuityProtocol::FANET))
     {
         auto ownship = ownshipState.location.load();
         auto gatasConfig = gaTasConfiguration.load();
@@ -143,11 +143,11 @@ void FanetAce::fanet_ackReceived(uint16_t id)
 void FanetAce::on_receive(const GATAS::RadioRxMsg &msg)
 {
     (void)msg;
-    if (msg.dataSource != GATAS::DataSource::FANET)
+    if (msg.protocol != GATAS::ConspicuityProtocol::FANET)
     {
         return;
     }
-    datasourceTimeStats.addReceiveStat(msg.frequency, CoreUtils::msInSecond());
+    protocolTimeStats.addReceiveStat(msg.frequency, CoreUtils::msInSecond());
 
     statistics.received += 1;
 
@@ -192,7 +192,8 @@ void FanetAce::on_receive(const GATAS::RadioRxMsg &msg)
                 GATAS::CallSign{},
                 packet.source().asUint(),
                 GATAS::AddressType::FANET,
-                GATAS::DataSource::FANET,
+                GATAS::TrafficIngress::Transceiver,
+                GATAS::ConspicuityProtocol::FANET,
                 mapAircraftCategory(tp.aircraftType()),
                 false,
                 !tp.tracking(), // FANET uses 'tracking' to indicate it want's to be tracked
@@ -226,7 +227,8 @@ void FanetAce::on_receive(const GATAS::RadioRxMsg &msg)
                 GATAS::CallSign{},
                 packet.source().asUint(),
                 GATAS::AddressType::FANET,
-                GATAS::DataSource::FANET,
+                GATAS::TrafficIngress::Transceiver,
+                GATAS::ConspicuityProtocol::FANET,
                 GATAS::AircraftCategory::POINT_OBSTACLE,
                 false,
                 !tp.tracking(), // FANET uses 'tracking' to indicate it want's to be tracked
@@ -261,7 +263,7 @@ void FanetAce::getData(etl::string_stream &stream, const etl::string_view path) 
 {
     (void)path;
     stream << "{";
-    datasourceTimeStats.toStream(stream);
+    protocolTimeStats.toStream(stream);
     stream << "\"received:k\":" << statistics.received;
     stream << ",\"send:k\":" << statistics.send;
     stream << ",\"outOfDistance\":" << statistics.outOfDistance;

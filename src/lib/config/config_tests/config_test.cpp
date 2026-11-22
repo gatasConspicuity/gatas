@@ -343,14 +343,14 @@ TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
         REQUIRE(GATAS::AircraftCategory::SMALL == hwConfig.conspicuity.category);
         REQUIRE_FALSE(hwConfig.privacy);
         REQUIRE(4 == hwConfig.protocols.size());
-        REQUIRE(GATAS::DataSource::OGN == hwConfig.protocols[0].dataSource);
-        REQUIRE(GATAS::DataSourceMode::RX_TX == hwConfig.protocols[0].mode);
-        REQUIRE(GATAS::DataSource::ADSLM == hwConfig.protocols[1].dataSource);
-        REQUIRE(GATAS::DataSourceMode::RX_TX == hwConfig.protocols[1].mode);
-        REQUIRE(GATAS::DataSource::ADSLO_HDR == hwConfig.protocols[2].dataSource);
-        REQUIRE(GATAS::DataSourceMode::RX_TX == hwConfig.protocols[2].mode);
-        REQUIRE(GATAS::DataSource::FLARM == hwConfig.protocols[3].dataSource);
-        REQUIRE(GATAS::DataSourceMode::RX_TX == hwConfig.protocols[3].mode);
+        REQUIRE(GATAS::ConspicuityProtocol::OGN == hwConfig.protocols[0].protocol);
+        REQUIRE(GATAS::ProtocolMode::RX_TX == hwConfig.protocols[0].mode);
+        REQUIRE(GATAS::ConspicuityProtocol::ADSL_M_BAND == hwConfig.protocols[1].protocol);
+        REQUIRE(GATAS::ProtocolMode::RX_TX == hwConfig.protocols[1].mode);
+        REQUIRE(GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR == hwConfig.protocols[2].protocol);
+        REQUIRE(GATAS::ProtocolMode::RX_TX == hwConfig.protocols[2].mode);
+        REQUIRE(GATAS::ConspicuityProtocol::FLARM == hwConfig.protocols[3].protocol);
+        REQUIRE(GATAS::ProtocolMode::RX_TX == hwConfig.protocols[3].mode);
     }
 
     SECTION("Aircraft privacy follows the saved setting")
@@ -373,8 +373,8 @@ TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
             "/api/Config/aircraft/XX-XXX.json"));
         const auto configured = config.gaTasConfig();
         REQUIRE(configured.protocols.size() == 6);
-        REQUIRE(configured.protocols.back().dataSource == GATAS::DataSource::ADSB);
-        REQUIRE(configured.protocols.back().mode == GATAS::DataSourceMode::RX);
+        REQUIRE(configured.protocols.back().protocol == GATAS::ConspicuityProtocol::ADSB);
+        REQUIRE(configured.protocols.back().mode == GATAS::ProtocolMode::RX);
     }
 
     SECTION("Aircraft protocol settings include RX-only ADS-B and skip MLAT")
@@ -385,12 +385,12 @@ TEST_CASE_METHOD(SemaphoreMockScope, "Fully Configured", "[single-file]")
 
         const auto protocols = config.gaTasConfig().protocols;
         REQUIRE(protocols.size() == 4);
-        REQUIRE(protocols[0].dataSource == GATAS::DataSource::ADSB);
-        REQUIRE(protocols[0].mode == GATAS::DataSourceMode::RX);
-        REQUIRE(protocols[1].dataSource == GATAS::DataSource::ADSLM);
-        REQUIRE(protocols[2].dataSource == GATAS::DataSource::ADSLO_HDR);
-        REQUIRE(protocols[3].dataSource == GATAS::DataSource::OGN);
-        REQUIRE(protocols[3].mode == GATAS::DataSourceMode::RX);
+        REQUIRE(protocols[0].protocol == GATAS::ConspicuityProtocol::ADSB);
+        REQUIRE(protocols[0].mode == GATAS::ProtocolMode::RX);
+        REQUIRE(protocols[1].protocol == GATAS::ConspicuityProtocol::ADSL_M_BAND);
+        REQUIRE(protocols[2].protocol == GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR);
+        REQUIRE(protocols[3].protocol == GATAS::ConspicuityProtocol::OGN);
+        REQUIRE(protocols[3].mode == GATAS::ProtocolMode::RX);
     }
 
     SECTION("Arrays")

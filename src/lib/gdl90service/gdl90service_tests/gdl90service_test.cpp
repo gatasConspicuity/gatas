@@ -377,7 +377,7 @@ TEST_CASE("GDL90 sends egress pressure regardless of ownship pressure and MSL fa
         ownPosition.baroAlt = 7000;
         state.location.store(ownPosition);
         GATAS::AircraftPositionInfo position{};
-        position.dataSource = GATAS::DataSource::ADSB;
+        position.protocol = GATAS::ConspicuityProtocol::ADSB;
         position.ellipseHeight = 1047;
         position.pressureAlt = test.meters;
         service.on_receive(GATAS::EgressAircraftPositionMsg{position});

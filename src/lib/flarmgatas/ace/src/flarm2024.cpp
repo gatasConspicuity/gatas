@@ -20,7 +20,7 @@ void Flarm2024::getData(etl::string_stream &stream, const etl::string_view path)
 {
     (void)path;
     stream << "{";
-    datasourceTimeStats.toStream(stream);
+    protocolTimeStats.toStream(stream);
     stream << "\"receivedAircraftPositions:k\":" << statistics.receivedAircraftPositions;
     stream << ",\"transmittedAircraftPositions:k\":" << statistics.transmittedAircraftPositions;
     stream << ",\"crc:err\":" << statistics.crcErr;
@@ -33,7 +33,7 @@ void Flarm2024::getData(etl::string_stream &stream, const etl::string_view path)
 void Flarm2024::on_receive(const GATAS::RadioRxManchesterMsg &msg)
 {
 
-    if (msg.dataSource == GATAS::DataSource::FLARM)
+    if (msg.protocol == GATAS::ConspicuityProtocol::FLARM)
     {
         Flarm2024Packet packet;
 
@@ -71,7 +71,7 @@ void Flarm2024::on_receive(const GATAS::RadioRxManchesterMsg &msg)
         }
 
         // Only add statistics on valid packets in range
-        datasourceTimeStats.addReceiveStat(msg.frequency, CoreUtils::msInSecond());
+        protocolTimeStats.addReceiveStat(msg.frequency, CoreUtils::msInSecond());
 
         auto aircraftCat = toAircraftCategory(packet.aircraftType());
         const uint16_t msInMinute = static_cast<uint16_t>((epochSeconds % 60U) * 1'000U);
@@ -89,7 +89,8 @@ void Flarm2024::on_receive(const GATAS::RadioRxManchesterMsg &msg)
                 "",
                 packet.aircraftId(),
                 addressTypeFromFlarm(packet.addressType()),
-                GATAS::DataSource::FLARM,
+                GATAS::TrafficIngress::Transceiver,
+                GATAS::ConspicuityProtocol::FLARM,
                 aircraftCat,
                 packet.stealth(),
                 packet.noTrack(),
@@ -112,7 +113,7 @@ void Flarm2024::on_receive(const GATAS::RadioRxManchesterMsg &msg)
 void Flarm2024::on_receive(const GATAS::RadioTxPositionRequestMsg &msg)
 {
 
-    if (msg.radioParameters.config->isTxDataSource(GATAS::DataSource::FLARM))
+    if (msg.radioParameters.config->isTxProtocol(GATAS::ConspicuityProtocol::FLARM))
     {
         Flarm2024Packet packet;
         auto epochSeconds = CoreUtils::secondsSinceEpoch();

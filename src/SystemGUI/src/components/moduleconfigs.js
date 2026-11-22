@@ -120,7 +120,7 @@ class AircraftTrackerConfig extends ModuleConfig {
             <span class="help-label" tabindex="0" aria-label="About Add Data Source Prefix">
               ${html.raw(icon.help)}
               <span class="app-tooltip" role="tooltip">
-                Prefix tracked callsigns with the two-letter datasource code, for example <code>OG</code> or <code>FL</code>, so connected EFBs can show how the traffic was received.
+                Prefix tracked callsigns with the two-letter protocol code, for example <code>og</code> or <code>fl</code>, so connected EFBs can show the traffic protocol.
               </span>
             </span>
           </div>

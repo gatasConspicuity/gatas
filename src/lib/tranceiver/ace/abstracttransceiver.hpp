@@ -55,7 +55,7 @@ protected:
         uint32_t txRecovery = 0;
     } statistics;
 
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_NONE{0, GATAS::DataSource::NONE, false, 0, 16, 64, 0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}}; // NONE
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_NONE{0, GATAS::ConspicuityProtocol::NONE, false, 0, 16, 64, 0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}}; // NONE
 
     const uint8_t device;
     const uint8_t radioNo;

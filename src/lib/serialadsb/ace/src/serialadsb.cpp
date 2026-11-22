@@ -39,7 +39,6 @@ void SerialADSB::serialADSBTask(void *arg)
                 {
                     serialAdsb->statistics.totalReceived += 1;
                     // Finalise implementation to create the binary message here and send
-                    //                    serialAdsb->getBus().receive(GATAS::ADSBMessageBinMsg{sentence});
                 }
             }
         }

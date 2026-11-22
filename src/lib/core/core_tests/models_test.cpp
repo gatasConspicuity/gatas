@@ -4,17 +4,15 @@
 
 #include "models.hpp"
 
-TEST_CASE("DataSource short strings stay compact and stable", "[models]")
+TEST_CASE("ConspicuityProtocol short strings stay compact and stable", "[models]")
 {
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::FLARM)) == "fl");
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::ADSLM)) == "am");
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::ADSLO_HDR)) == "ah");
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::ADSLFLARM)) == "af");
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::ADSLOGN)) == "ao");
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::FANET)) == "fa");
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::ADSB)) == "ab");
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::OGN)) == "og");
-    REQUIRE(std::string_view(GATAS::toShortString(GATAS::DataSource::NONE)) == "un");
+    REQUIRE(std::string_view(GATAS::toShortString(GATAS::ConspicuityProtocol::FLARM)) == "fl");
+    REQUIRE(std::string_view(GATAS::toShortString(GATAS::ConspicuityProtocol::ADSL_M_BAND)) == "am");
+    REQUIRE(std::string_view(GATAS::toShortString(GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR)) == "ah");
+    REQUIRE(std::string_view(GATAS::toShortString(GATAS::ConspicuityProtocol::FANET)) == "fa");
+    REQUIRE(std::string_view(GATAS::toShortString(GATAS::ConspicuityProtocol::ADSB)) == "ab");
+    REQUIRE(std::string_view(GATAS::toShortString(GATAS::ConspicuityProtocol::OGN)) == "og");
+    REQUIRE(std::string_view(GATAS::toShortString(GATAS::ConspicuityProtocol::NONE)) == "un");
 }
 
 TEST_CASE("GATAS Connect output modes select their transports", "[models]")

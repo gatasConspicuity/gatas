@@ -73,9 +73,9 @@ void AircraftTracker::getData(etl::string_stream &stream, const etl::string_view
     (void)path;
     auto guard = SemaphoreGuard<>(portMAX_DELAY, trackedAircraftMutex);
     stream << "{";
-    for (uint8_t i = 0; i < static_cast<uint8_t>(GATAS::DataSource::_RADIO); i++)
+    for (size_t i = 0; i < GATAS::RADIO_PROTOCOLS.size(); ++i)
     {
-        stream << "\"" << GATAS::dataSourceIntToString(i) << ":AntPolar\":";
+        stream << "\"" << GATAS::toString(GATAS::RADIO_PROTOCOLS[i]) << ":AntPolar\":";
         antennaRadiationPattern[i].serialize(stream);
         stream << ",";
     }
@@ -112,7 +112,7 @@ void AircraftTracker::getData(etl::string_stream &stream, const etl::string_view
         first = false;
         stream << "\"";
         CoreUtils::streamIcaoAddress(stream, aircraft.address, aircraft.addressType);
-        stream << "," << GATAS::toString(aircraft.dataSource) << "," << aircraft.distanceFromOwn << ",";
+        stream << "," << GATAS::toString(aircraft.protocol) << "," << aircraft.distanceFromOwn << ",";
         if (const auto altitude = CoreUtils::resolveTrafficAltitude(aircraft, ownshipState, false))
         {
             stream << altitude.value();
@@ -132,10 +132,11 @@ void AircraftTracker::on_receive(const GATAS::IngressAircraftPositionsMsg &msg)
         {
             continue;
         }
-        uint8_t dataSource = static_cast<uint8_t>(aircraft.dataSource);
-        if (ownshipPositionValid && dataSource < antennaRadiationPattern.size())
+        const auto protocol = GATAS::radioProtocolIndex(aircraft.protocol);
+        if (ownshipPositionValid && aircraft.ingress == GATAS::TrafficIngress::Transceiver &&
+            protocol < antennaRadiationPattern.size())
         {
-            antennaRadiationPattern[dataSource].put(aircraft, op.lat, op.lon, op.track);
+            antennaRadiationPattern[protocol].put(aircraft, msg.rssidBm, op.lat, op.lon, op.track);
         }
         if (!enqueuePosition(aircraft))
         {
@@ -158,7 +159,7 @@ void AircraftTracker::on_receive(const GATAS::RadioTxPositionRequestMsg &msg)
     // radioParameters.id == 1 means O-Band Uplink
     // We do that here, because we neeed to send 10 aircraft instead of just ownship
     // Only function as ADSL uplink in ground station mode
-    if (groundStation && msg.radioParameters.config->dataSource() == GATAS::DataSource::ADSLO_HDR && msg.radioParameters.id == 1)
+    if (groundStation && msg.radioParameters.config->protocol() == GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR && msg.radioParameters.id == 1)
     {
         if (!tXqueue.full())
         {
@@ -176,11 +177,12 @@ void AircraftTracker::on_receive(const GATAS::IngressAircraftPositionMsg &msg)
         return;
     }
 
-    uint8_t dataSource = static_cast<uint8_t>(msg.position.dataSource);
+    const auto protocol = GATAS::radioProtocolIndex(msg.position.protocol);
     auto op = ownshipState.location.load();
-    if (ownshipPositionValid && dataSource < antennaRadiationPattern.size())
+    if (ownshipPositionValid && msg.position.ingress == GATAS::TrafficIngress::Transceiver &&
+        protocol < antennaRadiationPattern.size())
     {
-        antennaRadiationPattern[dataSource].put(msg, op.lat, op.lon, op.track);
+        antennaRadiationPattern[protocol].put(msg, op.lat, op.lon, op.track);
     }
 
     if (!enqueuePosition(msg.position))

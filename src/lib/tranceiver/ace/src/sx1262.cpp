@@ -94,7 +94,7 @@ void Sx1262::configureRadio(const GATAS::RadioParameters &newParameters,
                              RadioDirection direction, uint8_t payloadLength)
 {
     GATAS_ASSERT(newParameters.config != nullptr && newParameters.frequency != nullptr, "Invalid radio parameters");
-    GATAS_ASSERT(newParameters.config->dataSource() != GATAS::DataSource::NONE, "Cannot configure radio for NONE");
+    GATAS_ASSERT(!newParameters.config->isIdle(), "Cannot configure radio for NONE");
     GATAS_MEASURE("configureRadio", 900);
 
     // Completion/timeout leaves the radio in standby; the task stops active RX.
@@ -416,7 +416,7 @@ void Sx1262::receivePacket()
         const uint8_t length = buffer.pld_len_in_bytes;
         valid = valid && length >= 4 &&
                 (!lastRadioParameters.config->manchester || length % 2 == 0) &&
-                (lastRadioParameters.config->dataSource() != GATAS::DataSource::ADSLO_HDR || length % 4 == 0);
+                (lastRadioParameters.config->protocol() != GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR || length % 4 == 0);
         auto data = valid ? static_cast<uint8_t *>(getGlobalPool().alloc(length)) : nullptr;
         GATAS::DataFrame frame{
             .epochSeconds = CoreUtils::secondsSinceEpoch(),

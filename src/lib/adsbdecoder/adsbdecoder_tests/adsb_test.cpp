@@ -1,26 +1,31 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include "math.h"
 #include <fstream>
 #include <filesystem>
+#include <vector>
 #include <stdio.h>
 #include "testhelpers.h"
 #include "mockconfig.h"
 #include "semphr.h"
 #include "ace/coreutils.hpp"
+#include "../../dump1090Client/ace/dump1090client.hpp"
 
 #define private public
 
 #include "adsbdecoder.hpp"
 
-class Test : public etl::message_router<Test, GATAS::IngressAircraftPositionMsg>
+class Test : public etl::message_router<Test, GATAS::IngressAircraftPositionMsg, GATAS::ADSBMessageBinMsg>
 {
 
 public:
     GATAS::AircraftPositionInfo position;
     etl::imessage_bus &bus;
     bool received = false;
+    int16_t rssiDbm = INT16_MIN;
+    size_t binaryFrames = 0;
     Test(etl::imessage_bus &bus_) : bus(bus_)
     {
         bus.subscribe(*this);
@@ -35,6 +40,11 @@ public:
 //        printf("AircraftPosition Received\n");
         received = true;
         position = msg.position;
+        rssiDbm = msg.rssidBm;
+    }
+    void on_receive(const GATAS::ADSBMessageBinMsg &)
+    {
+        ++binaryFrames;
     }
     void on_receive_unknown(const etl::imessage &msg)
     {
@@ -45,6 +55,16 @@ public:
 etl::message_bus<4> bus;
 MockConfig mockConfig{bus};
 GATAS::OwnshipState ownshipState;
+
+static void sendDump1090Frame(etl::imessage_bus &bus, const uint8_t *frame)
+{
+    constexpr auto length = GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH;
+    auto &pool = BaseModule::getGlobalPool();
+    auto *copy = static_cast<uint8_t *>(pool.alloc(length));
+    REQUIRE(copy != nullptr);
+    etl::copy_n(frame, length, copy);
+    bus.receive(GATAS::ADSBMessageBinMsg{pool, copy, length, GATAS::TrafficIngress::Dump1090});
+}
 
 auto ownship = GATAS::OwnshipPositionInfo{
     CoreUtils::timeUs32(),
@@ -72,10 +92,13 @@ auto ownship = GATAS::OwnshipPositionInfo{
 // This test needs a bit more validation
 TEST_CASE("Test filter below and above", "[single-file]")
 {
+    etl::message_bus<4> bus;
+    MockConfig mockConfig{bus};
     xSemaphoreTakeValue = pdTRUE;
     ADSBDecoder adsbDecoder{bus, mockConfig, ownshipState};
     adsbDecoder.on_receive(GATAS::AdapativeRadiusMsg{10'000'000});
     adsbDecoder.postConstruct();
+    adsbDecoder.start();
     uint8_t data[24];
     Test test{bus};
 
@@ -100,7 +123,7 @@ TEST_CASE("Test filter below and above", "[single-file]")
         test.received = false;
         get_absolute_timeValue += 1;
         CoreUtils::hexStrToByteArray(line.c_str() + 1, data);
-        adsbDecoder.receiveBinary(data, 14);
+        sendDump1090Frame(bus, data);
 
         if (test.received)
         {
@@ -133,7 +156,7 @@ TEST_CASE("Test filter below and above", "[single-file]")
         test.received = false;
         get_absolute_timeValue += 1;
         CoreUtils::hexStrToByteArray(line.c_str() + 1, data);
-        adsbDecoder.receiveBinary(data, 14);
+        sendDump1090Frame(bus, data);
         if (test.received)
         {
             totalPlanes += 1;
@@ -159,7 +182,7 @@ TEST_CASE("Test filter below and above", "[single-file]")
         get_absolute_timeValue += 10000;
         time_us_Value += 10000;
         CoreUtils::hexStrToByteArray(line.c_str() + 1, data);
-        adsbDecoder.receiveBinary(data, line.size() - 1);
+        sendDump1090Frame(bus, data);
         if (test.received)
         {
             totalPlanes += 1;
@@ -167,16 +190,20 @@ TEST_CASE("Test filter below and above", "[single-file]")
         adsbDecoder.on_receive(GATAS::Every5SecMsg());
     }
     printf("Total Planes below: %d\n", totalPlanes);
-    REQUIRE(totalPlanes == 4599);
+    // Invalid CPR pairs no longer republish a previous coordinate as new traffic.
+    REQUIRE(4579 == totalPlanes);
     infile.close();
 }
 
 TEST_CASE("Test heading and direction received aircraft", "[single-file]")
 {
+    etl::message_bus<4> bus;
+    MockConfig mockConfig{bus};
     xSemaphoreTakeValue = pdTRUE;
     ADSBDecoder adsbDecoder(bus, mockConfig, ownshipState);
     adsbDecoder.on_receive(GATAS::AdapativeRadiusMsg{1'000'000});
     adsbDecoder.postConstruct();
+    adsbDecoder.start();
     Test test(bus);
     adsbDecoder.filterAbove = 50000;
     adsbDecoder.filterBelow = 50000;
@@ -189,16 +216,16 @@ TEST_CASE("Test heading and direction received aircraft", "[single-file]")
 
     uint8_t data[14];
     CoreUtils::hexStrToByteArray("8d502cd1589992ecbaf1a4140b65", data);
-    adsbDecoder.receiveBinary(data, 14);
+    sendDump1090Frame(bus, data);
     CoreUtils::hexStrToByteArray("8d502cd15899965802eb001f31d8", data);
-    adsbDecoder.receiveBinary(data, 14);
+    sendDump1090Frame(bus, data);
     CoreUtils::hexStrToByteArray("8d502cd19908c532903c9cced691", data);
-    adsbDecoder.receiveBinary(data, 14);
+    sendDump1090Frame(bus, data);
 
     REQUIRE(test.received == true);
     REQUIRE(test.position.address == 0x502CD1);
     REQUIRE(test.position.addressType == GATAS::AddressType::ICAO);
-    REQUIRE(test.position.dataSource == GATAS::DataSource::ADSB);
+    REQUIRE(test.position.protocol == GATAS::ConspicuityProtocol::ADSB);
     REQUIRE(test.position.aircraftType == GATAS::AircraftCategory::UNKNOWN);
     // https://www.unavco.org/software/geodetic-utilities/geoid-height-calculator/geoid-height-calculator.html  for 52.3888,4.7209
     REQUIRE(test.position.ellipseHeight == /*9029*/ 9072); // geoid aprox 43m
@@ -216,10 +243,13 @@ TEST_CASE("Test heading and direction received aircraft", "[single-file]")
 
 TEST_CASE("Test descending aircraft", "[single-file]")
 {
+    etl::message_bus<4> bus;
+    MockConfig mockConfig{bus};
     xSemaphoreTakeValue = pdTRUE;
     ADSBDecoder adsbDecoder{bus, mockConfig, ownshipState};
     adsbDecoder.on_receive(GATAS::AdapativeRadiusMsg{1'000'000});
     adsbDecoder.postConstruct();
+    adsbDecoder.start();
     Test test{bus};
     adsbDecoder.filterAbove = 50000;
     adsbDecoder.filterBelow = 50000;
@@ -233,11 +263,11 @@ TEST_CASE("Test descending aircraft", "[single-file]")
 
     uint8_t data[14];
     CoreUtils::hexStrToByteArray("8d407a055817867d1ce5ecbe8fdd", data); // odd
-    adsbDecoder.receiveBinary(data, 14);
+    sendDump1090Frame(bus, data);
     CoreUtils::hexStrToByteArray("8d407a0558178312d6eefaca54eb", data); // event
-    adsbDecoder.receiveBinary(data, 14);
+    sendDump1090Frame(bus, data);
     CoreUtils::hexStrToByteArray("8d407a059908e102980c93715499", data);
-    adsbDecoder.receiveBinary(data, 14);
+    sendDump1090Frame(bus, data);
 
     REQUIRE(test.position.verticalSpeed == Catch::Approx(-3.0).margin(0.001));
 }
@@ -273,7 +303,7 @@ TEST_CASE("ADSB decoder accepts complete DF17 frames from the radio bus")
 
     const uint8_t sample[]{0x8d, 0x40, 0x62, 0x1d, 0x58, 0xc3, 0x82, 0xd6, 0x90, 0xc8, 0xac, 0x28, 0x63, 0xa7};
     auto &pool = BaseModule::getGlobalPool();
-    auto send = [&](GATAS::DataSource source, size_t length)
+    auto send = [&](GATAS::ConspicuityProtocol source, size_t length)
     {
         auto *frame = static_cast<uint8_t *>(pool.alloc(length));
         REQUIRE(frame != nullptr);
@@ -281,10 +311,99 @@ TEST_CASE("ADSB decoder accepts complete DF17 frames from the radio bus")
         radioBus.receive(GATAS::RadioRxMsg{pool, frame, length, 0, 1'090'000'000, source, -65});
     };
 
-    send(GATAS::DataSource::FANET, sizeof(sample));
-    send(GATAS::DataSource::ADSB, sizeof(sample) - 1);
+    send(GATAS::ConspicuityProtocol::FANET, sizeof(sample));
+    send(GATAS::ConspicuityProtocol::ADSB, sizeof(sample) - 1);
+    auto *shortFrame = static_cast<uint8_t *>(pool.alloc(sizeof(sample) - 1));
+    REQUIRE(shortFrame != nullptr);
+    etl::copy_n(sample, sizeof(sample) - 1, shortFrame);
+    radioBus.receive(GATAS::ADSBMessageBinMsg{pool, shortFrame, sizeof(sample) - 1, GATAS::TrafficIngress::Dump1090});
     REQUIRE(decoder.adsbDataCollector.size() == 0);
-    send(GATAS::DataSource::ADSB, sizeof(sample));
+    send(GATAS::ConspicuityProtocol::ADSB, sizeof(sample));
     REQUIRE(decoder.adsbDataCollector.size() == 1);
     REQUIRE(decoder.adsbDataCollector.current().icao == 0x40621d);
+}
+
+TEST_CASE("Dump1090 Monitor counts frames dropped when the pool is full")
+{
+    etl::message_bus<4> bus;
+    MockConfig config{bus};
+    Dump1090Client client{bus, config};
+    auto &pool = BaseModule::getGlobalPool();
+    std::vector<void *> blocks;
+    while (auto *block = pool.alloc(GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH))
+    {
+        blocks.push_back(block);
+    }
+    uint8_t valid[] = "*8D407A055817867D1CE5ECBE8FDD;";
+    uint8_t malformed[] = "*8D407A055817867D1CE5ECBE8FDG;";
+    client.processNewSentence(valid);
+    client.processNewSentence(malformed);
+    for (auto *block : blocks)
+    {
+        pool.release(block);
+    }
+    client.processNewSentence(valid);
+
+    etl::string<128> output;
+    etl::string_stream stream(output);
+    client.getData(stream, "");
+    CHECK(output.find("\"poolDrops:err\":1") != output.npos);
+    CHECK(output.find("\"totalReceived:k\":1") != output.npos);
+}
+
+TEST_CASE("ADS-B ingress and RSSI come from the position pair")
+{
+    using GATAS::TrafficIngress;
+    const auto expected = GENERATE(TrafficIngress::Transceiver, TrafficIngress::Dump1090, TrafficIngress::Mixed);
+    etl::message_bus<4> radioBus;
+    MockConfig config{radioBus};
+    Dump1090Client dump1090{radioBus, config};
+    REQUIRE(GATAS::PostConstruct::OK == dump1090.postConstruct());
+    ADSBDecoder decoder{radioBus, config, ownshipState};
+    xSemaphoreTakeValue = pdTRUE;
+    REQUIRE(GATAS::PostConstruct::OK == decoder.postConstruct());
+    decoder.start();
+    decoder.on_receive(GATAS::AdapativeRadiusMsg{1'000'000});
+    decoder.filterAbove = 50'000;
+    decoder.filterBelow = 50'000;
+    auto location = ownship;
+    location.lat = 52.1f;
+    location.lon = 4.8f;
+    location.ellipseHeight = 10'000;
+    ownshipState.location.store(location);
+    Test receiver{radioBus};
+
+    uint8_t badMarker[] = "*8D407A055817867D1CE5ECBE8FDD!";
+    uint8_t badHex[] = "*8D407A055817867D1CE5ECBE8FDG;";
+    dump1090.processNewSentence(badMarker);
+    dump1090.processNewSentence(badHex);
+    REQUIRE(0 == receiver.binaryFrames);
+
+    auto send = [&](bool onboard, const char *hex)
+    {
+        constexpr size_t length = 14;
+        if (onboard)
+        {
+            auto &pool = BaseModule::getGlobalPool();
+            auto *frame = static_cast<uint8_t *>(pool.alloc(length));
+            REQUIRE(frame != nullptr);
+            CoreUtils::hexStrToByteArray(hex, frame);
+            radioBus.receive(GATAS::RadioRxMsg{pool, frame, length, 0, 1'090'000'000, GATAS::ConspicuityProtocol::ADSB, -65});
+        }
+        else
+        {
+            etl::string<length * 2 + 2> line("*");
+            line.append(hex);
+            line.push_back(';');
+            dump1090.processNewSentence({reinterpret_cast<uint8_t *>(line.data()), line.size() + 1});
+        }
+    };
+
+    send(expected == TrafficIngress::Transceiver, "8d407a055817867d1ce5ecbe8fdd"); // Odd
+    send(expected != TrafficIngress::Dump1090, "8d407a0558178312d6eefaca54eb"); // Even
+    send(expected == TrafficIngress::Dump1090, "8d407a059908e102980c93715499"); // Velocity
+    REQUIRE(receiver.received);
+    REQUIRE(expected == receiver.position.ingress);
+    REQUIRE(GATAS::ConspicuityProtocol::ADSB == receiver.position.protocol);
+    REQUIRE((expected == TrafficIngress::Dump1090 ? INT16_MIN : -65) == receiver.rssiDbm);
 }

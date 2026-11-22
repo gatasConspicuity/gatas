@@ -506,29 +506,29 @@ const GATAS::Config::GaTasConfiguration Config::gaTasConfig() const
             .allIcaoAddresses = {}};
     }
 
-    etl::vector<GATAS::DataSourceConfig, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> protocols;
-    auto appendProtocol = [&](GATAS::DataSource dataSource, GATAS::DataSourceMode mode)
+    etl::vector<GATAS::ProtocolConfig, GATAS::RADIO_PROTOCOLS.size()> protocols;
+    auto appendProtocol = [&](GATAS::ConspicuityProtocol protocol, GATAS::ProtocolMode mode)
     {
-        if (dataSource >= GATAS::DataSource::_TRANSPROTOCOLS || protocols.full())
+        if (GATAS::radioProtocolIndex(protocol) >= GATAS::RADIO_PROTOCOLS.size() || protocols.full())
         {
             return;
         }
 
-        if (dataSource == GATAS::DataSource::ADSB)
+        if (protocol == GATAS::ConspicuityProtocol::ADSB)
         {
-            if (mode != GATAS::DataSourceMode::TX)
+            if (mode != GATAS::ProtocolMode::TX)
             {
-                protocols.push_back({dataSource, GATAS::DataSourceMode::RX});
+                protocols.push_back({protocol, GATAS::ProtocolMode::RX});
             }
             return;
         }
 
-        protocols.push_back({dataSource, mode});
+        protocols.push_back({protocol, mode});
 
         // Legacy configs expect ADSL to enable the header protocol as well.
-        if (dataSource == GATAS::DataSource::ADSLM && !protocols.full())
+        if (protocol == GATAS::ConspicuityProtocol::ADSL_M_BAND && !protocols.full())
         {
-            protocols.push_back({GATAS::DataSource::ADSLO_HDR, mode});
+            protocols.push_back({GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR, mode});
         }
     };
 
@@ -537,7 +537,7 @@ const GATAS::Config::GaTasConfiguration Config::gaTasConfig() const
         if (protocol.is<const char *>())
         {
             // Backwards compatibility: old format is an array of protocol names.
-            appendProtocol(GATAS::stringToDataSource(protocol.as<const char *>()), GATAS::DataSourceMode::RX_TX);
+            appendProtocol(GATAS::stringToConspicuityProtocol(protocol.as<const char *>()), GATAS::ProtocolMode::RX_TX);
             continue;
         }
 
@@ -548,19 +548,19 @@ const GATAS::Config::GaTasConfiguration Config::gaTasConfig() const
 
         for (JsonPairConst protocolEntry : protocol.as<JsonObjectConst>())
         {
-            auto dataSource = GATAS::stringToDataSource(protocolEntry.key().c_str());
-            GATAS::DataSourceMode mode = GATAS::DataSourceMode::RX_TX;
+            auto protocol = GATAS::stringToConspicuityProtocol(protocolEntry.key().c_str());
+            GATAS::ProtocolMode mode = GATAS::ProtocolMode::RX_TX;
             JsonObjectConst protocolConfig = protocolEntry.value().as<JsonObjectConst>();
             if (!protocolConfig.isNull())
             {
                 auto modeStr = protocolConfig["mode"].as<const char *>();
                 if (modeStr != nullptr)
                 {
-                    mode = GATAS::stringToDataSourceMode(modeStr);
+                    mode = GATAS::stringToProtocolMode(modeStr);
                 }
             }
 
-            appendProtocol(dataSource, mode);
+            appendProtocol(protocol, mode);
         }
     }
 

@@ -68,20 +68,20 @@ TEST_CASE("AircraftTracker diagnostics contain one comma-separated row per aircr
 
     GATAS::AircraftPositionInfo aircraft;
     aircraft.address = 0x123ABC;
-    aircraft.dataSource = GATAS::DataSource::ADSB;
+    aircraft.protocol = GATAS::ConspicuityProtocol::ADSB;
     aircraft.distanceFromOwn = 42;
     aircraft.pressureAlt = -100;
     REQUIRE(tracker.trackedAircraft.insert(aircraft));
 
     aircraft.address = 0x000012;
-    aircraft.dataSource = GATAS::DataSource::FLARM;
+    aircraft.protocol = GATAS::ConspicuityProtocol::FLARM;
     aircraft.distanceFromOwn = 1500;
     aircraft.ellipseHeight = 1147;
     aircraft.pressureAlt = GATAS::INVALID_BARO_ALTITUDE;
     REQUIRE(tracker.trackedAircraft.insert(aircraft));
 
     aircraft.address = 0xABC123;
-    aircraft.dataSource = GATAS::DataSource::OGN;
+    aircraft.protocol = GATAS::ConspicuityProtocol::OGN;
     aircraft.distanceFromOwn = 0;
     aircraft.pressureAlt = 0;
     REQUIRE(tracker.trackedAircraft.insert(aircraft));
@@ -899,7 +899,7 @@ TEST_CASE("Path predictor derives turn behavior from recent history", "[single-f
 
     GATAS::AircraftPositionInfo aircraftPosition;
     aircraftPosition.address = 60;
-    aircraftPosition.dataSource = GATAS::DataSource::OGN;
+    aircraftPosition.protocol = GATAS::ConspicuityProtocol::OGN;
     aircraftPosition.lat = 52.0f;
     aircraftPosition.lon = 4.0f;
     aircraftPosition.ellipseHeight = 1000;
@@ -1047,7 +1047,7 @@ TEST_CASE("Radio priority is checked before out-of-range deletion", "[radio-prio
 {
     const uint32_t start = GENERATE(2'000'000U, UINT32_MAX - 2'000'000U);
     const uint32_t age = GENERATE(3'999'999U, 4'000'000U, 4'000'001U);
-    const auto source = GENERATE(GATAS::DataSource::ADSB, GATAS::DataSource::MLAT, GATAS::DataSource::OGN);
+    const auto source = GENERATE(GATAS::ConspicuityProtocol::ADSB, GATAS::ConspicuityProtocol::MLAT, GATAS::ConspicuityProtocol::OGN);
     const int sampleOrder = GENERATE(-1, 0, 1);
     CAPTURE(start, age, source, sampleOrder);
     time_us_Value = start;
@@ -1058,7 +1058,8 @@ TEST_CASE("Radio priority is checked before out-of-range deletion", "[radio-prio
     radio.address = 42;
     radio.timestamp = start;
     radio.distanceFromOwn = 74'990;
-    radio.dataSource = GATAS::DataSource::OGN;
+    radio.ingress = GATAS::TrafficIngress::Transceiver;
+    radio.protocol = GATAS::ConspicuityProtocol::OGN;
     radio.lat = 52.0f;
     radio.lon = 4.0f;
     radio.groundSpeed = 50.0f;
@@ -1077,11 +1078,12 @@ TEST_CASE("Radio priority is checked before out-of-range deletion", "[radio-prio
     auto incoming = radio;
     incoming.timestamp = sampleOrder < 0 ? start - 1 : (sampleOrder == 0 ? start : static_cast<uint32_t>(time_us_Value));
     incoming.distanceFromOwn = 75'010;
-    incoming.dataSource = source;
+    incoming.ingress = GATAS::TrafficIngress::Connect;
+    incoming.protocol = source;
     incoming.hTurnRate = -10.0f;
     REQUIRE_FALSE(tracker.insert(incoming));
 
-    const bool shouldRetain = sampleOrder < 0 || (source != GATAS::DataSource::OGN && age < 4'000'000U);
+    const bool shouldRetain = sampleOrder < 0 || (source != GATAS::ConspicuityProtocol::OGN && age < 4'000'000U);
     REQUIRE(tracker.size() == (shouldRetain ? 1 : 0));
     REQUIRE(tracker.pathPredictor.contains(radio.address) == shouldRetain);
     if (shouldRetain)
@@ -1090,7 +1092,7 @@ TEST_CASE("Radio priority is checked before out-of-range deletion", "[radio-prio
         REQUIRE(stored != tracker.trackedAircraft.end());
         REQUIRE(stored->second.sendTime == deadline);
         REQUIRE(stored->second.position.timestamp == radio.timestamp);
-        REQUIRE(stored->second.position.dataSource == radio.dataSource);
+        REQUIRE(stored->second.position.protocol == radio.protocol);
         REQUIRE(stored->second.position.distanceFromOwn == radio.distanceFromOwn);
         REQUIRE(stored->second.position.lat == radio.lat);
         REQUIRE(stored->second.position.lon == radio.lon);
@@ -1113,7 +1115,8 @@ TEST_CASE("Radio priority: fresh RADIO, MLAT incoming - should NOT update", "[si
     radioPosition.address = 42;
     radioPosition.timestamp = 0;
     radioPosition.distanceFromOwn = 5000;
-    radioPosition.dataSource = GATAS::DataSource::OGN;
+    radioPosition.ingress = GATAS::TrafficIngress::Transceiver;
+    radioPosition.protocol = GATAS::ConspicuityProtocol::OGN;
     REQUIRE(trackedAircraft.insert(radioPosition) == true);
 
     // At t=2000000us, incoming MLAT data arrives
@@ -1123,7 +1126,8 @@ TEST_CASE("Radio priority: fresh RADIO, MLAT incoming - should NOT update", "[si
     mlatPosition.address = 42;
     mlatPosition.timestamp = 2000000;
     mlatPosition.distanceFromOwn = 5100;
-    mlatPosition.dataSource = GATAS::DataSource::MLAT;
+    mlatPosition.ingress = GATAS::TrafficIngress::Connect;
+    mlatPosition.protocol = GATAS::ConspicuityProtocol::MLAT;
 
     REQUIRE(trackedAircraft.insert(mlatPosition) == false);
     REQUIRE(trackedAircraft.size() == 1);
@@ -1136,7 +1140,7 @@ TEST_CASE("Radio priority: fresh RADIO, MLAT incoming - should NOT update", "[si
         void onNext(const GATAS::AircraftPositionInfo &position)
         {
             REQUIRE(position.distanceFromOwn == 5000);  // Should be original radio data
-            REQUIRE(position.dataSource == GATAS::DataSource::OGN);
+            REQUIRE(position.protocol == GATAS::ConspicuityProtocol::OGN);
         }
     } handler;
     time_us_Value = 2000100;
@@ -1154,7 +1158,8 @@ TEST_CASE("Radio priority: expired RADIO, MLAT incoming - should UPDATE", "[sing
     radioPosition.address = 42;
     radioPosition.timestamp = 0;
     radioPosition.distanceFromOwn = 5000;
-    radioPosition.dataSource = GATAS::DataSource::OGN;
+    radioPosition.ingress = GATAS::TrafficIngress::Transceiver;
+    radioPosition.protocol = GATAS::ConspicuityProtocol::OGN;
     REQUIRE(trackedAircraft.insert(radioPosition) == true);
 
     // At t=5000000us, incoming MLAT data arrives
@@ -1164,7 +1169,8 @@ TEST_CASE("Radio priority: expired RADIO, MLAT incoming - should UPDATE", "[sing
     mlatPosition.address = 42;
     mlatPosition.timestamp = 5000000;
     mlatPosition.distanceFromOwn = 5100;
-    mlatPosition.dataSource = GATAS::DataSource::MLAT;
+    mlatPosition.ingress = GATAS::TrafficIngress::Connect;
+    mlatPosition.protocol = GATAS::ConspicuityProtocol::MLAT;
 
     REQUIRE(trackedAircraft.insert(mlatPosition) == true);
     REQUIRE(trackedAircraft.size() == 1);
@@ -1176,7 +1182,7 @@ TEST_CASE("Radio priority: expired RADIO, MLAT incoming - should UPDATE", "[sing
         void onNext(const GATAS::AircraftPositionInfo &position)
         {
             REQUIRE(position.distanceFromOwn == 5100);  // Should be updated MLAT data
-            REQUIRE(position.dataSource == GATAS::DataSource::MLAT);
+            REQUIRE(position.protocol == GATAS::ConspicuityProtocol::MLAT);
         }
     } handler;
     time_us_Value = 5000100;
@@ -1193,7 +1199,8 @@ TEST_CASE("Radio priority: fresh RADIO, ADSB incoming - should NOT update", "[si
     radioPosition.address = 42;
     radioPosition.timestamp = 0;
     radioPosition.distanceFromOwn = 5000;
-    radioPosition.dataSource = GATAS::DataSource::OGN;
+    radioPosition.ingress = GATAS::TrafficIngress::Transceiver;
+    radioPosition.protocol = GATAS::ConspicuityProtocol::OGN;
     REQUIRE(trackedAircraft.insert(radioPosition));
 
     time_us_Value = 2000000;
@@ -1201,7 +1208,8 @@ TEST_CASE("Radio priority: fresh RADIO, ADSB incoming - should NOT update", "[si
     adsbPosition.address = 42;
     adsbPosition.timestamp = 2000000;
     adsbPosition.distanceFromOwn = 5100;
-    adsbPosition.dataSource = GATAS::DataSource::ADSB;
+    adsbPosition.ingress = GATAS::TrafficIngress::Connect;
+    adsbPosition.protocol = GATAS::ConspicuityProtocol::ADSB;
 
     REQUIRE_FALSE(trackedAircraft.insert(adsbPosition));
 
@@ -1211,7 +1219,7 @@ TEST_CASE("Radio priority: fresh RADIO, ADSB incoming - should NOT update", "[si
         void onNext(const GATAS::AircraftPositionInfo &position)
         {
             REQUIRE(position.distanceFromOwn == 5000);
-            REQUIRE(position.dataSource == GATAS::DataSource::OGN);
+            REQUIRE(position.protocol == GATAS::ConspicuityProtocol::OGN);
         }
     } handler;
     time_us_Value = 2000100;
@@ -1227,7 +1235,7 @@ TEST_CASE("Data source prefix preserves fixed callsign length", "[single-file]")
 
     GATAS::AircraftPositionInfo aircraftPosition;
     aircraftPosition.distanceFromOwn = 5000;
-    aircraftPosition.dataSource = GATAS::DataSource::FLARM;
+    aircraftPosition.protocol = GATAS::ConspicuityProtocol::FLARM;
     aircraftPosition.callSign = "PH-ABCDEFGHIJKL";
 
     REQUIRE(trackedAircraft.insert(aircraftPosition) == true);
@@ -1257,7 +1265,7 @@ TEST_CASE("Data source prefix does create callsigns for empty values", "[single-
 
     GATAS::AircraftPositionInfo aircraftPosition;
     aircraftPosition.distanceFromOwn = 5000;
-    aircraftPosition.dataSource = GATAS::DataSource::ADSB;
+    aircraftPosition.protocol = GATAS::ConspicuityProtocol::ADSB;
 
     REQUIRE(trackedAircraft.insert(aircraftPosition) == true);
 
@@ -1287,7 +1295,7 @@ TEST_CASE("Squawk display replaces callsign when squawk is known", "[single-file
 
     GATAS::AircraftPositionInfo aircraftPosition;
     aircraftPosition.distanceFromOwn = 5000;
-    aircraftPosition.dataSource = GATAS::DataSource::ADSB;
+    aircraftPosition.protocol = GATAS::ConspicuityProtocol::ADSB;
     aircraftPosition.callSign = "PH-ABC";
     aircraftPosition.squawk = 42;
 
@@ -1348,4 +1356,74 @@ TEST_CASE("Tracker handles startup allocation failures", "[startup]")
     }
     mockTaskCreateResult = pdPASS;
     mockCreatedTask = nullptr;
+}
+
+TEST_CASE("AircraftTracker counts all traffic and plots only transceiver observations", "[diagnostics]")
+{
+    using GATAS::TrafficIngress;
+    using GATAS::ConspicuityProtocol;
+    CoreUtils::init();
+    GATAS::ThreadSafeBus<8> bus;
+    MockConfig config{bus};
+    GATAS::OwnshipState ownship;
+    ownship.init(CoreUtils::sharedSpinLock());
+    ownship.location.store(makeOwnship());
+    AircraftTracker tracker{bus, config, ownship};
+    xSemaphoreTakeValue = pdTRUE;
+    tracker.trackedAircraftMutex = xSemaphoreCreateMutex();
+    tracker.ownshipPositionValid = true;
+    time_us_Value = 1'000'000;
+
+    GATAS::AircraftPositionInfo position;
+    position.timestamp = static_cast<uint32_t>(time_us_Value);
+    position.lat = 0.01f;
+    position.protocol = ConspicuityProtocol::ADSB;
+    position.address = 1;
+    position.ingress = TrafficIngress::Transceiver;
+    position.distanceFromOwn = 1'000;
+    tracker.on_receive(GATAS::IngressAircraftPositionMsg{position, -65});
+    tracker.handleNew();
+
+    position.address = 2;
+    position.ingress = TrafficIngress::Dump1090;
+    position.distanceFromOwn = 2'000;
+    tracker.on_receive(GATAS::IngressAircraftPositionMsg{position});
+    tracker.handleNew();
+
+    GATAS::IngressAircraftPositionsMsg batch;
+    position.address = 3;
+    position.ingress = TrafficIngress::Connect;
+    position.protocol = ConspicuityProtocol::ADSL_O_BAND_HDR;
+    position.distanceFromOwn = 3'000;
+    batch.positions.push_back(position);
+    position.address = 4;
+    position.ingress = TrafficIngress::Transceiver;
+    position.distanceFromOwn = 900;
+    batch.positions.push_back(position);
+    position.address = 5;
+    position.ingress = TrafficIngress::RadioRelay;
+    position.distanceFromOwn = 5'000;
+    batch.positions.push_back(position);
+    CHECK(GATAS::qualifiesForRadioTrafficPriority(position.ingress, position.protocol));
+    batch.rssidBm = -42;
+    tracker.on_receive(batch);
+    tracker.handleNew();
+
+    const auto maxRange = [&](ConspicuityProtocol protocol)
+    {
+        uint32_t distance = 0;
+        for (const auto &radial : tracker.antennaRadiationPattern[GATAS::radioProtocolIndex(protocol)]._radiationPattern())
+        {
+            distance = etl::max(distance, radial.maxDistance);
+        }
+        return distance;
+    };
+    REQUIRE(1'000 == maxRange(ConspicuityProtocol::ADSB));
+    REQUIRE(900 == maxRange(ConspicuityProtocol::ADSL_O_BAND_HDR));
+    REQUIRE(5 == tracker.trackedAircraft.size());
+    etl::string<4096> output;
+    etl::string_stream stream(output);
+    tracker.getData(stream, "");
+    REQUIRE(output.find("\"numberOfObjectsTracking\":5") != output.npos);
+    REQUIRE(output.find("\"positionsProcessed:k\":5") != output.npos);
 }

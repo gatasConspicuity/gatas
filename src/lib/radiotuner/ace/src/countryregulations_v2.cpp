@@ -34,14 +34,14 @@ CountryRegulations::Zone CountryRegulations::zone(float lat, float lon)
 }
 
 // New simplified methods
-etl::span<const CountryRegulations::ProtocolTxTimeSlot> CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone zone, GATAS::DataSource dataSource)
+etl::span<const CountryRegulations::ProtocolTxTimeSlot> CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone zone, GATAS::ConspicuityProtocol protocol)
 {
     size_t start = protocolTxTimimgs.size();
     size_t count = 0;
     for (size_t i = 0; i < protocolTxTimimgs.size(); ++i)
     {
         const auto &slot = protocolTxTimimgs[i];
-        if (slot.radioConfig.isTxDataSource(dataSource) && slot.zone == zone)
+        if (slot.radioConfig.isTxProtocol(protocol) && slot.zone == zone)
         {
             if (count == 0)
             {
@@ -61,16 +61,16 @@ etl::span<const CountryRegulations::ProtocolTxTimeSlot> CountryRegulations::getP
     return {protocolTxTimimgs.data() + start, count};
 }
 
-const CountryRegulations::ProtocolRxTimeSlot &CountryRegulations::getProtocolRxTimings(CountryRegulations::Zone zone, GATAS::DataSource dataSource)
+const CountryRegulations::ProtocolRxTimeSlot &CountryRegulations::getProtocolRxTimings(CountryRegulations::Zone zone, GATAS::ConspicuityProtocol protocol)
 {
-    if (dataSource == GATAS::DataSource::ADSB)
+    if (protocol == GATAS::ConspicuityProtocol::ADSB)
     {
         return ADSB_RX_TIMESLOT;
     }
     for (size_t i = 0; i < protocolRxTimimgs.size(); ++i)
     {
         const auto &slot = protocolRxTimimgs[i];
-        if (slot.radioConfig.isRxDataSource(dataSource) && slot.zone == zone)
+        if (slot.radioConfig.isRxProtocol(protocol) && slot.zone == zone)
         {
             return protocolRxTimimgs[i];
         }

@@ -21,6 +21,7 @@ Make the smallest readable change that fully solves the task. Start in the code 
 Updaet agents and changelog- Keep shared code compatible with the C++ standard configured for its desktop tests. The firmware build uses C++20, and many desktop test targets use C++17.
 - Design COBS messages as idempotent state notifications, not request/response exchanges. GATAS always provides the required current state; clients must not need to request it or correlate replies with requests or sessions.
 - Use fixed-size ETL containers and avoid introducing dynamic-allocation-heavy patterns into firmware code.
+- Keep all classes derived from `BaseModule`, directly or indirectly, as stateless as possible. Keep module-owned arrays and maps only when they serve the module's responsibility. Pass per-operation values through arguments, return values, or per-call callback context. Never use member variables as intermediate storage between calls, handlers, or callbacks.
 - Modules must not retain a reference or pointer to `Configuration`. Read configuration during construction and synchronously from `ConfigUpdatedMsg`, then copy only the values owned by the module. `Configuration` is not task-safe, so configuration access must remain in these controlled paths.
 - Use `float`, never `double`, in project code and tests.
 - Prefer ETL text facilities such as `etl::string_stream` and `etl::string_view`; do not use `std::snprintf`.
@@ -127,7 +128,6 @@ The firmware build embeds `src/pico/gatas_default_config.json`, with an optional
 - `Radio`: radio transceiver base with lookup names `_Radio_0` through `_Radio_3`
 - `SpiModule`: SPI interface, `_SPI_0` and `_SPI_1`
 - `RtcModule`: RTC abstraction
-- `BinaryReceiver`: binary stream consumer base
 
 Use Pico SDK APIs for peripheral and hardware access. Keep interrupt handlers short and use only non-blocking, allocation-free operations in them. When handing off work between one producer and one consumer, prefer the existing ETL `queue_spsc_atomic` pattern where it fits.
 

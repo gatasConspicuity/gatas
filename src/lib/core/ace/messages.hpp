@@ -19,15 +19,16 @@
 namespace GATAS
 {
 
-    /**
-     * Send by ADSB Modules contains RAW ADSB message in the form of
-     * *a8000fb18b51293820bcd5d0fe9c; in binary from
-     */
+    // A decoded Mode S frame from a receiver such as dump1090. The message owns its pool buffer.
     struct ADSBMessageBinMsg : public etl::message<1>
     {
         static constexpr uint8_t MAX_BINARY_LENGTH = 14;
+        PoolOwnedPtr<GATAS::GlobalPoolConfiguration, const uint8_t> frame;
         uint8_t length;
-        uint8_t data[MAX_BINARY_LENGTH];
+        TrafficIngress ingress;
+
+        ADSBMessageBinMsg(GATAS::GlobalPoolConfiguration &pool, uint8_t *data, uint8_t size, TrafficIngress source)
+            : frame(pool, data), length(size), ingress(source) {}
     };
 
     /**
@@ -67,6 +68,7 @@ namespace GATAS
     {
         static constexpr size_t MAX_POSITIONS = 10;
         etl::vector<GATAS::AircraftPositionInfo, MAX_POSITIONS> positions;
+        int16_t rssidBm = INT16_MIN; // Shared RSSI when the batch came from one radio frame.
         IngressAircraftPositionsMsg() = default;
 
         IngressAircraftPositionsMsg(const etl::ivector<GATAS::AircraftPositionInfo> &positions_)
@@ -139,14 +141,14 @@ namespace GATAS
         mutable size_t lengthBytes; // hack to allow reset the length on a const object from the messagebus
         uint32_t epochSeconds;
         uint32_t frequency;
-        GATAS::DataSource dataSource;
+        GATAS::ConspicuityProtocol protocol;
         int8_t rssidBm;
 
-        RadioRxMsgBase(GATAS::GlobalPoolConfiguration &pool, uint8_t *frame_, size_t lengthBytes_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::DataSource dataSource_, int8_t rssidBm_)
-            : frame(pool, frame_), lengthBytes(lengthBytes_), epochSeconds(epochSeconds_), frequency(frequency_), dataSource(dataSource_), rssidBm(rssidBm_) {}
+        RadioRxMsgBase(GATAS::GlobalPoolConfiguration &pool, uint8_t *frame_, size_t lengthBytes_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::ConspicuityProtocol protocol_, int8_t rssidBm_)
+            : frame(pool, frame_), lengthBytes(lengthBytes_), epochSeconds(epochSeconds_), frequency(frequency_), protocol(protocol_), rssidBm(rssidBm_) {}
 
-        RadioRxMsgBase(PoolOwnedPtr<GATAS::GlobalPoolConfiguration, uint8_t> &&frame_, size_t lengthBytes_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::DataSource dataSource_, int8_t rssidBm_)
-            : frame(etl::move(frame_)), lengthBytes(lengthBytes_), epochSeconds(epochSeconds_), frequency(frequency_), dataSource(dataSource_), rssidBm(rssidBm_) {}
+        RadioRxMsgBase(PoolOwnedPtr<GATAS::GlobalPoolConfiguration, uint8_t> &&frame_, size_t lengthBytes_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::ConspicuityProtocol protocol_, int8_t rssidBm_)
+            : frame(etl::move(frame_)), lengthBytes(lengthBytes_), epochSeconds(epochSeconds_), frequency(frequency_), protocol(protocol_), rssidBm(rssidBm_) {}
 
         uint32_t *frame32() const
         {
@@ -166,13 +168,13 @@ namespace GATAS
 
     struct RadioRxMsg : public RadioRxMsgBase, public etl::message<200>
     {
-        explicit RadioRxMsg(GATAS::GlobalPoolConfiguration &pool, uint8_t *data_, size_t length_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::DataSource dataSource_, int8_t rssidBm_)
-            : RadioRxMsgBase(pool, data_, length_, epochSeconds_, frequency_, dataSource_, rssidBm_)
+        explicit RadioRxMsg(GATAS::GlobalPoolConfiguration &pool, uint8_t *data_, size_t length_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::ConspicuityProtocol protocol_, int8_t rssidBm_)
+            : RadioRxMsgBase(pool, data_, length_, epochSeconds_, frequency_, protocol_, rssidBm_)
         {
         }
 
-        explicit RadioRxMsg(PoolOwnedPtr<GATAS::GlobalPoolConfiguration, uint8_t> &&data_, size_t length_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::DataSource dataSource_, int8_t rssidBm_)
-            : RadioRxMsgBase(etl::move(data_), length_, epochSeconds_, frequency_, dataSource_, rssidBm_)
+        explicit RadioRxMsg(PoolOwnedPtr<GATAS::GlobalPoolConfiguration, uint8_t> &&data_, size_t length_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::ConspicuityProtocol protocol_, int8_t rssidBm_)
+            : RadioRxMsgBase(etl::move(data_), length_, epochSeconds_, frequency_, protocol_, rssidBm_)
         {
         }
     };
@@ -181,11 +183,11 @@ namespace GATAS
     {
         mutable PoolOwnedPtr<GATAS::GlobalPoolConfiguration, uint8_t> error;
 
-        explicit RadioRxManchesterMsg(GATAS::GlobalPoolConfiguration &pool, uint8_t *data_, uint8_t *error_, size_t length_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::DataSource dataSource_, int8_t rssidBm_)
-            : RadioRxMsgBase(pool, data_, length_, epochSeconds_, frequency_, dataSource_, rssidBm_), error(pool, error_) {}
+        explicit RadioRxManchesterMsg(GATAS::GlobalPoolConfiguration &pool, uint8_t *data_, uint8_t *error_, size_t length_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::ConspicuityProtocol protocol_, int8_t rssidBm_)
+            : RadioRxMsgBase(pool, data_, length_, epochSeconds_, frequency_, protocol_, rssidBm_), error(pool, error_) {}
 
-        explicit RadioRxManchesterMsg(PoolOwnedPtr<GATAS::GlobalPoolConfiguration, uint8_t> &&data_, GATAS::GlobalPoolConfiguration &pool, uint8_t *error_, size_t length_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::DataSource dataSource_, int8_t rssidBm_)
-            : RadioRxMsgBase(etl::move(data_), length_, epochSeconds_, frequency_, dataSource_, rssidBm_), error(pool, error_) {}
+        explicit RadioRxManchesterMsg(PoolOwnedPtr<GATAS::GlobalPoolConfiguration, uint8_t> &&data_, GATAS::GlobalPoolConfiguration &pool, uint8_t *error_, size_t length_, uint32_t epochSeconds_, uint32_t frequency_, GATAS::ConspicuityProtocol protocol_, int8_t rssidBm_)
+            : RadioRxMsgBase(etl::move(data_), length_, epochSeconds_, frequency_, protocol_, rssidBm_), error(pool, error_) {}
 
         uint32_t *err32()
         {

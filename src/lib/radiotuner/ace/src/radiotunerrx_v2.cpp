@@ -35,10 +35,10 @@ GATAS::PostConstruct RadioTunerRx::postConstruct()
 void RadioTunerRx::start()
 {
     getBus().subscribe(*this);
-    if (etl::any_of(configuredDatasources.begin(), configuredDatasources.end(),
-                    [](const auto &config) { return config.dataSource == GATAS::DataSource::ADSB && config.isRx(); }))
+    if (etl::any_of(configuredProtocols.begin(), configuredProtocols.end(),
+                    [](const auto &config) { return config.protocol == GATAS::ConspicuityProtocol::ADSB && config.isRx(); }))
     {
-        assignDataSourcesWithTrafficBias();
+        assignProtocolsWithTrafficBias();
     }
 };
 
@@ -62,7 +62,7 @@ void RadioTunerRx::radioTuneTask(void *arg)
     RadioTunerRx *radioTunerRx = static_cast<RadioTunerRx *>(arg);
     bool taskBlocked = false;
     uint16_t nextDelayMs = 200;
-    uint32_t lastTrafficReEvalUs = CoreUtils::timeUs32() + RE_EVALUATE_DATASOURCES_USEC;
+    uint32_t lastTrafficReEvalUs = CoreUtils::timeUs32() + RE_EVALUATE_protocol_USEC;
 
     while (true)
     {
@@ -88,9 +88,9 @@ void RadioTunerRx::radioTuneTask(void *arg)
 
         if (CoreUtils::isUsReached(lastTrafficReEvalUs))
         {
-            lastTrafficReEvalUs = CoreUtils::timeUs32() + RE_EVALUATE_DATASOURCES_USEC;
-            GATAS_INFO("Re-evaluating datasource assignment with traffic bias. Received packets");
-            radioTunerRx->assignDataSourcesFromTask();
+            lastTrafficReEvalUs = CoreUtils::timeUs32() + RE_EVALUATE_protocol_USEC;
+            GATAS_INFO("Re-evaluating protocol assignment with traffic bias. Received packets");
+            radioTunerRx->assignProtocolsFromTask();
         }
 
         const uint32_t loopStartMs = CoreUtils::msSinceMidnight();
@@ -123,7 +123,7 @@ void RadioTunerRx::radioTuneTask(void *arg)
                 }
             }
 
-            //            GATAS_INFO("Radio %d cycleMs: %ld, ppsMS: %d  current entry: %u, start: %d, end: %d, ds: %s\n", ref.radioNo, cycleMs,  CoreUtils::msInSecond(), foundIdx, ref.protocolTimings[foundIdx].start, ref.protocolTimings[foundIdx].end, (ref.protocolTimings[foundIdx].protocolTimeConfig != nullptr) ? GATAS::toString(ref.protocolTimings[foundIdx].protocolTimeConfig->radioConfig.dataSource()) : "NOOP");
+            //            GATAS_INFO("Radio %d cycleMs: %ld, ppsMS: %d  current entry: %u, start: %d, end: %d, ds: %s\n", ref.radioNo, cycleMs,  CoreUtils::msInSecond(), foundIdx, ref.protocolTimings[foundIdx].start, ref.protocolTimings[foundIdx].end, (ref.protocolTimings[foundIdx].protocolTimeConfig != nullptr) ? GATAS::toString(ref.protocolTimings[foundIdx].protocolTimeConfig->radioConfig.protocol()) : "NOOP");
             const auto &entry = ref.protocolTimings[foundIdx];
 
             // Only reconfigure radio if protocol changed
@@ -132,7 +132,7 @@ void RadioTunerRx::radioTuneTask(void *arg)
                 ref.currentProtocolIdx = foundIdx;
                 if (entry.protocolTimeConfig != nullptr)
                 {
-                    // GATAS_TUNE_LOG("Radio %d switching to DS %s on channel %d", ref.radioNo, GATAS::toString(entry.protocolTimeConfig->radioConfig.dataSource()), static_cast<uint8_t>(entry.channel));
+                    // GATAS_TUNE_LOG("Radio %d switching to DS %s on channel %d", ref.radioNo, GATAS::toString(entry.protocolTimeConfig->radioConfig.protocol()), static_cast<uint8_t>(entry.channel));
                     auto frequency = CountryRegulations::getFrequency(entry.protocolTimeConfig->rfConfig, entry.channel);
                     radioTunerRx->getBus().receive(GATAS::RadioControlMsg{
                         GATAS::RadioParameters(&entry.protocolTimeConfig->radioConfig, &entry.protocolTimeConfig->rfConfig, frequency, 0),
@@ -178,16 +178,17 @@ void RadioTunerRx::on_receive(const GATAS::OwnshipPositionMsg &)
 
         if (currentZone.isModified())
         {
-            assignDataSourcesWithTrafficBias();
+            assignProtocolsWithTrafficBias();
         }
     }
 }
 
 void RadioTunerRx::on_receive(const GATAS::IngressAircraftPositionMsg &msg)
 {
-    if (static_cast<uint8_t>(msg.position.dataSource) < slotReceive.size())
+    const auto index = GATAS::radioProtocolIndex(msg.position.protocol);
+    if (msg.position.ingress == GATAS::TrafficIngress::Transceiver && index < slotReceive.size())
     {
-        slotReceive[static_cast<uint8_t>(msg.position.dataSource)] += 1;
+        slotReceive[index] += 1;
     }
 }
 
@@ -200,9 +201,9 @@ void RadioTunerRx::on_receive(const GATAS::ConfigUpdatedMsg &msg)
         {
             return;
         }
-        configuredDatasources = protocols;
+        configuredProtocols = protocols;
         clearTrafficStats();
-        assignDataSourcesFromTask();
+        assignProtocolsFromTask();
         releaseTasks();
     }
 }
@@ -212,11 +213,10 @@ void RadioTunerRx::on_receive_unknown(const etl::imessage &msg)
     (void)msg;
 }
 
-uint8_t RadioTunerRx::hasReceived(GATAS::DataSource ds)
+uint8_t RadioTunerRx::hasReceived(size_t index)
 {
-    GATAS_ASSERT(ds < GATAS::DataSource::_TRANSPROTOCOLS, "Invalid datasource");
     uint8_t priority = 0;
-    const uint16_t receiveCount = slotReceive[static_cast<uint8_t>(ds)];
+    const uint16_t receiveCount = slotReceive[index];
     if (receiveCount > 5) // We can properly optmise this by getting data frame the aircraft tracker
     {
         priority = 2;
@@ -225,7 +225,7 @@ uint8_t RadioTunerRx::hasReceived(GATAS::DataSource ds)
     {
         priority = 1;
     }
-    slotReceive[static_cast<uint8_t>(ds)] = 0;
+    slotReceive[index] = 0;
     return priority;
 }
 
@@ -234,30 +234,34 @@ void RadioTunerRx::clearTrafficStats()
     etl::fill(slotReceive.begin(), slotReceive.end(), 0);
 }
 
-void RadioTunerRx::assignDataSourcesFromTask()
+void RadioTunerRx::assignProtocolsFromTask()
 {
-    etl::array<uint8_t, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> receiveBoost = {};
-    for (const auto &dsc : configuredDatasources)
+    etl::array<uint8_t, GATAS::RADIO_PROTOCOLS.size()> receiveBoost = {};
+    for (const auto &dsc : configuredProtocols)
     {
-        receiveBoost[static_cast<uint8_t>(dsc.dataSource)] = hasReceived(dsc.dataSource);
+        const auto index = GATAS::radioProtocolIndex(dsc.protocol);
+        if (index < receiveBoost.size())
+        {
+            receiveBoost[index] = hasReceived(index);
+        }
     }
-    assignDataSourcesImpl(etl::span<const uint8_t>(receiveBoost));
+    assignProtocolsImpl(etl::span<const uint8_t>(receiveBoost));
 }
 
-void RadioTunerRx::assignDataSourcesWithTrafficBias()
+void RadioTunerRx::assignProtocolsWithTrafficBias()
 {
     if (!blockTasks())
     {
         return;
     }
 
-    assignDataSourcesFromTask();
+    assignProtocolsFromTask();
     releaseTasks();
 }
 
-void RadioTunerRx::assignDataSourcesImpl(etl::span<const uint8_t> receiveBoost)
+void RadioTunerRx::assignProtocolsImpl(etl::span<const uint8_t> receiveBoost)
 {
-    auto availableTimings = CountryRegulations::getProtocolRxTimingsForZone(currentZone.value(), configuredDatasources);
+    auto availableTimings = CountryRegulations::getProtocolRxTimingsForZone(currentZone.value(), configuredProtocols);
     auto guard = BaseModule::lockSharedMutex();
 
     const size_t radioCount = radioCtxList.size();
@@ -294,7 +298,8 @@ void RadioTunerRx::assignDataSourcesImpl(etl::span<const uint8_t> receiveBoost)
             if (owners[i] == ctx.radioNo)
             {
                 const auto *timing = availableTimings[i];
-                const uint8_t extraCount = etl::min<uint8_t>(receiveBoost[static_cast<uint8_t>(timing->radioConfig.dataSource())], 2) + 1;
+                const auto index = GATAS::radioProtocolIndex(timing->radioConfig.protocol());
+                const uint8_t extraCount = index < receiveBoost.size() ? etl::min<uint8_t>(receiveBoost[index], 2) + 1 : 1;
                 for (uint8_t extra = 0; extra < extraCount; ++extra)
                 {
                     appendProtocolTimings(ctx, timing, secondIndex);

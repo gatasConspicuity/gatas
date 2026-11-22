@@ -17,7 +17,7 @@ public:
         enum enum_type : uint8_t
         {
             ZONE0, // Zone is unknown and no transmission will take place
-            ZONE1, // Zone 1: Europe, Africa, Russia, China (30W to 110E, excl. zone 5) All protocols MUST be part of ZONE1. see : RadioTuner::addDataSourceToTasks()
+            ZONE1, // Zone 1: Europe, Africa, Russia, China (30W to 110E, excl. zone 5) All protocols MUST be part of ZONE1. see : RadioTuner::addConspicuityProtocolToTasks()
             ZONE2, // Zone 2: North America (west of 30W, north of 10N)
             ZONE3, // Zone 3: New Zealand (east of 160E)
             ZONE4, // Zone 4: Australia (110E to 160E)
@@ -99,22 +99,22 @@ public:
     static constexpr GATAS::RfConfig SouthAmerica {GATAS::Modulation::GFSK, 917'000'000, 400'000, 30, 234300, 100000, 50000, 5, GATAS::RadioCapability::Gfsk915};
 
     // First byte of the syncWord is the preamble for TX
-    //                                                                  dataSource                             packetLength when 0 enables variable packet length mode, acts as a max packet length in variable mode
+    //                                                                  protocol                             packetLength when 0 enables variable packet length mode, acts as a max packet length in variable mode
     //                                                                                                            txPreambleLength
     //                                                                                                                syncLength SYNC;
     //                                                                                                                    skip sync bits in RX mode
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_NONE          { 0, GATAS::DataSource::NONE,       true,   0, 16, 64, 0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}};       // NONE
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_FLARM         { 2, GATAS::DataSource::FLARM,      true,  26, 16, 64, 8, {0x55, 0x99, 0xA5, 0xA9, 0x55, 0x66, 0x65, 0x96}};       // FLARM 0 airtime 6ms
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_OGN           { 3, GATAS::DataSource::OGN,       true,  26, 16, 64, 8, {0xAA, 0x66, 0x55, 0xA5, 0x96, 0x99, 0x96, 0x5A}};       // OGN 1 airtime 6ms <- This seems to be in use 20 Byte packet length :: 6 byte CRC
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_NONE          { 0, GATAS::ConspicuityProtocol::NONE,       true,   0, 16, 64, 0, {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}};       // NONE
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_FLARM         { 2, GATAS::ConspicuityProtocol::FLARM,      true,  26, 16, 64, 8, {0x55, 0x99, 0xA5, 0xA9, 0x55, 0x66, 0x65, 0x96}};       // FLARM 0 airtime 6ms
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_OGN           { 3, GATAS::ConspicuityProtocol::OGN,       true,  26, 16, 64, 8, {0xAA, 0x66, 0x55, 0xA5, 0x96, 0x99, 0x96, 0x5A}};       // OGN 1 airtime 6ms <- This seems to be in use 20 Byte packet length :: 6 byte CRC
 
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSL          { 4, GATAS::DataSource::ADSLM,      true,  25, 16, 48, 8, {0x55, 0x99, 0x95, 0xA6, 0x9A, 0x65}};                   // ADSL on normal 0xA9, 0x6A => 0x18 26Byte first byt elength = 25Byte
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSLO_HDR     { 5, GATAS::DataSource::ADSLO_HDR, false,   0, 16, 16, 0, {0x2D, 0xD4}};                                           // ADSL on O band HDR
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_FANET         { 7, GATAS::DataSource::FANET,     false, 200, 12,  8, 0, {0xF1}};                                                 // FANET
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSB          {10, GATAS::DataSource::ADSB,      false, 14, 0, 0, 0, {}};
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSL          { 4, GATAS::ConspicuityProtocol::ADSL_M_BAND,      true,  25, 16, 48, 8, {0x55, 0x99, 0x95, 0xA6, 0x9A, 0x65}};                   // ADSL on normal 0xA9, 0x6A => 0x18 26Byte first byt elength = 25Byte
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSLO_HDR     { 5, GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR, false,   0, 16, 16, 0, {0x2D, 0xD4}};                                           // ADSL on O band HDR
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_FANET         { 7, GATAS::ConspicuityProtocol::FANET,     false, 200, 12,  8, 0, {0xF1}};                                                 // FANET
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSB          {10, GATAS::ConspicuityProtocol::ADSB,      false, 14, 0, 0, 0, {}};
 
     // Needs further research I did not get reliable reception yet
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_RX_ADSLFLARM  { 8, GATAS::DataSource::ADSLFLARM,  true,  29, 16, 16, 0, {0x96, 0xA5}};     // works to receive FLARM                                     // ADSL/FLARM RX Sync
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_RX_ADSLOGN    { 9, GATAS::DataSource::ADSLOGN,    true,  29, 16, 16, 0, {0x99, 0x95}};     // ADSL/OGN RX SYNC
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_RX_ADSLFLARM  { 8, GATAS::ConspicuityProtocol::NONE,  true,  29, 16, 16, 0, {0x96, 0xA5}, GATAS::CombinedRadioRx::AdslFlarm};     // works to receive FLARM                                     // ADSL/FLARM RX Sync
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_RX_ADSLOGN    { 9, GATAS::ConspicuityProtocol::NONE,    true,  29, 16, 16, 0, {0x99, 0x95}, GATAS::CombinedRadioRx::AdslOgn};     // ADSL/OGN RX SYNC
     // Needs further research I did not get reliable reception yet
 
     // Europe
@@ -214,7 +214,7 @@ public:
             }
 
             // 3) timing span must not be empty except PROTOCOL_NONE
-            if (pts.radioConfig.dataSource() != GATAS::DataSource::NONE && pts.timeSlots.size() == 0)
+            if (pts.radioConfig.protocol() != GATAS::ConspicuityProtocol::NONE && pts.timeSlots.size() == 0)
             {
                 return 3;
             }
@@ -224,7 +224,7 @@ public:
                 return 7;
             }
 
-            if (pts.radioConfig.dataSource() >= GATAS::DataSource::_TRANSPROTOCOLS)
+            if (GATAS::radioProtocolIndex(pts.radioConfig.protocol()) >= GATAS::RADIO_PROTOCOLS.size())
             {
                 return 4;
             }
@@ -246,7 +246,7 @@ public:
         for (auto &pts : protocolRxTimimgs)
         {
             // 3) timing span must not be empty except PROTOCOL_NONE
-            if (pts.radioConfig.dataSource() != GATAS::DataSource::NONE && pts.timeSlots.size() == 0)
+            if (pts.radioConfig.protocol() != GATAS::ConspicuityProtocol::NONE && pts.timeSlots.size() == 0)
             {
                 return 13;
             }
@@ -256,7 +256,7 @@ public:
                 return 17;
             }
 
-            if (pts.radioConfig.dataSource() >= GATAS::DataSource::_TRANSPROTOCOLS)
+            if (GATAS::radioProtocolIndex(pts.radioConfig.protocol()) >= GATAS::RADIO_PROTOCOLS.size())
             {
                 return 14;
             }
@@ -275,13 +275,13 @@ public:
             }
         }
 
-        // 5) Combined ChannelTimings for any (zone, datasource) group must fit in MAX_COMBINED_TIMINGS
+        // 5) Combined ChannelTimings for any (zone, protocol) group must fit in MAX_COMBINED_TIMINGS
         for (size_t i = 0; i < protocolTxTimimgs.size(); ++i)
         {
             const auto &pts = protocolTxTimimgs[i];
             // Skip entries that are not the start of their group
             if (i > 0 &&
-                protocolTxTimimgs[i - 1].radioConfig.dataSource() == pts.radioConfig.dataSource() &&
+                protocolTxTimimgs[i - 1].radioConfig.protocol() == pts.radioConfig.protocol() &&
                 protocolTxTimimgs[i - 1].zone == pts.zone)
             {
                 continue;
@@ -290,7 +290,7 @@ public:
             for (size_t j = i; j < protocolTxTimimgs.size(); ++j)
             {
                 const auto &entry = protocolTxTimimgs[j];
-                if (entry.radioConfig.dataSource() == pts.radioConfig.dataSource() && entry.zone == pts.zone)
+                if (entry.radioConfig.protocol() == pts.radioConfig.protocol() && entry.zone == pts.zone)
                 {
                     combinedCount += entry.timeSlots.size();
                 }
@@ -318,14 +318,14 @@ public:
     static Zone zone(float lat, float lon);
 
     /**
-     * @brief get the correct slot for the datasource and Zone. This decides everything on what frequency to use, timings etc..
+     * @brief get the correct slot for the protocol and Zone. This decides everything on what frequency to use, timings etc..
      *
      * @param zone
-     * @param dataSource
+     * @param protocol
      * @return const CountryRegulations::ProtocolTimeSlot& Reference to the slot configuration
      */
-    static etl::span<const ProtocolTxTimeSlot> getProtocolTxTimings(CountryRegulations::Zone zone, GATAS::DataSource dataSource);
-    static const CountryRegulations::ProtocolRxTimeSlot &getProtocolRxTimings(CountryRegulations::Zone zone, GATAS::DataSource dataSource);
+    static etl::span<const ProtocolTxTimeSlot> getProtocolTxTimings(CountryRegulations::Zone zone, GATAS::ConspicuityProtocol protocol);
+    static const CountryRegulations::ProtocolRxTimeSlot &getProtocolRxTimings(CountryRegulations::Zone zone, GATAS::ConspicuityProtocol protocol);
 
     /**
      * @brief Decide on the frequency from the configuration and the channel
@@ -339,7 +339,7 @@ public:
 
     /**
      * @brief Calculate the next random TX delay that lands within any timeslot across
-     * all entries in the span. When a datasource has multiple ProtocolTxTimeSlot entries
+     * all entries in the span. When a protocol has multiple ProtocolTxTimeSlot entries
      * (e.g. TRAFFIC on 500–900 ms and UPLINK on 200–450 ms), passing the full span ensures
      * that both windows are considered so neither is permanently starved.
      *
@@ -347,7 +347,7 @@ public:
      * must share the same values (enforced by validateProtocolTxTimings).
      *
      * @param reducedTxRate  when true, slows down TX rate. Used for on ground operations
-     * @param timing  Span of one or more ProtocolTxTimeSlot entries for the same datasource.
+     * @param timing  Span of one or more ProtocolTxTimeSlot entries for the same protocol.
      * @return Delay in ms, or UINT32_MAX if no suitable slot was found after MAX_TRIES.
      */
     static uint32_t nextRandomTxTime(bool reducedTxRate, const CountryRegulations::ProtocolTxTimeSlot &timing);
@@ -409,20 +409,20 @@ public:
         return nullptr;
     }
 
-    static etl::vector<const ProtocolRxTimeSlot *, GATAS_MAX_SOURCE_PER_RADIO * GATAS_MAX_RADIOS> getProtocolRxTimingsForZone(Zone zone, const etl::span<const GATAS::DataSourceConfig> dataSources)
+    static etl::vector<const ProtocolRxTimeSlot *, GATAS_MAX_SOURCE_PER_RADIO * GATAS_MAX_RADIOS> getProtocolRxTimingsForZone(Zone zone, const etl::span<const GATAS::ProtocolConfig> protocols)
     {
         etl::vector<const ProtocolRxTimeSlot *, GATAS_MAX_SOURCE_PER_RADIO * GATAS_MAX_RADIOS> result;
-        if (etl::any_of(dataSources.begin(), dataSources.end(), [](const auto &config)
-                        { return config.dataSource == GATAS::DataSource::ADSB && config.isRx(); }))
+        if (etl::any_of(protocols.begin(), protocols.end(), [](const auto &config)
+                        { return config.protocol == GATAS::ConspicuityProtocol::ADSB && config.isRx(); }))
         {
             result.push_back(&ADSB_RX_TIMESLOT);
         }
         for (const auto &slot : protocolRxTimimgs)
         {
-            auto isDs = etl::find_if(dataSources.cbegin(), dataSources.cend(), [slot](GATAS::DataSourceConfig ds)
-                                     { return slot.radioConfig.isRxDataSource(ds.dataSource) && ds.isRx(); });
+            auto isDs = etl::find_if(protocols.cbegin(), protocols.cend(), [slot](GATAS::ProtocolConfig ds)
+                                     { return slot.radioConfig.isRxProtocol(ds.protocol) && ds.isRx(); });
 
-            if (slot.zone == zone && !result.full() && (isDs != dataSources.cend()))
+            if (slot.zone == zone && !result.full() && (isDs != protocols.cend()))
             {
                 result.push_back(&slot);
             }

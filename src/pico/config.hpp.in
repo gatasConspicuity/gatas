@@ -131,7 +131,7 @@
 
 // Maximum radios that can be controlled
 #define GATAS_MAX_RADIOS ( 3 )
-// Maximum number of datasources per radio that can be handled
+// Maximum number of protocols per radio that can be handled
 #define GATAS_MAX_SOURCE_PER_RADIO ( 3 )
 
 // Maximum time the system will start scanning. If a scan result was found, then scanning will stop  aswell.

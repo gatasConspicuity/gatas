@@ -44,14 +44,14 @@ void RadioTunerTx::getData(etl::string_stream &stream, const etl::string_view pa
 
     stream << ",\"schedule:rtx\":[";
     bool firstDs = true;
-    for (const auto &ds : dataSourceTxEvents)
+    for (const auto &ds : protocolTxEvents)
     {
         if (!firstDs)
         {
             stream << ",";
         }
         firstDs = false;
-        const char *dsName = GATAS::toString(ds.slot->radioConfig.dataSource());
+        const char *dsName = GATAS::toString(ds.slot->radioConfig.protocol());
 
 //#if GATAS_DEBUG == 1
 //         uint16_t minT = ds.slot->txMinTime;
@@ -62,7 +62,7 @@ void RadioTunerTx::getData(etl::string_stream &stream, const etl::string_view pa
         uint16_t maxT = isAirborne ? ds.slot->txMaxTime : ds.slot->reducedTxMaxTime;
 // #endif
         stream << "{\"ds\":\"" << dsName << "\",\"min\":" << minT << ",\"max\":" << maxT << ",\"radio\":";
-        if (auto radio = selectRadio(ds.slot->radioConfig.dataSource(), ds.slot->rfConfig.capability))
+        if (auto radio = selectRadio(ds.slot->radioConfig.protocol(), ds.slot->rfConfig.capability))
         {
             stream << *radio;
         }
@@ -122,7 +122,7 @@ void RadioTunerTx::radioTuneTask()
 
         if (!taskBlock)
         {
-            for (auto &&ds : dataSourceTxEvents)
+            for (auto &&ds : protocolTxEvents)
             {
                 if (CoreUtils::isUsReached(ds.atTime))
                 {
@@ -132,7 +132,7 @@ void RadioTunerTx::radioTuneTask()
                         continue;
                     }
 
-                    if (auto radio = selectRadio(ds.slot->radioConfig.dataSource(), ds.slot->rfConfig.capability))
+                    if (auto radio = selectRadio(ds.slot->radioConfig.protocol(), ds.slot->rfConfig.capability))
                     {
                         auto frequencyHz = CountryRegulations::getFrequency(ds.slot->rfConfig, channelTiming->channel);
                         GATAS_MEASURE("Request TX", 2000);
@@ -158,7 +158,7 @@ void RadioTunerTx::radioTuneTask()
                     }
                     else
                     {
-                        GATAS_WARN("Warning: Next random no timing found %s ", GATAS::toString(ds.slot->radioConfig.dataSource()));
+                        GATAS_WARN("Warning: Next random no timing found %s ", GATAS::toString(ds.slot->radioConfig.protocol()));
                         ds.atTime = currentTimeUs + 950'000;
                     }
                 }
@@ -167,7 +167,7 @@ void RadioTunerTx::radioTuneTask()
             // Decide the protocol that should be send next
             auto currentTimeUs = CoreUtils::timeUs32();
             int32_t nextUpIn = 2'000'000;
-            for (auto &&ds : dataSourceTxEvents)
+            for (auto &&ds : protocolTxEvents)
             {
                 auto toRef = CoreUtils::usToReference(ds.atTime, currentTimeUs);
                 if (toRef < nextUpIn)
@@ -180,7 +180,7 @@ void RadioTunerTx::radioTuneTask()
             {
                 nextUpIn = 1000;
             }
-            // clamp to max 1 second in case datasources was empty
+            // clamp to max 1 second in case protocols was empty
             nextDelayMs = nextUpIn / 1000;
         }
     }
@@ -201,7 +201,7 @@ void RadioTunerTx::on_receive(const GATAS::OwnshipPositionMsg &)
         if (newZone != currentZone)
         {
             currentZone = newZone;
-            assignDataSources(configuredDatasources);
+            assignProtocols(configuredProtocols);
         }
     }
 }
@@ -211,13 +211,18 @@ void RadioTunerTx::on_receive(const GATAS::ConfigUpdatedMsg &msg)
     if (msg.moduleName == Configuration::NAME)
     {
         auto gaTasConfiguration = msg.config.gaTasConfig();
-        assignDataSources(gaTasConfiguration.protocols);
+        assignProtocols(gaTasConfiguration.protocols);
     }
 }
 
-etl::optional<uint8_t> RadioTunerTx::selectRadio(GATAS::DataSource source, GATAS::RadioCapability capability) const
+etl::optional<uint8_t> RadioTunerTx::selectRadio(GATAS::ConspicuityProtocol protocol, GATAS::RadioCapability capability) const
 {
-    const auto preferred = preferredRadio[static_cast<uint8_t>(source)];
+    const auto index = GATAS::radioProtocolIndex(protocol);
+    if (index >= preferredRadio.size())
+    {
+        return etl::nullopt;
+    }
+    const auto preferred = preferredRadio[index];
     if (preferred != 0)
     {
         const auto *radio = radios[preferred - 1];
@@ -243,14 +248,10 @@ void RadioTunerTx::on_receive(const GATAS::RadioControlMsg &msg)
     {
         return;
     }
-    uint8_t dsId = static_cast<uint8_t>(msg.radioParameters.config->dataSource());
-    if (dsId < preferredRadio.size())
+    const auto index = GATAS::radioProtocolIndex(msg.radioParameters.config->protocol());
+    if (index < preferredRadio.size())
     {
-        preferredRadio[dsId] = msg.radioNo + 1;
-    }
-    else
-    {
-        GATAS_WARN("DS: %d ", dsId);
+        preferredRadio[index] = msg.radioNo + 1;
     }
 }
 
@@ -259,7 +260,7 @@ void RadioTunerTx::on_receive_unknown(const etl::imessage &msg)
     (void)msg;
 }
 
-void RadioTunerTx::assignDataSources(const etl::span<GATAS::DataSourceConfig> &newDataSources)
+void RadioTunerTx::assignProtocols(const etl::span<GATAS::ProtocolConfig> &newConspicuityProtocols)
 {
     auto guard = BaseModule::lockSharedMutex();
     eventSync.clear(BIT_EVENT_DONE);
@@ -275,30 +276,30 @@ void RadioTunerTx::assignDataSources(const etl::span<GATAS::DataSourceConfig> &n
 
     if (auto guard = SpinlockGuard(CoreUtils::sharedSpinLock()))
     {
-        configuredDatasources.clear();
-        dataSourceTxEvents.clear();
+        configuredProtocols.clear();
+        protocolTxEvents.clear();
 
-        configuredDatasources.insert(configuredDatasources.end(), newDataSources.begin(), newDataSources.end());
-        for (auto &&ds : newDataSources)
+        configuredProtocols.insert(configuredProtocols.end(), newConspicuityProtocols.begin(), newConspicuityProtocols.end());
+        for (auto &&ds : newConspicuityProtocols)
         {
-            // Ignore Datasources that are not for transmission
+            // Ignore protocols that are not for transmission
             if (!ds.isTx())
             {
                 continue;
             }
-            const auto timing = CountryRegulations::getProtocolTxTimings(currentZone, ds.dataSource);
+            const auto timing = CountryRegulations::getProtocolTxTimings(currentZone, ds.protocol);
             
             if (!timing.empty())
             {
                 for (const auto &entry : timing)
                 {
-                    if (dataSourceTxEvents.full())
+                    if (protocolTxEvents.full())
                     {
                         GATAS_WARN("RadioTunerTx: TX schedule full, ignoring %s",
-                                   GATAS::toString(ds.dataSource));
+                                   GATAS::toString(ds.protocol));
                         break;
                     }
-                    dataSourceTxEvents.emplace_back(DataSourceTxEvent{&entry, CoreUtils::timeUs32()});
+                    protocolTxEvents.emplace_back(ConspicuityProtocolTxEvent{&entry, CoreUtils::timeUs32()});
                 }
             }
         }

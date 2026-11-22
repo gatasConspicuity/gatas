@@ -31,7 +31,7 @@ const char *postConstructToString(GATAS::PostConstruct reason);
 class Configuration;
 class BaseModule
 {
-    static constexpr uint8_t MAX_MODULES = 44;
+    static constexpr uint8_t MAX_MODULES = 50;
     // Mutex to be used during load/unloading and changes in interrupts
     inline static SemaphoreHandle_t baseMutex = nullptr;
     inline static GATAS::GlobalPoolConfiguration globalPool;
@@ -216,19 +216,6 @@ public:
      * Unregister a pin interrupt handler
      */
     void unregisterPinInterrupt(uint8_t pin);
-};
-
-/**
- * Object that can provide NMEA Strings.
- * You can use this to make a TCP socket or Serial provider that just passes them into a StringHandler
- */
-class BinaryReceiver : public BaseModule
-{
-public:
-    BinaryReceiver(etl::imessage_bus &bus, const etl::string_view name) : BaseModule(bus, name)
-    {
-    }
-    virtual void receiveBinary(const uint8_t *data, uint8_t length) = 0;
 };
 
 class RtcModule : public BaseModule

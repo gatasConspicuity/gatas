@@ -122,8 +122,8 @@ change.
 
 1. Reject a timestamp older than the stored measurement. Equal timestamps may
    replace a sample, subject to the following checks.
-2. Reject ADS-B or MLAT while the stored source is direct radio
-   (`dataSource < DataSource::_RADIO`) and the stored measurement is younger
+2. Reject ADS-B or MLAT while the stored position has `Transceiver` or
+   `RadioRelay` ingress and a qualifying protocol, and the stored measurement is younger
    than four seconds. At exactly four seconds, this preference has expired.
 3. If the accepted incoming report is outside the radius, remove the stored
    track and its predictor state, then return `false`.

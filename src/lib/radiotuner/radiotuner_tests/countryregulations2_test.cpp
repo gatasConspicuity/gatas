@@ -39,17 +39,17 @@ TEST_CASE("getSlot", "[single-file]")
 {
     REQUIRE(CountryRegulations::MAX_PROTOCOL_TX_TIMINGS == 6);
 
-    // PROTOCOL_ADSL uses DataSource::ADSLM and is in the TX table (M-band ADSL)
-    REQUIRE(1 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, GATAS::DataSource::ADSLM).size());
-    REQUIRE(2 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, GATAS::DataSource::FLARM)[0].radioConfig.pcId);
-    REQUIRE(2 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, GATAS::DataSource::FLARM)[0].radioConfig.pcId);
-    REQUIRE(3 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE2, GATAS::DataSource::OGN)[0].radioConfig.pcId);
+    // PROTOCOL_ADSL uses ConspicuityProtocol::ADSL_M_BAND and is in the TX table (M-band ADSL)
+    REQUIRE(1 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, GATAS::ConspicuityProtocol::ADSL_M_BAND).size());
+    REQUIRE(2 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, GATAS::ConspicuityProtocol::FLARM)[0].radioConfig.pcId);
+    REQUIRE(2 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, GATAS::ConspicuityProtocol::FLARM)[0].radioConfig.pcId);
+    REQUIRE(3 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE2, GATAS::ConspicuityProtocol::OGN)[0].radioConfig.pcId);
 
     // ADSLO_HDR has 2 TX entries for ZONE1: one for TRAFFIC and one for UPLINK
-    REQUIRE(2 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, GATAS::DataSource::ADSLO_HDR).size());
+    REQUIRE(2 == CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE1, GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR).size());
 
     // Not configured: empty span
-    REQUIRE(CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE6, GATAS::DataSource::FANET).empty());
+    REQUIRE(CountryRegulations::getProtocolTxTimings(CountryRegulations::Zone::ZONE6, GATAS::ConspicuityProtocol::FANET).empty());
 }
 
 TEST_CASE("isInTiming normal window", "[timing]")
@@ -103,14 +103,14 @@ TEST_CASE("fitsAnyTiming with multiple windows", "[timing]")
 // ─────────────────────────────────────────────────────────────────────────────
 TEST_CASE("getProtocolRxTimingsForZone - returns all ZONE1 slots when all sources requested", "[CountryRegulations][rxZone]")
 {
-    etl::array<GATAS::DataSourceConfig, 4> sources = {{
-        {GATAS::DataSource::FLARM, GATAS::DataSourceMode::RX_TX},
-        {GATAS::DataSource::OGN, GATAS::DataSourceMode::RX_TX},
-        {GATAS::DataSource::ADSLO_HDR, GATAS::DataSourceMode::RX_TX},
-        {GATAS::DataSource::FANET, GATAS::DataSourceMode::RX_TX}}};
+    etl::array<GATAS::ProtocolConfig, 4> sources = {{
+        {GATAS::ConspicuityProtocol::FLARM, GATAS::ProtocolMode::RX_TX},
+        {GATAS::ConspicuityProtocol::OGN, GATAS::ProtocolMode::RX_TX},
+        {GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR, GATAS::ProtocolMode::RX_TX},
+        {GATAS::ConspicuityProtocol::FANET, GATAS::ProtocolMode::RX_TX}}};
     auto result = CountryRegulations::getProtocolRxTimingsForZone(
         CountryRegulations::Zone::enum_type::ZONE1,
-        etl::span<const GATAS::DataSourceConfig>(sources.data(), sources.size()));
+        etl::span<const GATAS::ProtocolConfig>(sources.data(), sources.size()));
 
     // 4 ZONE1 RX entries (ADSLM removed from table)
     REQUIRE(result.size() == 4);
@@ -122,34 +122,34 @@ TEST_CASE("getProtocolRxTimingsForZone - returns all ZONE1 slots when all source
 
 TEST_CASE("getProtocolRxTimingsForZone - filters to only requested sources", "[CountryRegulations][rxZone]")
 {
-    etl::array<GATAS::DataSourceConfig, 1> sources = {{
-        {GATAS::DataSource::FLARM, GATAS::DataSourceMode::RX_TX}}};
+    etl::array<GATAS::ProtocolConfig, 1> sources = {{
+        {GATAS::ConspicuityProtocol::FLARM, GATAS::ProtocolMode::RX_TX}}};
     auto result = CountryRegulations::getProtocolRxTimingsForZone(
         CountryRegulations::Zone::enum_type::ZONE1,
-        etl::span<const GATAS::DataSourceConfig>(sources.data(), sources.size()));
+        etl::span<const GATAS::ProtocolConfig>(sources.data(), sources.size()));
 
     REQUIRE(result.size() == 1);
-    REQUIRE(result[0]->radioConfig.isRxDataSource(GATAS::DataSource::FLARM));
+    REQUIRE(result[0]->radioConfig.isRxProtocol(GATAS::ConspicuityProtocol::FLARM));
 }
 
 TEST_CASE("getProtocolRxTimingsForZone - wrong zone returns empty", "[CountryRegulations][rxZone]")
 {
-    etl::array<GATAS::DataSourceConfig, 2> sources = {{
-        {GATAS::DataSource::FLARM, GATAS::DataSourceMode::RX_TX},
-        {GATAS::DataSource::OGN, GATAS::DataSourceMode::RX_TX}}};
+    etl::array<GATAS::ProtocolConfig, 2> sources = {{
+        {GATAS::ConspicuityProtocol::FLARM, GATAS::ProtocolMode::RX_TX},
+        {GATAS::ConspicuityProtocol::OGN, GATAS::ProtocolMode::RX_TX}}};
     auto result = CountryRegulations::getProtocolRxTimingsForZone(
         CountryRegulations::Zone::enum_type::ZONE5, // No ZONE5 entries in protocolRxTimimgs
-        etl::span<const GATAS::DataSourceConfig>(sources.data(), sources.size()));
+        etl::span<const GATAS::ProtocolConfig>(sources.data(), sources.size()));
 
     REQUIRE(result.empty());
 }
 
 TEST_CASE("getProtocolRxTimingsForZone - empty source list returns empty", "[CountryRegulations][rxZone]")
 {
-    etl::array<GATAS::DataSourceConfig, 0> sources{};
+    etl::array<GATAS::ProtocolConfig, 0> sources{};
     auto result = CountryRegulations::getProtocolRxTimingsForZone(
         CountryRegulations::Zone::enum_type::ZONE1,
-        etl::span<const GATAS::DataSourceConfig>(sources.data(), sources.size()));
+        etl::span<const GATAS::ProtocolConfig>(sources.data(), sources.size()));
 
     REQUIRE(result.empty());
 }
@@ -233,10 +233,10 @@ TEST_CASE("frequencyByTimestamp - deterministic: same input same output", "[Coun
 TEST_CASE("getProtocolRxTimings - ZONE1 FLARM returns correct config", "[CountryRegulations][rxTimings]")
 {
     const auto &slot = CountryRegulations::getProtocolRxTimings(
-        CountryRegulations::Zone::enum_type::ZONE1, GATAS::DataSource::FLARM);
+        CountryRegulations::Zone::enum_type::ZONE1, GATAS::ConspicuityProtocol::FLARM);
 
     REQUIRE(slot.zone == CountryRegulations::Zone::enum_type::ZONE1);
-    REQUIRE(slot.radioConfig.isRxDataSource(GATAS::DataSource::FLARM));
+    REQUIRE(slot.radioConfig.isRxProtocol(GATAS::ConspicuityProtocol::FLARM));
     REQUIRE(std::equal(
         slot.timeSlots.begin(), slot.timeSlots.end(),
         CountryRegulations::EU_FLARMT.begin(), CountryRegulations::EU_FLARMT.end()));
@@ -246,17 +246,17 @@ TEST_CASE("getProtocolRxTimings - ZONE1 FLARM returns correct config", "[Country
 TEST_CASE("getProtocolRxTimings - unknown source returns NOOP slot", "[CountryRegulations][rxTimings]")
 {
     const auto &slot = CountryRegulations::getProtocolRxTimings(
-        CountryRegulations::Zone::enum_type::ZONE1, GATAS::DataSource::NONE);
+        CountryRegulations::Zone::enum_type::ZONE1, GATAS::ConspicuityProtocol::NONE);
 
     // NOOP slot has NONE as its data source
-    REQUIRE(slot.radioConfig.dataSource() == GATAS::DataSource::NONE);
+    REQUIRE(slot.radioConfig.protocol() == GATAS::ConspicuityProtocol::NONE);
 }
 
 TEST_CASE("getProtocolRxTimings - wrong zone returns NOOP slot", "[CountryRegulations][rxTimings]")
 {
     // FLARM is only defined for ZONE1, not ZONE3
     const auto &slot = CountryRegulations::getProtocolRxTimings(
-        CountryRegulations::Zone::enum_type::ZONE3, GATAS::DataSource::FLARM);
+        CountryRegulations::Zone::enum_type::ZONE3, GATAS::ConspicuityProtocol::FLARM);
 
-    REQUIRE(slot.radioConfig.dataSource() == GATAS::DataSource::NONE);
+    REQUIRE(slot.radioConfig.protocol() == GATAS::ConspicuityProtocol::NONE);
 }

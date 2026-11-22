@@ -39,23 +39,25 @@ void ADSBDecoder::on_receive(const GATAS::ConfigUpdatedMsg &msg)
     }
 }
 
-void ADSBDecoder::receiveBinary(const uint8_t *data, uint8_t length)
+void ADSBDecoder::on_receive(const GATAS::ADSBMessageBinMsg &msg)
 {
-    processAdsbData(data, length);
+    processAdsbData(msg.frame.get(), msg.length, msg.ingress, INT16_MIN);
 }
 
 void ADSBDecoder::on_receive(const GATAS::RadioRxMsg &msg)
 {
-    if (msg.dataSource == GATAS::DataSource::ADSB && msg.frame &&
-        msg.lengthBytes == GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH)
+    if (msg.protocol == GATAS::ConspicuityProtocol::ADSB)
     {
-        processAdsbData(msg.frame.get(), msg.lengthBytes);
+        processAdsbData(msg.frame.get(), msg.lengthBytes, GATAS::TrafficIngress::Transceiver, msg.rssidBm);
     }
 }
 
-void ADSBDecoder::processAdsbData(const uint8_t *data, uint8_t length)
+void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::TrafficIngress ingress, int16_t rssiDbm)
 {
-    (void)length;
+    if (data == nullptr || length != GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH)
+    {
+        return;
+    }
     mode_s_msg mm;
     // Two phase decoder to first decode the address.. when not in ignoredAirplanes continue decoding
     mode_s_decode_phase1(&state, &mm, data);
@@ -113,11 +115,11 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, uint8_t length)
         {
             if (mm.fflag)
             {
-                adsbDataCollector.updateRawOdd(mm.raw_latitude, mm.raw_longitude);
+                adsbDataCollector.updateRawOdd(mm.raw_latitude, mm.raw_longitude, ingress, rssiDbm);
             }
             else
             {
-                adsbDataCollector.updateRawEven(mm.raw_latitude, mm.raw_longitude);
+                adsbDataCollector.updateRawEven(mm.raw_latitude, mm.raw_longitude, ingress, rssiDbm);
             }
 
             // THis might temporary create a incorrect offset, but should be corrected pretty quickly die to how ADSB sends different information in different packages
@@ -199,7 +201,8 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, uint8_t length)
                  current.callSign,
                  current.icao,
                  GATAS::AddressType::ICAO,
-                 GATAS::DataSource::ADSB,
+                 current.positionIngress,
+                 GATAS::ConspicuityProtocol::ADSB,
                  GATAS::AircraftCategory::UNKNOWN, // TODO: Add support for AircraftCategory
                  false,                            // ADSB does not have privacy
                  false,                            // No privacy
@@ -212,7 +215,7 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, uint8_t length)
                  static_cast<int16_t>(current.heading),
                  0.0f,
                  fromOwn.distance,
-                 current.squawk}});
+                 current.squawk}, current.positionRssiDbm});
         }
     }
     else

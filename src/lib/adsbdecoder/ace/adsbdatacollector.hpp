@@ -34,6 +34,10 @@ struct AdsbCombinedDataStatus
     int16_t vert_rate;          // Vertical Rate
     bool airborne;              // true when airplane is airborne
     bool evict;                 // When set to true, the aircraft needs to be removed from cache in the next evict cycle
+    GATAS::TrafficIngress oddIngress = GATAS::TrafficIngress::Unknown;
+    GATAS::TrafficIngress evenIngress = GATAS::TrafficIngress::Unknown;
+    GATAS::TrafficIngress positionIngress = GATAS::TrafficIngress::Unknown;
+    int16_t positionRssiDbm = INT16_MIN;
 
     ~AdsbCombinedDataStatus() = default;
 
@@ -84,16 +88,23 @@ private:
     etl::unordered_map<uint32_t, AdsbCombinedDataStatus, SIZE, SIZE> cache;
 
 
-    void decodePCR(bool fflag)
+    void updatePosition(bool fflag, int16_t rssiDbm)
     {
-        // only when all positions are in AND updated the decodeCPR is ran
-        if ((currentDataStatus->messageStatus & (HAS_POSITION_ODD | HAS_POSITION_EVEN)) == (HAS_POSITION_ODD | HAS_POSITION_EVEN))
+        auto &aircraft = *currentDataStatus;
+        constexpr uint8_t hasBothPositions = HAS_POSITION_ODD | HAS_POSITION_EVEN;
+        if ((aircraft.messageStatus & hasBothPositions) != hasBothPositions)
         {
-            currentDataStatus->messageStatus |= HAS_POSITION_UPDATED;
-            decodeCPR(fflag,
-                      currentDataStatus->raw_even_latitude, currentDataStatus->raw_even_longitude,
-                      currentDataStatus->raw_odd_latitude, currentDataStatus->raw_odd_longitude,
-                      &currentDataStatus->lat, &currentDataStatus->lon);
+            return;
+        }
+        if (const auto position = decodeCPR(fflag, aircraft.raw_even_latitude, aircraft.raw_even_longitude,
+                                           aircraft.raw_odd_latitude, aircraft.raw_odd_longitude))
+        {
+            aircraft.lat = position->lat;
+            aircraft.lon = position->lon;
+            aircraft.positionIngress = aircraft.oddIngress == aircraft.evenIngress
+                                           ? aircraft.oddIngress : GATAS::TrafficIngress::Mixed;
+            aircraft.positionRssiDbm = rssiDbm;
+            aircraft.messageStatus |= HAS_POSITION_UPDATED;
         }
     }
 
@@ -202,20 +213,22 @@ public:
         currentDataStatus->squawk = static_cast<int16_t>(squawk);
     }
 
-    void updateRawOdd(uint32_t raw_latitude, uint32_t raw_longitude)
+    void updateRawOdd(uint32_t raw_latitude, uint32_t raw_longitude, GATAS::TrafficIngress ingress, int16_t rssiDbm)
     {
         currentDataStatus->messageStatus |= HAS_POSITION_ODD;
         currentDataStatus->raw_odd_latitude = raw_latitude;
         currentDataStatus->raw_odd_longitude = raw_longitude;
-        decodePCR(true);
+        currentDataStatus->oddIngress = ingress;
+        updatePosition(true, rssiDbm);
     }
 
-    void updateRawEven(uint32_t raw_latitude, uint32_t raw_longitude)
+    void updateRawEven(uint32_t raw_latitude, uint32_t raw_longitude, GATAS::TrafficIngress ingress, int16_t rssiDbm)
     {
         currentDataStatus->messageStatus |= HAS_POSITION_EVEN;
         currentDataStatus->raw_even_latitude = raw_latitude;
         currentDataStatus->raw_even_longitude = raw_longitude;
-        decodePCR(false);
+        currentDataStatus->evenIngress = ingress;
+        updatePosition(false, rssiDbm);
     }
 
     void updateAirborne(bool airborne)

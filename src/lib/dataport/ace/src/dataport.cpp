@@ -136,9 +136,9 @@ void DataPort::sendPFLAA(const GATAS::AircraftPositionInfo &position)
 
 uint8_t DataPort::getPFLAASourceType(const GATAS::AircraftPositionInfo &position)
 {
-    switch (position.dataSource)
+    switch (position.protocol)
     {
-    case GATAS::DataSource::ADSB:
+    case GATAS::ConspicuityProtocol::ADSB:
         return 1;
     default:
         // FLARM OGN FANET ADS-L

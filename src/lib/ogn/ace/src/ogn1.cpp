@@ -32,7 +32,7 @@ void Ogn1::getData(etl::string_stream &stream, const etl::string_view path) cons
 {
     (void)path;
     stream << "{";
-    datasourceTimeStats.toStream(stream);
+    protocolTimeStats.toStream(stream);
     stream << "\"relay\":[";
     for (uint8_t idx = 0; idx < 4; idx++)
     {
@@ -151,7 +151,7 @@ int8_t Ogn1::parseFrame(OGN_Packet &packet, uint32_t frequency, int16_t rssiDbm)
     }
 
     // Only add to polar plot for valid packages within distance
-    datasourceTimeStats.addReceiveStat(frequency, CoreUtils::msInSecond());
+    protocolTimeStats.addReceiveStat(frequency, CoreUtils::msInSecond());
 
     statistics.receivedAircraftPositions += 1;
     int16_t speed0d1ms = packet.DecodeSpeed();
@@ -171,7 +171,8 @@ int8_t Ogn1::parseFrame(OGN_Packet &packet, uint32_t frequency, int16_t rssiDbm)
             "",
             packet.Header.Address,
             addressTypeFromOgn(packet.Header.AddrType),
-            GATAS::DataSource::OGN,
+            GATAS::TrafficIngress::Transceiver,
+            GATAS::ConspicuityProtocol::OGN,
             aircrftCat,
             packet.Position.Stealth ? true : false, // Privacy
             false,                                  // noTrack
@@ -191,7 +192,7 @@ int8_t Ogn1::parseFrame(OGN_Packet &packet, uint32_t frequency, int16_t rssiDbm)
 
 void Ogn1::on_receive(const GATAS::RadioTxPositionRequestMsg &msg)
 {
-    if (msg.radioParameters.config->isTxDataSource(GATAS::DataSource::OGN))
+    if (msg.radioParameters.config->isTxProtocol(GATAS::ConspicuityProtocol::OGN))
     {
         auto ownship = ownshipState.location.load();
 
@@ -288,7 +289,7 @@ void Ogn1::on_receive(const GATAS::RadioTxPositionRequestMsg &msg)
 
 void Ogn1::on_receive(const GATAS::RadioRxManchesterMsg &msg)
 {
-    if (msg.dataSource == GATAS::DataSource::OGN)
+    if (msg.protocol == GATAS::ConspicuityProtocol::OGN)
     {
         OGN_Packet packet;
 

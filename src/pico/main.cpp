@@ -441,9 +441,7 @@ static void loadModules(void *arg)
     load(Bmp280::NAME, bus, config);
     load(Bmp580::NAME, bus, config);
 
-    // Other for these two are currently important to ensure configuration on TX is set before RX
-    // see RadioTunerRx::enableDisableDatasources()
-    // Data sources
+    // Configure the TX tuner before the RX tuner.
     load(RadioTunerTx::NAME, bus, config);
     load(RadioTunerRx::NAME, bus, config);
     load(ADSBDecoder::NAME, bus, config);

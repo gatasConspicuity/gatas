@@ -225,12 +225,13 @@ public:
                 return false;
             }
 
-            // Prefer positions received directly over radio to ADS-B and MLAT for
+            // Prefer qualifying direct and relayed radio reports to ADS-B and MLAT for
             // RADIO_PRIORITY_TIMEOUT_US. Reject lower-priority reports before they
             // can delete a fresh radio track by placing it outside the radius.
-            const bool trackedIsRadio = it->second.position.dataSource < GATAS::DataSource::_RADIO;
-            const bool incomingIsAdsbOrMlat = position.dataSource == GATAS::DataSource::ADSB ||
-                                              position.dataSource == GATAS::DataSource::MLAT;
+            const auto &trackedPosition = it->second.position;
+            const bool trackedIsRadio = GATAS::qualifiesForRadioTrafficPriority(trackedPosition.ingress, trackedPosition.protocol);
+            const bool incomingIsAdsbOrMlat = position.protocol == GATAS::ConspicuityProtocol::ADSB ||
+                                              position.protocol == GATAS::ConspicuityProtocol::MLAT;
             const bool radioStillFresh = !CoreUtils::isUsReached(it->second.position.timestamp + RADIO_PRIORITY_TIMEOUT_US, time);
             if (trackedIsRadio && incomingIsAdsbOrMlat && radioStillFresh)
             {
@@ -248,7 +249,7 @@ public:
 
             assignCallsignFromDDB(position);
             assignSquawkCallsign(position);
-            assignDataSourcePrefix(position);
+            assignProtocolPrefix(position);
 
             // Keep the existing output deadline while accepting the latest measurement.
             // Resetting it on every update lets high-rate input repeatedly claim output
@@ -286,7 +287,7 @@ public:
 
         assignCallsignFromDDB(position);
         assignSquawkCallsign(position);
-        assignDataSourcePrefix(position);
+        assignProtocolPrefix(position);
 
         trackedAircraft.insert({position.address, TrackerEntry(time, position)});
         pathPredictor.update(position);
@@ -309,11 +310,11 @@ public:
         }
     }
 
-    void assignDataSourcePrefix(GATAS::AircraftPositionInfo &position)
+    void assignProtocolPrefix(GATAS::AircraftPositionInfo &position)
     {
         if (prefixEnabledFlag)
         {
-            GATAS::CallSign prefixedCallSign(GATAS::toShortString(position.dataSource));
+            GATAS::CallSign prefixedCallSign(GATAS::toShortString(position.protocol));
             position.callSign.insert(0, prefixedCallSign);
         }
     }

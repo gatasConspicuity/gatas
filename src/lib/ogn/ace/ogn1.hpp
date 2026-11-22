@@ -25,7 +25,7 @@
 #include "ace/ownshipstate.hpp"
 #include "ace/coreutils.hpp"
 #include "ace/basemodule.hpp"
-#include "ace/datasourcetimestatstable.hpp"
+#include "ace/protocoltimestatstable.hpp"
 
 
 /* Utils. */
@@ -97,7 +97,7 @@ private:
         uint32_t relay[4] = {};
     } statistics;
 
-    GATAS::DataSourceTimeStatsTable<2> datasourceTimeStats;
+    GATAS::ConspicuityProtocolTimeStatsTable<2> protocolTimeStats;
 
     const GATAS::OwnshipState &ownshipState;
     GATAS::GpsStats gpsStats{};

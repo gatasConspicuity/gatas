@@ -57,47 +57,39 @@ namespace GATAS
         return stringToEnum(addressMappings, str, AddressType::UNKNOWN);
     };
 
-    constexpr Mapping<DataSource, const char *> dataSourceMappings[] =
+    constexpr Mapping<ConspicuityProtocol, const char *> protocolMappings[] =
         {
-            {DataSource::FLARM, "Flarm"},
-            {DataSource::ADSLM, "ADSL"}, // <-- Don't change to ADSM, this is also used for the frontend selection
-            {DataSource::ADSLO_HDR, "ADSL Hdr"},
-            {DataSource::ADSLFLARM, "ADSL FLARM"},
-            {DataSource::ADSLOGN, "ADSL OGN"},
-            {DataSource::FANET, "Fanet"},
-            {DataSource::ADSB, "ADSB"},
-            {DataSource::MLAT, "MLAT"},
-            {DataSource::OGN, "OGN"},
-            {DataSource::NONE, "NONE"}};
+            {ConspicuityProtocol::FLARM, "Flarm"},
+            {ConspicuityProtocol::ADSL_M_BAND, "ADSL"}, // Also used by the saved ADS-L setting.
+            {ConspicuityProtocol::ADSL_O_BAND_HDR, "ADSL Hdr"},
+            {ConspicuityProtocol::FANET, "Fanet"},
+            {ConspicuityProtocol::ADSB, "ADSB"},
+            {ConspicuityProtocol::MLAT, "MLAT"},
+            {ConspicuityProtocol::OGN, "OGN"},
+            {ConspicuityProtocol::NONE, "NONE"}};
 
-    constexpr Mapping<DataSource, const char *> dataSourceShortMappings[] =
+    constexpr Mapping<ConspicuityProtocol, const char *> protocolShortMappings[] =
         {
-            {DataSource::FLARM, "fl"},
-            {DataSource::ADSLM, "am"},
-            {DataSource::ADSLO_HDR, "ah"},
-            {DataSource::FANET, "fa"},
-            {DataSource::ADSB, "ab"},
-            {DataSource::MLAT, "ml"},
-            {DataSource::OGN, "og"},
-            {DataSource::ADSLFLARM, "af"},
-            {DataSource::ADSLOGN, "ao"},
-            {DataSource::NONE, "un"}};
+            {ConspicuityProtocol::FLARM, "fl"},
+            {ConspicuityProtocol::ADSL_M_BAND, "am"},
+            {ConspicuityProtocol::ADSL_O_BAND_HDR, "ah"},
+            {ConspicuityProtocol::FANET, "fa"},
+            {ConspicuityProtocol::ADSB, "ab"},
+            {ConspicuityProtocol::MLAT, "ml"},
+            {ConspicuityProtocol::OGN, "og"},
+            {ConspicuityProtocol::NONE, "un"}};
 
-    const char *dataSourceIntToString(uint8_t ds)
+    const char *toString(ConspicuityProtocol ds)
     {
-        return toString(static_cast<DataSource>(ds));
+        return enumToString(protocolMappings, ds, "UNKNOWN");
     }
-    const char *toString(DataSource ds)
+    const char *toShortString(ConspicuityProtocol ds)
     {
-        return enumToString(dataSourceMappings, ds, "UNKNOWN");
+        return enumToString(protocolShortMappings, ds, "un");
     }
-    const char *toShortString(DataSource ds)
+    ConspicuityProtocol stringToConspicuityProtocol(const char *str)
     {
-        return enumToString(dataSourceShortMappings, ds, "un");
-    }
-    DataSource stringToDataSource(const char *str)
-    {
-        return stringToEnum(dataSourceMappings, str, DataSource::NONE);
+        return stringToEnum(protocolMappings, str, ConspicuityProtocol::NONE);
     }
 
     struct pDopInterpretationMapping
@@ -148,16 +140,16 @@ namespace GATAS
         return enumToString(modulationMapping, at, "-");
     }
 
-    constexpr Mapping<DataSourceMode::enum_type, const char *> DataSourceModeMapping[] =
+    constexpr Mapping<ProtocolMode::enum_type, const char *> ProtocolModeMapping[] =
         {
-            {DataSourceMode::TX, "TX"},
-            {DataSourceMode::RX, "RX"},
-            {DataSourceMode::RX_TX, "RX_TX"}
+            {ProtocolMode::TX, "TX"},
+            {ProtocolMode::RX, "RX"},
+            {ProtocolMode::RX_TX, "RX_TX"}
         };
 
-    DataSourceMode stringToDataSourceMode(const char *str)
+    ProtocolMode stringToProtocolMode(const char *str)
     {
-        return stringToEnum(DataSourceModeMapping, str, DataSourceMode::RX_TX);
+        return stringToEnum(ProtocolModeMapping, str, ProtocolMode::RX_TX);
     }
 
     CoreUtils::distanceRelNorthRelEastInt AircraftPositionInfo::relativeFromOwn(float ownshipLat, float ownshipLon) const

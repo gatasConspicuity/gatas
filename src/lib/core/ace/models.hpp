@@ -201,33 +201,65 @@ namespace GATAS
     // Maps a string into a AddressType
     GATAS::AddressType stringToAddressType(const char *str);
 
-    /**
-     * Datasource is the internal service that provided and knows how to handle the data
-     */
-    enum class DataSource : uint8_t
+    // The local path by which a traffic position entered OpenAce.
+    enum class TrafficIngress : uint8_t
     {
-        FLARM = 0,
-        _TRANSPROTOCOLSSTART = 0,
-        ADSLM = 1,
-        ADSLO_HDR = 2,
-        FANET = 3,
-        OGN = 4,
-        _RADIO = 5,          // ANything beflore Radio can only be received over hardware
-        ADSB = 5,
-        _TRANSPROTOCOLS = 6, // Number of protocols scheduled by the packet radios
-        MLAT = 6,
-        ADSLFLARM = 253, // Combination of ADSL/FLARM, not an acutal protocol but needed for RX of multiple protocols
-        ADSLOGN = 254,   // Combination of ADSL/OGN, not an acutal protocol but needed for RX of multiple protocols
-        NONE = 255       // Note: Never use this! Unly used for stringToEnum(..)
+        Unknown,
+        Transceiver,
+        Connect, // GATAS Connect COBS over BLE or UDP
+        Dump1090,
+        Mixed, // Position reconstructed from more than one ingress
+        RadioRelay // A local radio received another station's report about the aircraft
     };
 
-    // Get a string representation of a datasource
-    const char *dataSourceIntToString(uint8_t ds);
-    const char *toString(DataSource ds);
-    const char *toShortString(DataSource ds);
-    DataSource stringToDataSource(const char *str);
+    // Conspicuity protocol or variant, independent of payload type and ingress.
+    // Legacy COBS codes are translated in BinaryMessages.
+    enum class ConspicuityProtocol : uint8_t
+    {
+        NONE,
+        FLARM,
+        ADSL_M_BAND,
+        ADSL_O_BAND_HDR,
+        FANET,
+        OGN,
+        ADSB,
+        MLAT // Legacy COBS classification for multilateration-derived positions.
+    };
 
-    struct DataSourceMode
+    inline constexpr etl::array RADIO_PROTOCOLS{
+        ConspicuityProtocol::FLARM, 
+        ConspicuityProtocol::ADSL_M_BAND, 
+        ConspicuityProtocol::ADSL_O_BAND_HDR,
+        ConspicuityProtocol::FANET, 
+        ConspicuityProtocol::OGN, 
+        ConspicuityProtocol::ADSB};
+
+    // The array size is the invalid index for non-radio protocols.
+    constexpr size_t radioProtocolIndex(ConspicuityProtocol protocol)
+    {
+        for (size_t i = 0; i < RADIO_PROTOCOLS.size(); ++i)
+        {
+            if (RADIO_PROTOCOLS[i] == protocol)
+            {
+                return i;
+            }
+        }
+        return RADIO_PROTOCOLS.size();
+    }
+
+    // Preserve the protocols that qualify for the existing tracker priority and server request policies.
+    constexpr bool qualifiesForRadioTrafficPriority(TrafficIngress ingress, ConspicuityProtocol protocol)
+    {
+        return (ingress == TrafficIngress::Transceiver || ingress == TrafficIngress::RadioRelay) &&
+               protocol != ConspicuityProtocol::ADSB &&
+               radioProtocolIndex(protocol) < RADIO_PROTOCOLS.size();
+    }
+
+    const char *toString(ConspicuityProtocol ds);
+    const char *toShortString(ConspicuityProtocol ds);
+    ConspicuityProtocol stringToConspicuityProtocol(const char *str);
+
+    struct ProtocolMode
     {
         enum enum_type : uint8_t
         {
@@ -236,28 +268,28 @@ namespace GATAS
             RX_TX = 3
         };
 
-        ETL_DECLARE_ENUM_TYPE(DataSourceMode, uint8_t)
+        ETL_DECLARE_ENUM_TYPE(ProtocolMode, uint8_t)
         ETL_ENUM_TYPE(RX, "RX")
         ETL_ENUM_TYPE(TX, "TX")
         ETL_ENUM_TYPE(RX_TX, "RX_TX")
         ETL_END_ENUM_TYPE
     };
 
-    DataSourceMode stringToDataSourceMode(const char *str);
+    ProtocolMode stringToProtocolMode(const char *str);
 
-    struct DataSourceConfig
+    struct ProtocolConfig
     {
-        DataSource dataSource;
-        DataSourceMode mode;
+        ConspicuityProtocol protocol;
+        ProtocolMode mode;
 
         bool isRx() const
         {
-            return (mode == DataSourceMode::RX || mode == DataSourceMode::RX_TX);
+            return (mode == ProtocolMode::RX || mode == ProtocolMode::RX_TX);
         }
 
         bool isTx() const
         {
-            return (mode == DataSourceMode::TX || mode == DataSourceMode::RX_TX);
+            return (mode == ProtocolMode::TX || mode == ProtocolMode::RX_TX);
         }
     };
 
@@ -280,7 +312,7 @@ namespace GATAS
         struct GaTasConfiguration
         {
             Conspicuity conspicuity;
-            etl::vector<GATAS::DataSourceConfig, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> protocols;
+            etl::vector<GATAS::ProtocolConfig, RADIO_PROTOCOLS.size()> protocols;
             etl::vector<uint32_t, GATAS::MAX_AIRCRAFT_CONFIG> allIcaoAddresses; // List of all configured hex codes of all aircraft
             bool privacy = false;
         };
@@ -390,7 +422,8 @@ namespace GATAS
 
         AircraftAddress address;
         AddressType addressType;
-        DataSource dataSource;
+        TrafficIngress ingress = TrafficIngress::Unknown;
+        ConspicuityProtocol protocol;
         AircraftCategory aircraftType;
         bool stealth;  // Privacy/Stealth option
         bool noTrack;  // this aircraft does not want to be tracked
@@ -409,21 +442,21 @@ namespace GATAS
         int32_t pressureAlt = INVALID_BARO_ALTITUDE; // Pressure altitude in meters, when available
 
         CoreUtils::distanceRelNorthRelEastInt relativeFromOwn(float ownshipLat, float ownshipLon) const;
-//        CoreUtils::distanceRelNorthRelEastInt relativeFromOwn(const OwnshipMinimalPositionInfo &ownship) const;
+        //        CoreUtils::distanceRelNorthRelEastInt relativeFromOwn(const OwnshipMinimalPositionInfo &ownship) const;
         CoreUtils::distanceRelNorthRelEastInt relativeFromOwn(const OwnshipPositionInfo &ownship) const;
         int32_t relNorthFromOwn(float ownshipLat, float ownshipLon) const;
-//        int32_t relNorthFromOwn(const OwnshipMinimalPositionInfo &ownship) const;
+        //        int32_t relNorthFromOwn(const OwnshipMinimalPositionInfo &ownship) const;
         int32_t relNorthFromOwn(const OwnshipPositionInfo &ownship) const;
         int32_t relEastFromOwn(float ownshipLat, float ownshipLon) const;
-//        int32_t relEastFromOwn(const OwnshipMinimalPositionInfo &ownship) const;
+        //        int32_t relEastFromOwn(const OwnshipMinimalPositionInfo &ownship) const;
         int32_t relEastFromOwn(const OwnshipPositionInfo &ownship) const;
 
-        AircraftPositionInfo(uint32_t timestamp_, GATAS::CallSign callSign_, AircraftAddress address_, AddressType addressType_, DataSource dataSource_, AircraftCategory aircraftType_, bool stealth_, bool noTrack_, bool airborne_, float lat_, float lon_, int32_t ellipseHeight_, float verticalSpeed_, float groundSpeed_, int16_t track_, float hTurnRate_, uint32_t distanceFromOwn_, int16_t squawk_ = -1, int32_t pressureAlt_ = INVALID_BARO_ALTITUDE /*, int16_t bearingFromOwn_*/)
-            : timestamp(timestamp_), callSign(callSign_), squawk(squawk_), address(address_), addressType(addressType_), dataSource(dataSource_), aircraftType(aircraftType_), stealth(stealth_), noTrack(noTrack_), airborne(airborne_), lat(lat_), lon(lon_), ellipseHeight(ellipseHeight_), verticalSpeed(verticalSpeed_), groundSpeed(groundSpeed_), track(track_), hTurnRate(hTurnRate_), distanceFromOwn(distanceFromOwn_), pressureAlt(pressureAlt_) // , bearingFromOwn(bearingFromOwn_)
+        AircraftPositionInfo(uint32_t timestamp_, GATAS::CallSign callSign_, AircraftAddress address_, AddressType addressType_, TrafficIngress ingress_, ConspicuityProtocol protocol_, AircraftCategory aircraftType_, bool stealth_, bool noTrack_, bool airborne_, float lat_, float lon_, int32_t ellipseHeight_, float verticalSpeed_, float groundSpeed_, int16_t track_, float hTurnRate_, uint32_t distanceFromOwn_, int16_t squawk_ = -1, int32_t pressureAlt_ = INVALID_BARO_ALTITUDE /*, int16_t bearingFromOwn_*/)
+            : timestamp(timestamp_), callSign(callSign_), squawk(squawk_), address(address_), addressType(addressType_), ingress(ingress_), protocol(protocol_), aircraftType(aircraftType_), stealth(stealth_), noTrack(noTrack_), airborne(airborne_), lat(lat_), lon(lon_), ellipseHeight(ellipseHeight_), verticalSpeed(verticalSpeed_), groundSpeed(groundSpeed_), track(track_), hTurnRate(hTurnRate_), distanceFromOwn(distanceFromOwn_), pressureAlt(pressureAlt_) // , bearingFromOwn(bearingFromOwn_)
         {
         }
         // Default constructor
-        AircraftPositionInfo() : timestamp(0), callSign(""), squawk(-1), address(0), addressType(AddressType::RANDOM), dataSource(DataSource::NONE), aircraftType(AircraftCategory::UNKNOWN), stealth(false), noTrack(false), airborne(false), lat(0), lon(0), ellipseHeight(0), verticalSpeed(0), groundSpeed(0), track(0), hTurnRate(0), distanceFromOwn(UINT32_MAX) // , bearingFromOwn(INT16_MIN)
+        AircraftPositionInfo() : timestamp(0), callSign(""), squawk(-1), address(0), addressType(AddressType::RANDOM), protocol(ConspicuityProtocol::NONE), aircraftType(AircraftCategory::UNKNOWN), stealth(false), noTrack(false), airborne(false), lat(0), lon(0), ellipseHeight(0), verticalSpeed(0), groundSpeed(0), track(0), hTurnRate(0), distanceFromOwn(UINT32_MAX) // , bearingFromOwn(INT16_MIN)
         {
         }
 
@@ -432,7 +465,7 @@ namespace GATAS
             address = address_;
         }
 
-        bool isPressureAltitudeValid() const 
+        bool isPressureAltitudeValid() const
         {
             return pressureAlt != INVALID_BARO_ALTITUDE;
         }
@@ -475,46 +508,58 @@ namespace GATAS
         RadioCapability capability;
     };
 
+    enum class CombinedRadioRx : uint8_t
+    {
+        None,
+        AdslFlarm,
+        AdslOgn
+    };
+
     struct LinkLayerConfig
     {
-        uint8_t pcId;                    // Internally used to opnise tranceiver state
-        GATAS::DataSource __dataSource;  // Data source
+        uint8_t pcId; // Internally used to opnise tranceiver state
+        GATAS::ConspicuityProtocol configuredProtocol;
         bool manchester;                 // True when data is manchester encoded
         uint8_t packetLength;            // Total packet length including CRC, but when left to zero. THe protocol send the packet length
         uint8_t txPreambleLength;        // Preamble length in bits during transmission
         uint8_t syncLength;              // Length of the sync word in bytes
         uint8_t syncSkipInRxLength;      // When setting the receiver, skip n bytes from the sync
         etl::array<uint8_t, 8> syncWord; // Sync word for RX/TX depending on the mode we only take portion or full sync
+        CombinedRadioRx combinedRx = CombinedRadioRx::None;
 
-        constexpr GATAS::DataSource dataSource() const
+        constexpr GATAS::ConspicuityProtocol protocol() const
         {
-            return __dataSource;
+            return configuredProtocol;
+        }
+
+        constexpr bool isIdle() const
+        {
+            return configuredProtocol == ConspicuityProtocol::NONE && combinedRx == CombinedRadioRx::None;
         }
 
         /**
-         * Use this during Tx context of matching datasources
+         * Match the protocol scheduled for transmission.
          */
-        constexpr bool isTxDataSource(GATAS::DataSource ds) const
+        constexpr bool isTxProtocol(GATAS::ConspicuityProtocol requested) const
         {
-            return __dataSource == ds;
+            return combinedRx == CombinedRadioRx::None && configuredProtocol == requested;
         }
 
         /**
-         * USe this during Rx context of matching datasources
-         * 23 Jan 2026 : This was added because now RX Datasource can be combined ADSL/FLARM or ADSL/OGN
+         * A combined receive profile can listen for two protocols.
          */
-        constexpr bool isRxDataSource(GATAS::DataSource ds) const
+        constexpr bool isRxProtocol(GATAS::ConspicuityProtocol requested) const
         {
-            switch (__dataSource)
+            switch (combinedRx)
             {
-            case GATAS::DataSource::ADSLFLARM:
-                return ds == GATAS::DataSource::FLARM || ds == GATAS::DataSource::ADSLM;
+            case CombinedRadioRx::AdslFlarm:
+                return requested == ConspicuityProtocol::FLARM || requested == ConspicuityProtocol::ADSL_M_BAND;
 
-            case GATAS::DataSource::ADSLOGN:
-                return ds == GATAS::DataSource::OGN || ds == GATAS::DataSource::ADSLM;
+            case CombinedRadioRx::AdslOgn:
+                return requested == ConspicuityProtocol::OGN || requested == ConspicuityProtocol::ADSL_M_BAND;
 
             default:
-                return __dataSource == ds;
+                return configuredProtocol == requested;
             }
         }
     };

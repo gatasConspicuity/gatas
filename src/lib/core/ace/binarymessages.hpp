@@ -95,6 +95,19 @@ public:
     static constexpr int32_t V3_ELLIPSOID_HEIGHT_OFFSET_M = 1000;
     static constexpr int32_t PRESSURE_ALTITUDE_OFFSET_M = 1000;
 
+    // V1, V2 and V3 share these legacy byte values.
+    // This act's as a translation table between the old DataSource from gatasServer
+    // and ConspicuityProtocol. When gatasServer is going to be updated, it should
+    // follow ConspicuityProtocol and this sould only be used for V1..V3 messages
+    static constexpr etl::array COBS_TRAFFIC_PROTOCOLS{
+        GATAS::ConspicuityProtocol::FLARM,
+        GATAS::ConspicuityProtocol::ADSL_M_BAND,
+        GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR,
+        GATAS::ConspicuityProtocol::FANET,
+        GATAS::ConspicuityProtocol::OGN,
+        GATAS::ConspicuityProtocol::ADSB,
+        GATAS::ConspicuityProtocol::MLAT};
+
     static bool hasValidAircraftPositionSize(const etl::bit_stream_reader &reader, size_t fixedSize)
     {
         const auto data = reader.data();
@@ -154,9 +167,13 @@ public:
         }
         uint32_t addressRaw = reader.read_unchecked<uint32_t>(24U);
         uint8_t addressTypeIdx = reader.read_unchecked<uint8_t>(8U);
-        uint8_t dataSourceIdx = reader.read_unchecked<uint8_t>(8U);
-        float lat = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
-        float lon = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
+        const auto wireProtocolCode = reader.read_unchecked<uint8_t>(8U);
+        if (wireProtocolCode >= COBS_TRAFFIC_PROTOCOLS.size())
+        {
+            return etl::nullopt;
+        }
+        const float lat = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
+        const float lon = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
         int32_t heightHAE = static_cast<int32_t>(reader.read_unchecked<uint16_t>(16U)) - LEGACY_ELLIPSOID_HEIGHT_OFFSET_M;
         float track = static_cast<float>(reader.read_unchecked<uint8_t>(8U)) * (360.f / 255.f);
         float turnRate = static_cast<float>(reader.read_unchecked<int8_t>(8U)) / 5.0f;
@@ -177,7 +194,8 @@ public:
             GATAS::CallSign(callSignBuffer),
             static_cast<GATAS::AircraftAddress>(addressRaw),
             static_cast<GATAS::AddressType>(addressTypeIdx),
-            static_cast<GATAS::DataSource>(dataSourceIdx),
+            GATAS::TrafficIngress::Connect,
+            COBS_TRAFFIC_PROTOCOLS[wireProtocolCode],
             static_cast<GATAS::AircraftCategory>(aircraftCategoryIdx),
             false, // stealth
             false, // noTrack
@@ -215,9 +233,13 @@ public:
         }
         uint32_t addressRaw = reader.read_unchecked<uint32_t>(24U);
         uint8_t addressTypeIdx = reader.read_unchecked<uint8_t>(8U);
-        uint8_t dataSourceIdx = reader.read_unchecked<uint8_t>(8U);
-        float lat = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
-        float lon = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
+        const auto wireProtocolCode = reader.read_unchecked<uint8_t>(8U);
+        if (wireProtocolCode >= COBS_TRAFFIC_PROTOCOLS.size())
+        {
+            return etl::nullopt;
+        }
+        const float lat = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
+        const float lon = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
         int32_t heightHAE = static_cast<int32_t>(reader.read_unchecked<uint16_t>(16U)) - LEGACY_ELLIPSOID_HEIGHT_OFFSET_M;
         float track = static_cast<float>(reader.read_unchecked<uint8_t>(8U)) * (360.f / 255.f);
         float turnRate = static_cast<float>(reader.read_unchecked<int8_t>(8U)) / 5.0f;
@@ -239,7 +261,8 @@ public:
             GATAS::CallSign(callSignBuffer),
             static_cast<GATAS::AircraftAddress>(addressRaw),
             static_cast<GATAS::AddressType>(addressTypeIdx),
-            static_cast<GATAS::DataSource>(dataSourceIdx),
+            GATAS::TrafficIngress::Connect,
+            COBS_TRAFFIC_PROTOCOLS[wireProtocolCode],
             static_cast<GATAS::AircraftCategory>(aircraftCategoryIdx),
             false,                                                // stealth
             false,                                                // noTrack
@@ -275,9 +298,13 @@ public:
         }
         uint32_t addressRaw = reader.read_unchecked<uint32_t>(24U);
         uint8_t addressTypeIdx = reader.read_unchecked<uint8_t>(8U);
-        uint8_t dataSourceIdx = reader.read_unchecked<uint8_t>(8U);
-        float lat = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
-        float lon = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
+        const auto wireProtocolCode = reader.read_unchecked<uint8_t>(8U);
+        if (wireProtocolCode >= COBS_TRAFFIC_PROTOCOLS.size())
+        {
+            return etl::nullopt;
+        }
+        const float lat = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
+        const float lon = static_cast<float>(reader.read_unchecked<int32_t>(32U)) / 1E7f;
         int32_t heightHAE = static_cast<int32_t>(reader.read_unchecked<uint16_t>(16U)) - V3_ELLIPSOID_HEIGHT_OFFSET_M;
         float track = static_cast<float>(reader.read_unchecked<uint8_t>(8U)) * (360.f / 255.f);
         float turnRate = static_cast<float>(reader.read_unchecked<int8_t>(8U)) / 5.0f;
@@ -305,7 +332,8 @@ public:
             GATAS::CallSign(callSignBuffer),
             static_cast<GATAS::AircraftAddress>(addressRaw),
             static_cast<GATAS::AddressType>(addressTypeIdx),
-            static_cast<GATAS::DataSource>(dataSourceIdx),
+            GATAS::TrafficIngress::Connect,
+            COBS_TRAFFIC_PROTOCOLS[wireProtocolCode],
             static_cast<GATAS::AircraftCategory>(aircraftCategoryIdx),
             false,
             false,

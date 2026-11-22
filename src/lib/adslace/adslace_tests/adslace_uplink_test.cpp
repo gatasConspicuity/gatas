@@ -29,22 +29,31 @@ namespace
             length = size;
             return true;
         }
-        void adsl_receivedTraffic(const ADSL::Header &, const ADSL::TrafficPayload &) override {}
+        void adsl_receivedTraffic(const void *, const ADSL::Header &, const ADSL::TrafficPayload &) override {}
         void adsl_receivedStatus(const ADSL::Header &, const ADSL::StatusPayload &) override {}
-        void adsl_receivedUplinkTraffic(const ADSL::Header &, etl::span<const ADSL::UplinkEntry>) override {}
+        void adsl_receivedUplinkTraffic(const void *, const ADSL::Header &, etl::span<const ADSL::UplinkEntry>) override {}
         void adsl_buildStatusPayload(const void *, ADSL::StatusPayload &) override {}
     };
 
-    class PositionCollector : public etl::message_router<PositionCollector, GATAS::IngressAircraftPositionsMsg>
+    class PositionCollector : public etl::message_router<PositionCollector, GATAS::IngressAircraftPositionsMsg,
+                                                        GATAS::IngressAircraftPositionMsg>
     {
     public:
         size_t batches = 0;
+        int16_t rssiDbm = INT16_MIN;
         etl::vector<GATAS::AircraftPositionInfo, GATAS::IngressAircraftPositionsMsg::MAX_POSITIONS> positions;
 
         void on_receive(const GATAS::IngressAircraftPositionsMsg &msg)
         {
             ++batches;
             positions = msg.positions;
+            rssiDbm = msg.rssidBm;
+        }
+        void on_receive(const GATAS::IngressAircraftPositionMsg &msg)
+        {
+            positions.clear();
+            positions.push_back(msg.position);
+            rssiDbm = msg.rssidBm;
         }
         void on_receive_unknown(const etl::imessage &) {}
     };
@@ -74,13 +83,18 @@ namespace
             bus.subscribe(collector);
         }
 
-        void receive(etl::span<const ADSL::UplinkEntry> entries)
+        void receive(etl::span<const ADSL::UplinkEntry> entries, int8_t rssiDbm = -42)
         {
             UplinkEncoder encoder;
             ADSL::Protocol transmitter{&encoder};
             transmitter.init();
             transmitter.setAddress(0x123456);
             transmitter.rqSendUplinkPayload(nullptr, false, entries);
+            receiveFrame(encoder, rssiDbm);
+        }
+
+        void receiveFrame(const UplinkEncoder &encoder, int8_t rssiDbm = -42)
+        {
             REQUIRE(encoder.length != 0);
             REQUIRE(encoder.length % sizeof(uint32_t) == 0);
             auto &pool = BaseModule::getGlobalPool();
@@ -88,7 +102,7 @@ namespace
             REQUIRE(data != nullptr);
             std::memcpy(data, encoder.frame.data(), encoder.length);
             bus.receive(GATAS::RadioRxMsg{pool, data, encoder.length,
-                0, 869'525'000, GATAS::DataSource::ADSLO_HDR, -42});
+                0, 869'525'000, GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR, rssiDbm});
         }
     };
 
@@ -108,6 +122,24 @@ namespace
     }
 }
 
+TEST_CASE("Ordinary ADS-L traffic retains its O-band HDR receive protocol", "[adsl]")
+{
+    UplinkFixture fixture;
+    UplinkEncoder encoder;
+    ADSL::Protocol transmitter{&encoder};
+    transmitter.init();
+    transmitter.setAddress(0x123456);
+    const auto entry = makeEntry(0x123456, 1);
+    transmitter.rqSendTrafficPayload(nullptr, false, entry.payload());
+    fixture.receiveFrame(encoder);
+
+    REQUIRE(1 == fixture.collector.positions.size());
+    const auto &position = fixture.collector.positions.front();
+    CHECK(GATAS::TrafficIngress::Transceiver == position.ingress);
+    CHECK(GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR == position.protocol);
+    CHECK(-42 == fixture.collector.rssiDbm);
+}
+
 TEST_CASE("Full ADS-L uplink packets retain all ten targets in one owned batch", "[adsl][uplink]")
 {
     UplinkFixture fixture;
@@ -120,15 +152,18 @@ TEST_CASE("Full ADS-L uplink packets retain all ten targets in one owned batch",
     // Repeated full packets also exercise reuse of the receive pool allocation.
     for (size_t packet = 0; packet < 4; ++packet)
     {
-        fixture.receive(entries);
+        const auto rssiDbm = static_cast<int8_t>(-42 - static_cast<int>(packet));
+        fixture.receive(entries, rssiDbm);
         REQUIRE(fixture.collector.batches == packet + 1);
         REQUIRE(fixture.collector.positions.size() == entries.size());
+        CHECK(rssiDbm == fixture.collector.rssiDbm);
         for (size_t i = 0; i < entries.size(); ++i)
         {
             const auto &position = fixture.collector.positions[i];
             const auto &payload = entries[i].payload();
             CHECK(position.address == entries[i].address().asUint());
-            CHECK(position.dataSource == GATAS::DataSource::ADSLO_HDR);
+            CHECK(GATAS::TrafficIngress::RadioRelay == position.ingress);
+            CHECK(position.protocol == GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR);
             CHECK(position.addressType == GATAS::AddressType::ICAO);
             CHECK(position.airborne);
             CHECK(position.lat == Catch::Approx(payload.latitude()).margin(0.0001f));

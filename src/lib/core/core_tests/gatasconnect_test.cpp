@@ -41,6 +41,87 @@ namespace
         }
         void on_receive_unknown(const etl::imessage &) {}
     };
+
+    class PositionReceiver : public etl::message_router<PositionReceiver, GATAS::IngressAircraftPositionsMsg>
+    {
+    public:
+        size_t count = 0;
+        GATAS::AircraftPositionInfo last;
+
+        void on_receive(const GATAS::IngressAircraftPositionsMsg &msg)
+        {
+            count += msg.positions.size();
+            last = msg.positions.back();
+        }
+        void on_receive_unknown(const etl::imessage &) {}
+    };
+}
+
+TEST_CASE("BLE and UDP both tag COBS aircraft positions as Connect traffic", "[gatasconnect]")
+{
+    CoreUtils::init();
+    etl::message_bus<4> bus;
+    MockConfig config{bus};
+    GATAS::OwnshipState ownship;
+    ownship.init(CoreUtils::sharedSpinLock());
+    GatasConnect bridge{bus, config, ownship};
+    PositionReceiver receiver;
+    bus.subscribe(bridge);
+    bus.subscribe(receiver);
+
+    uint8_t raw[24] = {1, 0x01, 0x02, 0x03, 1, 4}; // Legacy V1, ICAO, OGN
+    auto &pool = BaseModule::getGlobalPool();
+    // The initial configuration holds back traffic for the first five receives.
+    for (size_t i = 0; i < 5; ++i)
+    {
+        bus.receive(GATAS::GatasConnectRx{pool, GATAS::GatasConnectTransport::Bluetooth, nullptr, 0});
+    }
+    for (const auto transport : {GATAS::GatasConnectTransport::Bluetooth, GATAS::GatasConnectTransport::UDP})
+    {
+        auto *frame = static_cast<uint8_t *>(pool.alloc(getCOBSBufferSize(sizeof(raw))));
+        REQUIRE(frame != nullptr);
+        const auto length = encodeCOBS(raw, sizeof(raw), frame, getCOBSBufferSize(sizeof(raw)));
+        REQUIRE(length > 0);
+        const auto expectedCount = receiver.count + 1;
+        bus.receive(GATAS::GatasConnectRx{pool, transport, frame, length});
+        REQUIRE(expectedCount == receiver.count);
+        CHECK(GATAS::TrafficIngress::Connect == receiver.last.ingress);
+        CHECK(GATAS::ConspicuityProtocol::OGN == receiver.last.protocol);
+    }
+}
+
+TEST_CASE("Only qualifying onboard protocols refresh Connect radio traffic", "[gatasconnect]")
+{
+    CoreUtils::init();
+    etl::message_bus<4> bus;
+    MockConfig config{bus};
+    GATAS::OwnshipState ownship;
+    ownship.init(CoreUtils::sharedSpinLock());
+    GatasConnect bridge{bus, config, ownship};
+    bus.subscribe(bridge);
+    time_us_Value = 80'000'000;
+    CoreUtils::setPPS(0);
+
+    auto diagnostics = [&]()
+    {
+        etl::string<512> output;
+        etl::string_stream stream(output);
+        static_cast<const BaseModule &>(bridge).getData(stream, "");
+        return output;
+    };
+
+    GATAS::AircraftPositionInfo position;
+    position.ingress = GATAS::TrafficIngress::Connect;
+    position.protocol = GATAS::ConspicuityProtocol::OGN;
+    bus.receive(GATAS::IngressAircraftPositionMsg{position});
+    position.ingress = GATAS::TrafficIngress::Transceiver;
+    position.protocol = GATAS::ConspicuityProtocol::ADSB;
+    bus.receive(GATAS::IngressAircraftPositionMsg{position});
+    REQUIRE(diagnostics().find("\"lastRadioTrafficUs\":0") != etl::string<512>::npos);
+
+    position.protocol = GATAS::ConspicuityProtocol::OGN;
+    bus.receive(GATAS::IngressAircraftPositionMsg{position});
+    REQUIRE(diagnostics().find("\"lastRadioTrafficUs\":80000000") != etl::string<512>::npos);
 }
 
 TEST_CASE("GDL90 follows current COBS subscriber state without changing WiFi fanout", "[gatasconnect]")

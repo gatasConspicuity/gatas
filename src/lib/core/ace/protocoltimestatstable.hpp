@@ -11,17 +11,17 @@ namespace GATAS
      * @brief Helper class to store reception times of messages from different data sources.
      *        This can be used to understand if timings are correct.
      */
-    class DataSourceTimeStatsTableBase
+    class ConspicuityProtocolTimeStatsTableBase
     {
     public:
-        struct DataSourceTimeStats
+        struct ConspicuityProtocolTimeStats
         {
             etl::bitset<100> timeTenthMs{};
             uint32_t frequency = 0;
         };
 
-        using const_span_type = etl::span<const DataSourceTimeStats>;
-        using mutable_span_type = etl::span<DataSourceTimeStats>;
+        using const_span_type = etl::span<const ConspicuityProtocolTimeStats>;
+        using mutable_span_type = etl::span<ConspicuityProtocolTimeStats>;
 
         void addReceiveStat(uint32_t frequency, uint16_t msInSecond)
         {
@@ -41,7 +41,7 @@ namespace GATAS
             if (size_ < storage_.size())
             {
                 auto &stat = storage_[size_++];
-                stat = DataSourceTimeStats{};
+                stat = ConspicuityProtocolTimeStats{};
                 stat.frequency = frequency;
                 stat.timeTenthMs.set(tenthMsIndex);
             }
@@ -53,7 +53,7 @@ namespace GATAS
         void clear() { size_ = 0; }
 
     protected:
-        DataSourceTimeStatsTableBase() = default;
+        ConspicuityProtocolTimeStatsTableBase() = default;
 
         void init(mutable_span_type storage)
         {
@@ -74,10 +74,10 @@ namespace GATAS
 
     // Templated wrapper — only owns storage, zero logic here
     template <size_t MaxSources>
-    class DataSourceTimeStatsTable : public DataSourceTimeStatsTableBase
+    class ConspicuityProtocolTimeStatsTable : public ConspicuityProtocolTimeStatsTableBase
     {
     public:
-        DataSourceTimeStatsTable()
+        ConspicuityProtocolTimeStatsTable()
         {
             init(mutable_span_type(buffer_.data(), MaxSources));
         }
@@ -91,7 +91,7 @@ namespace GATAS
         }
 
     private:
-        etl::array<DataSourceTimeStats, MaxSources> buffer_{};
+        etl::array<ConspicuityProtocolTimeStats, MaxSources> buffer_{};
     };
 
 } // namespace GATAS

@@ -16,7 +16,7 @@ clearing the failure result. No bootstrap changes were needed in this review.
 | AceSpi, ADSBDecoder | Only failure is mutex allocation, before hardware/decoder setup. |
 | ADSLAce, FanetAce | Only failure is mutex allocation; protocol delegates remain inside owned members. |
 | AirConnect | Only failure is mutex allocation; TCP listener is still inactive and its destructor handles a null PCB. |
-| Dump1090Client | Missing receiver fails before TCP startup; embedded client post-construction is a no-op and autoConnect only sets a flag. |
+| Dump1090Client | Publishes on the bus without a receiver lookup. Embedded client post-construction is a no-op and autoConnect only sets a flag. |
 | GatasConnect | Only failure is timer allocation, leaving no timer or subscription. |
 | GatasConnectUDP | Only failure is UDP PCB allocation, before callback registration. |
 | RadioTunerTx | Only failure is task creation, leaving no task. |
@@ -42,7 +42,7 @@ clearing the failure result. No bootstrap changes were needed in this review.
 | Webserver | postConstruct publishes this in a global pointer without destructor cleanup. Currently always returns OK. |
 | Config | Bootstrap owns a static Config, not a heap allocation; it is initialised separately and currently always returns OK. |
 
-Abstract provider classes (BinaryReceiver, RtcModule, SpiModule, Radio,
+Abstract provider classes (RtcModule, SpiModule, Radio,
 Configuration and AbstractTransceiver) retain the conservative base default;
 concrete subclasses must opt in individually. Test mocks are not boot modules.
 

@@ -16,11 +16,11 @@ TEST_CASE("RadioProtocolCtx", "[single-file]")
 {
     RadioProtocolCtx ctx{nullptr, nullptr};
 
-    etl::array<uint8_t, (uint8_t)GATAS::DataSource::_TRANSPROTOCOLS> slotReceived = {};
+    etl::array<uint8_t, GATAS::RADIO_PROTOCOLS.size()> slotReceived = {};
 
-    ctx.updateDataSources(etl::vector<GATAS::DataSource, 1> {});
+    ctx.updateConspicuityProtocols(etl::vector<GATAS::ConspicuityProtocol, 1> {});
     ctx.prioritizeRxTimings();
-    REQUIRE(etl::vector<GATAS::DataSource, 1> {} == ctx.dataSourceTimeSlots);
+    REQUIRE(etl::vector<GATAS::ConspicuityProtocol, 1> {} == ctx.protocolTimeSlots);
 
     SECTION("Prioritise should return 500ms on default zone", "[single-file]")
     {
@@ -28,72 +28,72 @@ TEST_CASE("RadioProtocolCtx", "[single-file]")
     }
     SECTION("extra FLARM Data Source", "[single-file]")
     {
-        ctx.updateDataSources(etl::vector{GATAS::DataSource::FLARM});
+        ctx.updateConspicuityProtocols(etl::vector{GATAS::ConspicuityProtocol::FLARM});
         ctx.prioritizeRxTimings();
-        REQUIRE(etl::vector{GATAS::DataSource::FLARM} == ctx.dataSourceTimeSlots);
+        REQUIRE(etl::vector{GATAS::ConspicuityProtocol::FLARM} == ctx.protocolTimeSlots);
     }
 
     SECTION("3 Data Sources", "[single-file]")
     {
-        ctx.updateDataSources(etl::vector{GATAS::DataSource::FLARM, GATAS::DataSource::OGN, GATAS::DataSource::ADSL});
+        ctx.updateConspicuityProtocols(etl::vector{GATAS::ConspicuityProtocol::FLARM, GATAS::ConspicuityProtocol::OGN, GATAS::ConspicuityProtocol::ADSL_M_BAND});
         ctx.prioritizeRxTimings();
-        REQUIRE(etl::vector{GATAS::DataSource::FLARM, GATAS::DataSource::OGN, GATAS::DataSource::ADSL} == ctx.dataSourceTimeSlots);
+        REQUIRE(etl::vector{GATAS::ConspicuityProtocol::FLARM, GATAS::ConspicuityProtocol::OGN, GATAS::ConspicuityProtocol::ADSL_M_BAND} == ctx.protocolTimeSlots);
 
         SECTION("FLARM Data Received", "[single-file]")
         {
-            slotReceived[(uint8_t)(GATAS::DataSource::FLARM)] += 1;
+            slotReceived[GATAS::radioProtocolIndex(GATAS::ConspicuityProtocol::FLARM)] += 1;
             ctx.updateSlotReceive(slotReceived);
             ctx.prioritizeRxTimings();
-            REQUIRE(etl::vector{GATAS::DataSource::FLARM, GATAS::DataSource::FLARM, GATAS::DataSource::OGN, GATAS::DataSource::ADSL} == ctx.dataSourceTimeSlots);
+            REQUIRE(etl::vector{GATAS::ConspicuityProtocol::FLARM, GATAS::ConspicuityProtocol::FLARM, GATAS::ConspicuityProtocol::OGN, GATAS::ConspicuityProtocol::ADSL_M_BAND} == ctx.protocolTimeSlots);
 
             SECTION("OGN and FLARM Data Received", "[single-file]")
             {
-                slotReceived[(uint8_t)(GATAS::DataSource::FLARM)] += 1;
-                slotReceived[(uint8_t)(GATAS::DataSource::OGN)] += 1;
+                slotReceived[GATAS::radioProtocolIndex(GATAS::ConspicuityProtocol::FLARM)] += 1;
+                slotReceived[GATAS::radioProtocolIndex(GATAS::ConspicuityProtocol::OGN)] += 1;
                 ctx.updateSlotReceive(slotReceived);
                 ctx.prioritizeRxTimings();
-                REQUIRE(etl::vector{GATAS::DataSource::FLARM, GATAS::DataSource::FLARM, GATAS::DataSource::OGN, GATAS::DataSource::OGN, GATAS::DataSource::ADSL} == ctx.dataSourceTimeSlots);
-                REQUIRE(*ctx.upcomingDataSource == GATAS::DataSource::FLARM);
+                REQUIRE(etl::vector{GATAS::ConspicuityProtocol::FLARM, GATAS::ConspicuityProtocol::FLARM, GATAS::ConspicuityProtocol::OGN, GATAS::ConspicuityProtocol::OGN, GATAS::ConspicuityProtocol::ADSL_M_BAND} == ctx.protocolTimeSlots);
+                REQUIRE(*ctx.upcomingConspicuityProtocol == GATAS::ConspicuityProtocol::FLARM);
 
                 SECTION("Should be circular receive slots", "[single-file]")
                 {
                     ctx.advanceReceiveSlot(CountryRegulations::Zone::ZONE1);
-                    REQUIRE(*ctx.upcomingDataSource == GATAS::DataSource::FLARM);
+                    REQUIRE(*ctx.upcomingConspicuityProtocol == GATAS::ConspicuityProtocol::FLARM);
                     ctx.advanceReceiveSlot(CountryRegulations::Zone::ZONE1);
-                    REQUIRE(*ctx.upcomingDataSource == GATAS::DataSource::OGN);
+                    REQUIRE(*ctx.upcomingConspicuityProtocol == GATAS::ConspicuityProtocol::OGN);
                     ctx.advanceReceiveSlot(CountryRegulations::Zone::ZONE1);
-                    REQUIRE(*ctx.upcomingDataSource == GATAS::DataSource::OGN);
+                    REQUIRE(*ctx.upcomingConspicuityProtocol == GATAS::ConspicuityProtocol::OGN);
                     ctx.advanceReceiveSlot(CountryRegulations::Zone::ZONE1);
-                    REQUIRE(*ctx.upcomingDataSource == GATAS::DataSource::ADSL);
+                    REQUIRE(*ctx.upcomingConspicuityProtocol == GATAS::ConspicuityProtocol::ADSL_M_BAND);
                     ctx.advanceReceiveSlot(CountryRegulations::Zone::ZONE1);
                     // Here prioritsation should happen
-                    REQUIRE(*ctx.upcomingDataSource == GATAS::DataSource::FLARM);
+                    REQUIRE(*ctx.upcomingConspicuityProtocol == GATAS::ConspicuityProtocol::FLARM);
                     ctx.advanceReceiveSlot(CountryRegulations::Zone::ZONE1);
-                    REQUIRE(*ctx.upcomingDataSource == GATAS::DataSource::FLARM);
+                    REQUIRE(*ctx.upcomingConspicuityProtocol == GATAS::ConspicuityProtocol::FLARM);
                     ctx.advanceReceiveSlot(CountryRegulations::Zone::ZONE1);
-                    REQUIRE(*ctx.upcomingDataSource == GATAS::DataSource::OGN);
+                    REQUIRE(*ctx.upcomingConspicuityProtocol == GATAS::ConspicuityProtocol::OGN);
                 }
             }
 
             SECTION("OGN Data, no FLARM Received", "[single-file]")
             {
-                slotReceived[(uint8_t)(GATAS::DataSource::OGN)] += 1;
+                slotReceived[GATAS::radioProtocolIndex(GATAS::ConspicuityProtocol::OGN)] += 1;
                 ctx.updateSlotReceive(slotReceived);
                 ctx.prioritizeRxTimings();
-                REQUIRE(etl::vector{GATAS::DataSource::FLARM, GATAS::DataSource::OGN, GATAS::DataSource::OGN, GATAS::DataSource::ADSL} == ctx.dataSourceTimeSlots);
+                REQUIRE(etl::vector{GATAS::ConspicuityProtocol::FLARM, GATAS::ConspicuityProtocol::OGN, GATAS::ConspicuityProtocol::OGN, GATAS::ConspicuityProtocol::ADSL_M_BAND} == ctx.protocolTimeSlots);
 
                 SECTION("NO Data Received", "[single-file]")
                 {
                     ctx.updateSlotReceive(slotReceived);
                     ctx.prioritizeRxTimings();
-                    REQUIRE(etl::vector{GATAS::DataSource::FLARM, GATAS::DataSource::OGN, GATAS::DataSource::ADSL} == ctx.dataSourceTimeSlots);
+                    REQUIRE(etl::vector{GATAS::ConspicuityProtocol::FLARM, GATAS::ConspicuityProtocol::OGN, GATAS::ConspicuityProtocol::ADSL_M_BAND} == ctx.protocolTimeSlots);
                 }
 
                 SECTION("Data sources removed", "[single-file]")
                 {
-                    ctx.updateDataSources(etl::vector<GATAS::DataSource, 1> {});
+                    ctx.updateConspicuityProtocols(etl::vector<GATAS::ConspicuityProtocol, 1> {});
                     ctx.prioritizeRxTimings();
-                    REQUIRE(etl::vector{etl::vector<GATAS::DataSource, 1>{}} == ctx.dataSourceTimeSlots);
+                    REQUIRE(etl::vector{etl::vector<GATAS::ConspicuityProtocol, 1>{}} == ctx.protocolTimeSlots);
                 }
             }
         }

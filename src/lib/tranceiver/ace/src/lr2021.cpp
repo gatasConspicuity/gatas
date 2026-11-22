@@ -128,7 +128,7 @@ void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirec
     const bool ook = parameters.frequency->mode == GATAS::Modulation::OOK;
     const uint32_t frequency = parameters.hopFrequency + offsetHz;
     if (ook ? direction != RadioDirection::RX || parameters.hopFrequency != 1'090'000'000 ||
-                  parameters.config->dataSource() != GATAS::DataSource::ADSB
+                  parameters.config->protocol() != GATAS::ConspicuityProtocol::ADSB
             : frequency < 150'000'000 || frequency > 960'000'000)
     {
         halError = true;
@@ -490,7 +490,7 @@ void Lr2021::receivePacket(uint16_t length, int16_t rssi, etl::optional<uint16_t
     const uint16_t packets = packetCount ? 1 : available / length;
     const bool valid = !discardPacket && length >= 4 &&
                        (!lastRadioParameters.config->manchester || length % 2 == 0) &&
-                       (lastRadioParameters.config->dataSource() != GATAS::DataSource::ADSLO_HDR || length % 4 == 0);
+                       (lastRadioParameters.config->protocol() != GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR || length % 4 == 0);
     for (uint16_t i = 0; i < packets; ++i)
     {
         auto data = valid ? static_cast<uint8_t *>(getGlobalPool().alloc(length + (ook ? 1 : 0))) : nullptr;

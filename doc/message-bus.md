@@ -16,7 +16,7 @@ support first; the legacy V1/V2 ownship serializers are deprecated and disabled.
 
 > **How this was generated**: Senders were found by grepping `getBus().receive(` across all `.cpp` files. Receivers were found by grepping `void on_receive(const GATAS::` across all `.hpp` files. The class name was inferred from the enclosing file/class context.
 
-> **Direct handoff note**: Some important current flows are shown even though they are not plain bus publishes, notably `Dump1090Client -> ADSBDecoder` and `Sx1262 / Lr2021 -> RxDataFrameQueue`.
+> **Direct handoff note**: The diagrams also show the internal queue from `Sx1262 / Lr2021` to `RxDataFrameQueue`.
 
 Both radios inherit `AbstractTransceiver`. Successfully loaded radios receive consecutive
 `_Radio_N` identities starting at zero, independently of their configuration suffix.
@@ -31,6 +31,16 @@ frames to `RxDataFrameQueue` without restarting RX. A new `RadioControlMsg`
 assignment or queued TX stops RX and drains pending completions using the old
 profile before changing settings. LR2021 drains complete fixed-size FIFO captures;
 ambiguous variable-length packet metadata or FIFO overflow triggers recovery.
+
+Decoded aircraft positions carry independent address type, ingress, and protocol
+fields. Direct radio reports use `Transceiver`. Targets reported by an ADS-L
+uplink station use `RadioRelay`. ADSBDecoder also accepts
+`Dump1090` frames and labels a position `Mixed` when its odd and even coordinate
+frames came from different inputs. GatasConnect translates the existing COBS
+traffic byte to `ConspicuityProtocol` and publishes `Connect` positions for both BLE
+and UDP. AircraftTracker consumes both single positions and batches. Its Monitor
+counts tracks and processed positions across all inputs. Antenna plots use only
+observations from `Transceiver`.
 
 ## Bus Semantics
 
@@ -120,7 +130,7 @@ rectangle "Infrastructure" {
 [RxDataFrameQueue] --> [ADSLAce] : RadioRxManchesterMsg\nRadioRxMsg
 [RxDataFrameQueue] --> [FanetAce] : RadioRxMsg
 [RxDataFrameQueue] --> [ADSBDecoder] : RadioRxMsg (1090 MHz ADS-B)
-[Dump1090Client] ..> [ADSBDecoder] : ADS-B binary\n(direct receiveBinary)
+[Dump1090Client] --> [ADSBDecoder] : ADSBMessageBinMsg (Dump1090 ingress)
 [Ogn1] --> [AircraftTracker] : IngressAircraftPositionMsg
 [Flarm2024] --> [AircraftTracker] : IngressAircraftPositionMsg
 [ADSLAce] --> [AircraftTracker] : IngressAircraftPositionMsg\nIngressAircraftPositionsMsg
@@ -257,7 +267,7 @@ package "Monitoring" {
 [RxDataFrameQueue] --> [ADSLAce] : RadioRxManchesterMsg\nRadioRxMsg
 [RxDataFrameQueue] --> [FanetAce] : RadioRxMsg
 [RxDataFrameQueue] --> [ADSBDecoder] : RadioRxMsg (1090 MHz ADS-B)
-[Dump1090Client] ..> [ADSBDecoder] : ADS-B binary\n(direct receiveBinary)
+[Dump1090Client] --> [ADSBDecoder] : ADSBMessageBinMsg (Dump1090 ingress)
 
 [Ogn1] --> [AircraftTracker] : IngressAircraftPositionMsg
 [Flarm2024] --> [AircraftTracker] : IngressAircraftPositionMsg
@@ -511,6 +521,7 @@ package "Wifi Consumers" {
 | `SystemActionMsg` | `Config` (web handlers and pending device actions dispatched on `IdleMsg`) | `Idle` | Requests watchdog restart or USB boot; Idle owns the platform reset calls. These actions do not implicitly save flash. |
 | `WifiModeRequestMsg` | `GatasConnect` | `WifiService` | Companion-originated WiFi mode switch request derived from framed binary control traffic. |
 | `WifiConnectionStateMsg` | `WifiService` | `Dump1090Client`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP`, `DataPort`, `AirConnect`, `StaticGPS`, `Idle` | Shared network state. |
+| `ADSBMessageBinMsg` | `Dump1090Client` | `ADSBDecoder` | Owns a pool-backed Mode S frame and carries its `TrafficIngress`. The frame is returned to the pool after synchronous dispatch. |
 | `AccessPointClientsMsg` | `WifiService` | `GDLoverUDP` | AP client list for UDP output policy. |
 | `IdleMsg` | `Idle` | `Config` | Dispatches the pending device action. Save attempts `configMutex` without waiting and calls `saveToFlash()` if acquired; Restart/USB boot publish `SystemActionMsg`. After execution, clears the optional if it still matches the executed action. A different action queued during execution remains pending; Save also remains pending if the configuration mutex is busy. |
 | `Every1SecMsg` | `Idle` | `DataPort`, `Bmp280`, `Bmp580` | PFLAU heartbeat and internal pressure sampling. |
@@ -522,13 +533,11 @@ package "Wifi Consumers" {
 
 | Message | Current status |
 | --- | --- |
-| `ADSBMessageBinMsg` | Used as temporary frame storage by `Dump1090Client`, which calls `ADSBDecoder::receiveBinary(...)` directly. |
 | `Every15SecMsg` | Emitted by `Idle`, but there are no current subscribers. |
 | `Every300SecMsg` | Emitted by `Idle`, but there are no current subscribers. |
 
 ## Important Non-Bus Paths
 
-- `Dump1090Client -> ADSBDecoder` is a direct call through `BinaryReceiver::receiveBinary(...)`, not a bus message.
 - `Sx1262 / Lr2021 -> RxDataFrameQueue` uses an internal queue/task handoff before frames become `RadioRxManchesterMsg` or `RadioRxMsg`.
 - `Bluetooth` can inject `DataPortMsg` and `GatasConnectRx` into the bus from BLE characteristics.
 - `Webserver`, `AceSpi`, and `SerialADSB` are loaded modules, but they are not meaningful bus routers in the current topology.
@@ -541,4 +550,4 @@ When the topology changes, verify all three of these:
 2. Subscribers: `rg -n "void on_receive\\(const GATAS::" src/lib`
 3. Router declarations: `rg -n "message_router<" src/lib`
 
-Also check for direct module-to-module calls like `receiveBinary(...)`, because those will not appear in a pure bus grep but still affect the effective data flow.
+Also check direct module-to-module calls and queue handoffs to capture flows outside the bus.

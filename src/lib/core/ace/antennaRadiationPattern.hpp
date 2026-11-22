@@ -46,7 +46,12 @@ namespace GATAS
 
         void put(const GATAS::IngressAircraftPositionMsg &msg, float ownshipLat, float ownshipLon, float ownTrack)
         {
-            auto &position = msg.position;
+            put(msg.position, msg.rssidBm, ownshipLat, ownshipLon, ownTrack);
+        }
+
+        void put(const GATAS::AircraftPositionInfo &position, int16_t rssiDbm,
+                 float ownshipLat, float ownshipLon, float ownTrack)
+        {
             auto relativeFromOwn = position.relativeFromOwn(ownshipLat, ownshipLon);
             const float relativeBearing = calculateRelativeBearing(relativeFromOwn.relNorth, relativeFromOwn.relEast, ownTrack);
             uint8_t positionInRadial = static_cast<uint8_t>(CoreUtils::getRadialSection<NUM_RADIALS>(static_cast<int16_t>(relativeBearing)));
@@ -55,10 +60,13 @@ namespace GATAS
             if (position.distanceFromOwn > measurement.maxDistance)
             {
                 measurement.maxDistance = position.distanceFromOwn;
-                measurement.maxRssiDbm = msg.rssidBm;
+                measurement.maxRssiDbm = rssiDbm == INT16_MIN ? -128 : rssiDbm;
             }
             measurement.avgDistance = (measurement.avgDistance + position.distanceFromOwn) / 2;
-            measurement.avgRssiDbm = (measurement.avgRssiDbm + msg.rssidBm) / 2;
+            if (rssiDbm != INT16_MIN)
+            {
+                measurement.avgRssiDbm = (measurement.avgRssiDbm + rssiDbm) / 2;
+            }
         }
 
         const etl::array<Measurement, NUM_RADIALS>& _radiationPattern() const

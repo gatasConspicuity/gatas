@@ -273,18 +273,18 @@ TEST_CASE("AircraftPathPredictor cache hit preserves caller metadata", "[single-
 
     GATAS::AircraftPositionInfo first = latest;
     first.callSign = "FIRST";
-    first.dataSource = GATAS::DataSource::ADSB;
+    first.protocol = GATAS::ConspicuityProtocol::ADSB;
     first.aircraftType = GATAS::AircraftCategory::GLIDER;
     first = predictor.extrapolatedPos(2'000'000, first);
 
     GATAS::AircraftPositionInfo second = latest;
     second.callSign = "SECOND";
-    second.dataSource = GATAS::DataSource::OGN;
+    second.protocol = GATAS::ConspicuityProtocol::OGN;
     second.aircraftType = GATAS::AircraftCategory::LIGHT;
     second = predictor.extrapolatedPos(2'000'000, second);
 
     REQUIRE(second.callSign == "SECOND");
-    REQUIRE(second.dataSource == GATAS::DataSource::OGN);
+    REQUIRE(second.protocol == GATAS::ConspicuityProtocol::OGN);
     REQUIRE(second.aircraftType == GATAS::AircraftCategory::LIGHT);
     REQUIRE(first.timestamp == 2'000'000);
     REQUIRE(second.timestamp == 2'000'000);

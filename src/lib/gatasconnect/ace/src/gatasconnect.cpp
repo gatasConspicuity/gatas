@@ -80,7 +80,7 @@ void GatasConnect::on_receive(const GATAS::ConfigUpdatedMsg &msg)
 
 void GatasConnect::on_receive(const GATAS::IngressAircraftPositionMsg &msg)
 {
-    if (msg.position.dataSource < GATAS::DataSource::_RADIO)
+    if (GATAS::qualifiesForRadioTrafficPriority(msg.position.ingress, msg.position.protocol))
     {
         if (auto guard = SpinlockGuard{CoreUtils::sharedSpinLock()})
         {

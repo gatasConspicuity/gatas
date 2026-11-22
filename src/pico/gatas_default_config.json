@@ -63,7 +63,7 @@
   "AircraftTracker": {
     "_comment_ddbEnabled": "Enable the DDB Database to fetch aircraft registrations",
     "ddbEnabled": 0,
-    "_comment_prefixEnabled": "Add a prefix to indicate what the datasource is of this aircraft",
+    "_comment_prefixEnabled": "Add a prefix to indicate the traffic protocol of this aircraft",
     "prefixEnabled": 0,
     "_comment_showSquawk": "Show known squawk codes instead of callsigns",
     "showSquawk": 0,

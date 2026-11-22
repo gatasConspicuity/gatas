@@ -7,7 +7,7 @@
 #include "ace/coreutils.hpp"
 #include "ace/spinlockguard.hpp"
 #include "ace/messages.hpp"
-#include "ace/datasourcetimestatstable.hpp"
+#include "ace/protocoltimestatstable.hpp"
 
 #include "etl/map.h"
 #include "etl/queue_spsc_atomic.h"
@@ -53,7 +53,7 @@ private:
     TaskHandle_t taskHandle = nullptr;
     FANET::Protocol protocol;
     SemaphoreHandle_t mutex = nullptr;
-    GATAS::DataSourceTimeStatsTable<3> datasourceTimeStats;
+    GATAS::ConspicuityProtocolTimeStatsTable<3> protocolTimeStats;
 
     uint8_t radioNo = 0;
     uint32_t distanceIgnore;

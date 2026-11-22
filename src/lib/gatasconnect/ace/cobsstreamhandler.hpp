@@ -41,14 +41,6 @@ public:
         auto addPosition = [&](const GATAS::AircraftPositionInfo &position)
         {
 
-#if GATAS_DEBUG == 1
-            if (position.dataSource != GATAS::DataSource::ADSB && position.dataSource != GATAS::DataSource::MLAT)
-            {
-                GATAS_WARN("CobsStreamHandler: ignoring unexpected aircraft data source %u",
-                           static_cast<unsigned int>(position.dataSource));
-                return;
-            }
-#endif
             if (positionMessages.full())
             {
                 bus.receive(GATAS::IngressAircraftPositionsMsg(positionMessages));

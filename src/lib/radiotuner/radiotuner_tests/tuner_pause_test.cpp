@@ -57,12 +57,12 @@ TEST_CASE("Timed out tuner pauses release delayed workers", "[pause]")
     }
     else
     {
-        GATAS::DataSourceConfig protocol{GATAS::DataSource::OGN, GATAS::DataSourceMode::RX_TX};
-        transmitter.assignDataSources(etl::span<GATAS::DataSourceConfig>(&protocol, 1));
+        GATAS::ProtocolConfig protocol{GATAS::ConspicuityProtocol::OGN, GATAS::ProtocolMode::RX_TX};
+        transmitter.assignProtocols(etl::span<GATAS::ProtocolConfig>(&protocol, 1));
         REQUIRE(xTaskNotifyCalled);
         REQUIRE(xTaskNotifyulValue == RadioTunerRx::UNBLOCK);
-        REQUIRE(transmitter.dataSourceTxEvents.empty());
-        REQUIRE(transmitter.configuredDatasources.empty());
+        REQUIRE(transmitter.protocolTxEvents.empty());
+        REQUIRE(transmitter.configuredProtocols.empty());
     }
     const uint32_t block = RadioTunerRx::BLOCK;
     const uint32_t unblock = xTaskNotifyulValue;
@@ -98,20 +98,20 @@ TEST_CASE("RX configuration changes require a successful pause", "[pause][config
         {
             auto config = MockConfig::gaTasConfig();
             config.protocols.clear();
-            config.protocols.push_back({GATAS::DataSource::FANET, GATAS::DataSourceMode::RX_TX});
+            config.protocols.push_back({GATAS::ConspicuityProtocol::FANET, GATAS::ProtocolMode::RX_TX});
             return config;
         }
     } changed(bus);
     GATAS::OwnshipState ownship;
     ownship.init(CoreUtils::sharedSpinLock());
     RadioTunerRx receiver(bus, original, ownship);
-    const auto ogn = static_cast<uint8_t>(GATAS::DataSource::OGN);
+    const auto ogn = GATAS::radioProtocolIndex(GATAS::ConspicuityProtocol::OGN);
     receiver.slotReceive[ogn] = 7;
     mockEventWaitMask = pauseSucceeds ? UINT32_MAX : 0;
     receiver.on_receive(GATAS::ConfigUpdatedMsg{changed, Configuration::NAME});
-    REQUIRE(receiver.configuredDatasources.size() == 1);
-    REQUIRE(receiver.configuredDatasources.front().dataSource ==
-            (pauseSucceeds ? GATAS::DataSource::FANET : GATAS::DataSource::OGN));
+    REQUIRE(receiver.configuredProtocols.size() == 1);
+    REQUIRE(receiver.configuredProtocols.front().protocol ==
+            (pauseSucceeds ? GATAS::ConspicuityProtocol::FANET : GATAS::ConspicuityProtocol::OGN));
     REQUIRE(receiver.slotReceive[ogn] == (pauseSucceeds ? 0 : 7));
     REQUIRE(xTaskNotifyulValue == RadioTunerRx::UNBLOCK);
 }

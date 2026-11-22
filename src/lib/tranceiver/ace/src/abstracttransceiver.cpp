@@ -97,7 +97,7 @@ void AbstractTransceiver::getData(etl::string_stream &stream, const etl::string_
     stream << ",\"halBusyTimeout:err\":" << halBusyTimeout;
     stream << ",\"halSpiErrors:err\":" << halSpiErrors;
     stream << ",\"mode\":" << "\"" << GATAS::modulationToString(lastRadioParameters.frequency->mode) << "\"";
-    stream << ",\"dataSource\":" << "\"" << GATAS::toString(lastRadioParameters.config->dataSource()) << "\"";
+    stream << ",\"protocol\":" << "\"" << GATAS::toString(lastRadioParameters.config->protocol()) << "\"";
     stream << ",\"frequency:hz\":" << lastRadioParameters.hopFrequency;
     stream << ",\"powerdBm:dbm\":" << powerdBm;
     stream << ",\"radio\":" << radioNo;
@@ -110,7 +110,7 @@ void AbstractTransceiver::getData(etl::string_stream &stream, const etl::string_
 
 AbstractTransceiver::RadioStatus AbstractTransceiver::sendQueuedPacket(const TxPacket &txPacket)
 {
-    // GATAS_INFO("Radio %d TX %s timeMs:%d", radioNo, GATAS::toString(command.txPacket.radioParameters.config->dataSource), CoreUtils::msInSecond());
+    // GATAS_INFO("Radio %d TX %s timeMs:%d", radioNo, GATAS::toString(command.txPacket.radioParameters.config->protocol), CoreUtils::msInSecond());
     // TODO: Sometimes configuration can take a few msmeven we don't change protocol
 
     if (txPacket.radioParameters.frequency->mode == GATAS::Modulation::GFSK)
@@ -247,10 +247,10 @@ void AbstractTransceiver::radioTask(void *arg)
             doListen = false;
             return true;
         }
-        const auto &parameters = rxRadioParameters.config->dataSource() == GATAS::DataSource::NONE
+        const auto &parameters = rxRadioParameters.config->isIdle()
                                      ? lastRadioParameters
                                      : rxRadioParameters;
-        if (parameters.config->dataSource() == GATAS::DataSource::NONE ||
+        if (parameters.config->isIdle() ||
             !supportsRx(parameters.frequency->capability))
         {
             operation = Operation::IDLE;

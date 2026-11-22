@@ -22,7 +22,7 @@
  */
 class RadioTunerTx : public BaseModule, public etl::message_router<RadioTunerTx, GATAS::OwnshipPositionMsg, GATAS::ConfigUpdatedMsg, GATAS::RadioControlMsg>
 {
-    struct DataSourceTxEvent
+    struct ConspicuityProtocolTxEvent
     {
         const CountryRegulations::ProtocolTxTimeSlot *slot;
         uint32_t atTime = 0;
@@ -58,11 +58,11 @@ private:
     // True when groundspeed indicates we are airborne; default false (conservative: use static timing)
     bool isAirborne = false;
     // Store slot + 1 so zero represents a protocol with no observed RX assignment.
-    etl::array<uint8_t, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> preferredRadio = {};
+    etl::array<uint8_t, GATAS::RADIO_PROTOCOLS.size()> preferredRadio = {};
     etl::array<const Radio *, GATAS_MAX_RADIOS> radios = {};
-    static constexpr size_t MaxQueueSize = static_cast<size_t>(GATAS::DataSource::_TRANSPROTOCOLS);
-    etl::vector<DataSourceTxEvent, CountryRegulations::MAX_PROTOCOL_TX_TIMINGS> dataSourceTxEvents;
-    etl::vector<GATAS::DataSourceConfig, static_cast<uint8_t>(GATAS::DataSource::_TRANSPROTOCOLS)> configuredDatasources;
+    static constexpr size_t MaxQueueSize = GATAS::RADIO_PROTOCOLS.size();
+    etl::vector<ConspicuityProtocolTxEvent, CountryRegulations::MAX_PROTOCOL_TX_TIMINGS> protocolTxEvents;
+    etl::vector<GATAS::ProtocolConfig, GATAS::RADIO_PROTOCOLS.size()> configuredProtocols;
 
     EventSync eventSync;
     TaskHandle_t taskHandle;
@@ -70,7 +70,7 @@ private:
 private:
     static void radioTuneTaskTrampoline(void *arg);
     void radioTuneTask();
-    etl::optional<uint8_t> selectRadio(GATAS::DataSource source, GATAS::RadioCapability capability) const;
+    etl::optional<uint8_t> selectRadio(GATAS::ConspicuityProtocol source, GATAS::RadioCapability capability) const;
 
     // ******************** Message bus receive handlers ********************
     // Handle receiving of zone information
@@ -102,9 +102,9 @@ public:
 
 private:
     /**
-     * @brief Assign the dataSources to each radio. THis should only be used and called after startup, or when aircraft is changed
+     * @brief Assign the protocols to each radio. THis should only be used and called after startup, or when aircraft is changed
      *
-     * @param dataSources
+     * @param protocols
      */
-    void assignDataSources(const etl::span<GATAS::DataSourceConfig> &dataSources);
+    void assignProtocols(const etl::span<GATAS::ProtocolConfig> &protocols);
 };

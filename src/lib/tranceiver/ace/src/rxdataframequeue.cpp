@@ -81,14 +81,14 @@ void RxDataFrameQueue::radioQueueTask(void *arg)
                     byteLength,
                     rxFrame.epochSeconds,
                     rxFrame.frequency,
-                    rxFrame.config->dataSource(),
+                    rxFrame.config->protocol(),
                     rxFrame.rssidBm};
 
                 manchesterDecodeInline(msg.frame.get(), msg.error.get(), rxFrame.length);
 
                 // Handle multi protocol situations
-                // auto ds = decideDataSource(rxFrame.config->dataSource(), msg.frame32(), rxFrame.length );
-                // if (ds.dataSource < GATAS::DataSource::_TRANSPROTOCOLS)
+                // auto ds = classifyCombinedFrame(*rxFrame.config, msg.frame32(), rxFrame.length );
+                // if (GATAS::radioProtocolIndex(ds.protocol) < GATAS::RADIO_PROTOCOLS.size())
                 // {
                 //     bitShift(
                 //         msg.frame,
@@ -101,7 +101,7 @@ void RxDataFrameQueue::radioQueueTask(void *arg)
                 //         ds.bitsToShift);
 
                 //     msg.lengthBytes = ds.frameLength;
-                //     msg.dataSource = ds.dataSource;
+                //     msg.protocol = ds.protocol;
                 // }
 
                 getBus().receive(msg);
@@ -114,7 +114,7 @@ void RxDataFrameQueue::radioQueueTask(void *arg)
                 rxFrame.length,
                 rxFrame.epochSeconds,
                 rxFrame.frequency,
-                rxFrame.config->dataSource(),
+                rxFrame.config->protocol(),
                 rxFrame.rssidBm});
         }
     }
@@ -126,9 +126,9 @@ void RxDataFrameQueue::on_receive_unknown(const etl::imessage &msg)
     (void)msg;
 }
 
-RxDataFrameQueue::DataSourceMatch RxDataFrameQueue::decideDataSource(GATAS::DataSource ds, uint32_t frame[], uint8_t frameLengthBytes) // resolve multi-system receptions into unique types
+RxDataFrameQueue::RadioFrameMatch RxDataFrameQueue::classifyCombinedFrame(const GATAS::LinkLayerConfig &config, uint32_t frame[], uint8_t frameLengthBytes) // resolve multi-system receptions into unique types
 {
-    if (ds == GATAS::DataSource::ADSLOGN) // if OGN+ADSL SYNC
+    if (config.combinedRx == GATAS::CombinedRadioRx::AdslOgn) // if OGN+ADSL SYNC
     {
         const uint32_t SignADSL32[] = {0x0080B124};
         const uint32_t MaskADSL32[] = {0x00F0FFFF};
@@ -138,19 +138,19 @@ RxDataFrameQueue::DataSourceMatch RxDataFrameQueue::decideDataSource(GATAS::Data
         if (diffBits<1>(frame, SignADSL32, MaskADSL32) <= 1)
         {
             return {
-                .dataSource = GATAS::DataSource::ADSLM,
+                .protocol = GATAS::ConspicuityProtocol::ADSL_M_BAND,
                 .bitsToShift = 20,
                 .frameLength = 25 /*CountryRegulations::PROTOCOL_ADSL.packetLength */};
         }
         else if (diffBits<1>(frame, SignOGN32, MaskOGN32) <= 1)
         {
             return {
-                .dataSource = GATAS::DataSource::OGN,
+                .protocol = GATAS::ConspicuityProtocol::OGN,
                 .bitsToShift = 21,
                 .frameLength = 26 /*CountryRegulations::PROTOCOL_OGN.packetLength*/};
         }
     }
-    if (ds == GATAS::DataSource::ADSLFLARM) // if FLARM+ADSL SYNC
+    if (config.combinedRx == GATAS::CombinedRadioRx::AdslFlarm) // if FLARM+ADSL SYNC
     {
         const uint32_t SignADSL32[] = {0x003096E4};
         const uint32_t MaskADSL32[] = {0x00FEFFFF};
@@ -159,21 +159,21 @@ RxDataFrameQueue::DataSourceMatch RxDataFrameQueue::decideDataSource(GATAS::Data
         if (diffBits<1>(frame, SignADSL32, MaskADSL32) <= 1)
         {
             return {
-                .dataSource = GATAS::DataSource::ADSLM,
+                .protocol = GATAS::ConspicuityProtocol::ADSL_M_BAND,
                 .bitsToShift = 6,
                 .frameLength = 26 /*CountryRegulations::PROTOCOL_ADSL.packetLength*/};
         }
         else if (diffBits<1>(frame, SignFLR32, MaskFLR32) <= 1)
         {
             return {
-                .dataSource = GATAS::DataSource::FLARM,
+                .protocol = GATAS::ConspicuityProtocol::FLARM,
                 .bitsToShift = 15,
                 .frameLength = 26 /*CountryRegulations::PROTOCOL_FLARM.packetLength*/};
         }
     }
 
     return {
-        .dataSource = ds,
+        .protocol = config.protocol(),
         .bitsToShift = 0,
         .frameLength = frameLengthBytes};
 }

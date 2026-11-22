@@ -395,31 +395,31 @@ class MonitorModule extends El {
       if (Array.isArray(item.value)) {
         aircraft = item.value.map((entry) => {
           if (typeof entry === "string") {
-            const [hex, ds, dis, pressureAlt] = entry.split(",");
+            const [hex, protocol, dis, pressureAlt] = entry.split(",");
             return {
               hex: hex || "UNK",
-              ds: ds || "UNKNOWN",
+              protocol: protocol || "UNKNOWN",
               dis: dis === undefined || dis === "" ? null : Number(dis),
               pressureAlt: pressureAlt === undefined || pressureAlt === "" ? null : Number(pressureAlt),
             };
           }
           return {
             hex: entry.hex ?? entry.address ?? "UNK",
-            ds: entry.ds ?? entry.datasource ?? entry.dataSource ?? "UNKNOWN",
+            protocol: entry.protocol ?? entry.ds ?? entry.datasource ?? entry.dataSource ?? "UNKNOWN",
             dis: entry.dis ?? entry.distance ?? entry["distance:m"] ?? null,
             pressureAlt: entry.pressureAlt ?? null,
           };
         });
       } else if (item.value && typeof item.value === "object") {
         const hex = item.value.hex ?? [];
-        const ds = item.value.ds ?? [];
+        const protocols = item.value.protocol ?? item.value.ds ?? [];
         const dis = item.value.dis ?? [];
         const pressureAlt = item.value.pressureAlt ?? [];
-        const len = Math.max(hex.length, ds.length, dis.length, pressureAlt.length);
+        const len = Math.max(hex.length, protocols.length, dis.length, pressureAlt.length);
         for (let i = 0; i < len; i++) {
           aircraft.push({
             hex: hex[i] ?? "UNK",
-            ds: ds[i] ?? "UNKNOWN",
+            protocol: protocols[i] ?? "UNKNOWN",
             dis: dis[i] ?? null,
             pressureAlt: pressureAlt[i] ?? null,
           });
@@ -434,17 +434,17 @@ class MonitorModule extends El {
           <td>
             <div style="display:flex; flex-direction:column; gap:8px">
               <div style="display:grid; grid-template-columns: 60px 55px 60px 75px; gap:8px; font-size:11px; color:#777">
-                <span>Hex</span><span>Source</span><span>Distance</span><span>Pressure alt</span>
+                <span>Hex</span><span>Protocol</span><span>Distance</span><span>Pressure alt</span>
               </div>
               ${aircraft.map((aircraft) => {
         const distance = aircraft.dis == null ? "—" : `${aircraft.dis} m`;
         const hex = aircraft.hex ?? "UNK";
-        const dataSource = aircraft.ds ?? "UNKNOWN";
+        const protocol = aircraft.protocol ?? "UNKNOWN";
         const pressureAlt = aircraft.pressureAlt == null ? "—" : `${aircraft.pressureAlt} m`;
         return html`
                   <div style="display:grid; grid-template-columns: 60px 55px 60px 75px; gap:8px; align-items:center; font-size:11px; line-height:1.2; padding:2px 0">
                     <span style="font-family:monospace; font-weight:700;">${hex}</span>
-                    <span style="">${dataSource}</span>
+                    <span style="">${protocol}</span>
                     <span style="text-align:left; font-variant-numeric: tabular-nums;">${distance}</span>
                     <span style="text-align:left; font-variant-numeric: tabular-nums;">${pressureAlt}</span>
                   </div>

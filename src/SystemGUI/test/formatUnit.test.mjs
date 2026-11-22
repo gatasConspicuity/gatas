@@ -33,7 +33,7 @@ test("formatUnit formats elapsed seconds with unit el", () => {
   assert.equal(formatUnit(0, "el"), "0secs");
 });
 
-test("formatUnit formats datasource timing stats with unit dts", () => {
+test("formatUnit formats protocol timing stats with unit dts", () => {
   const value = "00000000001111111111";
   const expected = "0..500ms\n··········|●●●●●●●●●●";
   assert.equal(formatUnit(value, "dts"), expected);

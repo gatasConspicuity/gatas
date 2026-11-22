@@ -68,6 +68,10 @@ foreach(name ${TARGETS_IDIOMATIC_EXAMPLES})
     COMMAND ${UNIT_TEST})
 endforeach()
 
+target_sources(adsb_test PRIVATE ../../dump1090Client/ace/src/dump1090client.cpp)
+target_include_directories(adsb_test BEFORE PRIVATE ../../utils/utils_tests/network_mocks)
+target_compile_definitions(adsb_test PRIVATE ETL_ARRAY_VIEW_IS_MUTABLE=1)
+
 configure_file(adsb.txt adsb.txt COPYONLY)
 
 set(ALL_EXAMPLE_TARGETS ${TARGETS_IDIOMATIC_EXAMPLES})
