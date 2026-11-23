@@ -36,3 +36,10 @@ Release_*/
 release_*/
 
 gatas_local_config.json
+
+# Local editor state, caches, and private configuration
+.history/
+*.iml
+__pycache__/
+/src/pico/gatas_default_config.ini
+/docker-compose.yml

@@ -44,6 +44,7 @@ set(SOURCES_IDIOMATIC_EXAMPLES # Tests
     antennaRadiationPattern_test.cpp
     models_test.cpp
     binarymessages_test.cpp
+    gatasconnect_test.cpp
     deviceactions_test.cpp
     ownship_pressure_test.cpp
     ownshipstate_test.cpp
@@ -72,6 +73,7 @@ endforeach()
 
 target_sources(ownship_pressure_test PRIVATE ../../utils/ace/src/cobs.cpp)
 target_sources(binarymessages_test PRIVATE ../../utils/ace/src/cobs.cpp)
+target_sources(gatasconnect_test PRIVATE ../../gatasconnect/ace/src/gatasconnect.cpp ../../utils/ace/src/cobs.cpp)
 target_sources(deviceactions_test PRIVATE ../../utils/ace/src/cobs.cpp)
 
 set(ALL_EXAMPLE_TARGETS ${TARGETS_IDIOMATIC_EXAMPLES})

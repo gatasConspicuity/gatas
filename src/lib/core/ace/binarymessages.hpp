@@ -55,6 +55,7 @@ public:
             AIRCRAFT_POSITION_REQUEST_V2 = 10, // Request aircraft positions using the versioned response format
             OWNSHIP_PRESSURE_V1 = 11,          // Ownship ambient pressure and QNH
             DEVICE_ACTION_REQUEST_V1 = 12,     // Action and current 8-bit boot ID
+            AIRCRAFT_POSITION_REQUEST_V3 = 14, // Ownship with measured standard pressure altitude
         };
 
         ETL_DECLARE_ENUM_TYPE(DataType, uint8_t)
@@ -70,6 +71,7 @@ public:
         ETL_ENUM_TYPE(AIRCRAFT_POSITION_REQUEST_V2, "Versioned conspicuity data request")
         ETL_ENUM_TYPE(OWNSHIP_PRESSURE_V1, "Ownship ambient pressure and QNH")
         ETL_ENUM_TYPE(DEVICE_ACTION_REQUEST_V1, "Device action request")
+        ETL_ENUM_TYPE(AIRCRAFT_POSITION_REQUEST_V3, "Ownship with measured pressure altitude")
         ETL_END_ENUM_TYPE
     };
 
@@ -341,44 +343,80 @@ public:
         writer.write_unchecked(static_cast<int16_t>(ownship.verticalSpeed * 100.f), 16U);
     }
 
-    static void serializeOwnshipPositionV1(etl::bit_stream_writer &writer, const GATAS::OwnshipPositionInfo &ownship)
+    // Deprecated
+    // static void serializeOwnshipPositionV1(etl::bit_stream_writer &writer, const GATAS::OwnshipPositionInfo &ownship)
+    // {
+    //     serializeOwnshipPosition(writer, ownship);
+    // }
+
+    // Deprecated
+    // static void serializeOwnshipPositionV2(etl::bit_stream_writer &writer, const GATAS::OwnshipPositionInfo &ownship)
+    // {
+    //     serializeOwnshipPosition(writer, ownship, DataType::AIRCRAFT_POSITION_REQUEST_V2);
+    //     writer.write_unchecked(3U, 8U); // Request aircraft position response V3 with pressure altitude and QNH.
+    // }
+
+    // Deprecated
+    // static size_t serializeOwnshipPositionV1(uint8_t *out, size_t outSize, const GATAS::OwnshipPositionInfo &ownship)
+    // {
+    //     const size_t rawSize = serializeOwnshipPositionSizeV1().items(1);
+    //     const size_t framedSize = serializeOwnshipPositionFramedSizeV1();
+    //     if (outSize < framedSize || rawSize > MAX_COBS_FRAME_SIZE)
+    //     {
+    //         return 0;
+    //     }
+
+    //     uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
+    //     etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
+    //     serializeOwnshipPositionV1(writer, ownship);
+    //     return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
+    // }
+
+    // Deprecated
+    // static size_t serializeOwnshipPositionV2(uint8_t *out, size_t outSize, const GATAS::OwnshipPositionInfo &ownship)
+    // {
+    //     const size_t rawSize = serializeOwnshipPositionSizeV2().items(1);
+    //     const size_t framedSize = serializeOwnshipPositionFramedSizeV2();
+    //     if (outSize < framedSize || rawSize > MAX_COBS_FRAME_SIZE)
+    //     {
+    //         return 0;
+    //     }
+
+    //     uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
+    //     etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
+    //     serializeOwnshipPositionV2(writer, ownship);
+    //     return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
+    // }
+
+    // Absolute pressure altitude in metres at 1013.25 hPa. Never upload calculated pressure.
+    static void serializeOwnshipPositionV3(etl::bit_stream_writer &writer,
+                                          const GATAS::OwnshipPositionInfo &ownship,
+                                          etl::optional<GATAS::SelectedPressureAltitude> pressureAltitude)
     {
-        serializeOwnshipPosition(writer, ownship);
+        serializeOwnshipPosition(writer, ownship, DataType::AIRCRAFT_POSITION_REQUEST_V3);
+        int16_t altitude = INT16_MIN;
+        if (pressureAltitude && pressureAltitude->method == GATAS::PressureSource::PressureSensor &&
+            std::isfinite(pressureAltitude->metres) &&
+            pressureAltitude->metres >= -32767.0f && pressureAltitude->metres <= 32767.0f)
+        {
+            altitude = static_cast<int16_t>(std::round(pressureAltitude->metres));
+        }
+        writer.write_unchecked(altitude, 16U);
+        writer.write_unchecked(3U, 8U);
     }
 
-    static void serializeOwnshipPositionV2(etl::bit_stream_writer &writer, const GATAS::OwnshipPositionInfo &ownship)
+    static size_t serializeOwnshipPositionV3(uint8_t *out, size_t outSize,
+                                            const GATAS::OwnshipPositionInfo &ownship,
+                                            etl::optional<GATAS::SelectedPressureAltitude> pressureAltitude)
     {
-        serializeOwnshipPosition(writer, ownship, DataType::AIRCRAFT_POSITION_REQUEST_V2);
-        writer.write_unchecked(3U, 8U); // Request aircraft position response V3 with pressure altitude and QNH.
-    }
-
-    static size_t serializeOwnshipPositionV1(uint8_t *out, size_t outSize, const GATAS::OwnshipPositionInfo &ownship)
-    {
-        const size_t rawSize = serializeOwnshipPositionSizeV1().items(1);
-        const size_t framedSize = serializeOwnshipPositionFramedSizeV1();
-        if (outSize < framedSize || rawSize > MAX_COBS_FRAME_SIZE)
+        const size_t rawSize = serializeOwnshipPositionSizeV3().items(1);
+        if (outSize < serializeOwnshipPositionFramedSizeV3() || rawSize > MAX_COBS_FRAME_SIZE)
         {
             return 0;
         }
-
         uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
         etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
-        serializeOwnshipPositionV1(writer, ownship);
-        return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
-    }
-
-    static size_t serializeOwnshipPositionV2(uint8_t *out, size_t outSize, const GATAS::OwnshipPositionInfo &ownship)
-    {
-        const size_t rawSize = serializeOwnshipPositionSizeV2().items(1);
-        const size_t framedSize = serializeOwnshipPositionFramedSizeV2();
-        if (outSize < framedSize || rawSize > MAX_COBS_FRAME_SIZE)
-        {
-            return 0;
-        }
-
-        uint8_t rawBuffer[MAX_COBS_FRAME_SIZE];
-        etl::bit_stream_writer writer(rawBuffer, rawSize, etl::endian::big);
-        serializeOwnshipPositionV2(writer, ownship);
+        serializeOwnshipPositionV3(writer, ownship, pressureAltitude);
         return encodeCOBS(rawBuffer, rawSize, out, outSize, true);
     }
 
@@ -400,6 +438,16 @@ public:
     static size_t serializeOwnshipPositionFramedSizeV1()
     {
         return getCOBSBufferSize(serializeOwnshipPositionSizeV1().items(1), true);
+    }
+
+    constexpr static BinaryMessages::SizeType serializeOwnshipPositionSizeV3()
+    {
+        return BinaryMessages::SizeType{.base = 0, .size = serializeOwnshipPositionSizeV2().items(1) + 2};
+    }
+
+    static size_t serializeOwnshipPositionFramedSizeV3()
+    {
+        return getCOBSBufferSize(serializeOwnshipPositionSizeV3().items(1), true);
     }
 
     static size_t serializeOwnshipPositionFramedSizeV2()
