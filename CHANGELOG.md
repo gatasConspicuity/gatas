@@ -7,19 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v3.7.0] - 2026-11-23
+
 ### Added
 
 - Ownship V3 position reports include standard pressure altitude when a fresh
   reading from the onboard pressure sensor is available. Requires a server
   supporting ownship V3.
 - GATAS Connect automatically streams GDL90 to Bluetooth clients subscribed to
-  its binary data stream. Wi-Fi GDL90 output can run in parallel.
+  its binary data stream when Bluetooth output is active. Wi-Fi GDL90 output
+  can run in parallel. The GATAS Connect Monitor shows the subscriber count.
 
 ### Changed
 
 - Updated the Pico SDK to 2.3.1 and the FreeRTOS kernel to V11.3.3.
 - New RP2040 and RP2350 firmware builds default to 266 MHz. The SDK board clock
   and 200 MHz remain selectable, with matching CYW43 wireless clock dividers.
+  The startup log reports the actual clock speed and core count.
 
 ### Removed
 

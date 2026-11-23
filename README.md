@@ -1,7 +1,7 @@
 # GATAS Conspicuity Device
 
 [![Build GaTas](https://github.com/rvt/openace/actions/workflows/ci.yml/badge.svg)](https://github.com/rvt/openace/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-unreleased-yellow)
+![version](https://img.shields.io/badge/version-v3.7.0-green)
 
 [<img src="doc/img/Discord-Logo-Blurple.png" height="45px">](https://discord.gg/J6mXTcWndS)
 
@@ -16,15 +16,15 @@ transceivers or a single-transceiver setup using Waveshare modules. Supported ra
 airtime on each transceiver. You can store profiles for multiple aircraft and select the active
 aircraft through the built-in web interface or GATAS Server.
 
-## What's new in v3.6.0
+## What's new in v3.7.0
 
-- Compatible GATAS Connect clients can save configuration, restart the device, and enter USB boot
-  mode over Bluetooth LE. Configuration broadcasts also report unsaved changes.
-  [Device actions](./doc/device-actions.md)
-- Static GPS checks that large NTP corrections are consistent before applying them to an already
-  synchronized clock. [Static GPS documentation](./src/lib/gps/README.md)
-- GDL90 reports corrected pressure altitude for OGN, FLARM, and ADS-L traffic.
-  [Full changelog](./CHANGELOG.md#v360---2026-11-15)
+- GATAS Connect automatically streams GDL90 to subscribed Bluetooth clients when Bluetooth output
+  is active. Wi-Fi GDL90 can run at the same time.
+- Ownship position reports include standard pressure altitude when the onboard sensor has a fresh
+  reading. This requires a GATAS Server that supports ownship V3.
+- New RP2040 and RP2350 builds default to 266 MHz. [Firmware clock options](./doc/build-clock.md)
+
+[Full changelog](./CHANGELOG.md#v370---2026-11-23)
 
 Powered by a Li-Ion battery, the device includes a PCB with a USB-C charger. The estimated battery
 life is between 6 and 10 hours, though this is subject to further testing.
