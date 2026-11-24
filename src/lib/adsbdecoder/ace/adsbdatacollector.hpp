@@ -16,19 +16,22 @@ struct AdsbCombinedDataStatus
     uint32_t icao; // ICAO address
     GATAS::CallSign callSign;
     uint8_t messageStatus; // How complete this message is
-    uint32_t lastSeen;
+    uint32_t lastSeenSeconds; // Monotonic seconds since boot
 
     // Data from ADSB
     uint16_t velocity;          // Non decoded Ground speed in knots
     uint8_t category;           // category
+    uint8_t pressureAltAgeSeconds = 0; // Whole second boundaries crossed as of lastSeenSeconds
     int16_t squawk;             // Mode A squawk, -1 when unknown
     int16_t heading;            // Heading in degrees
-    int32_t ellipseHeight;        // Altitude in meter
+    int32_t reportedAltitudeMetres;
+    bool altitudeIsPressure = false;
+    int32_t pressureAlt = GATAS::INVALID_BARO_ALTITUDE; // Standard pressure altitude in metres
     int32_t raw_even_latitude;  // Non decoded latitude  even
     int32_t raw_even_longitude; // Non decoded longitude even
     int32_t raw_odd_latitude;   // Non decoded latitude   odd
     int32_t raw_odd_longitude;  // Non decoded longitude  odd
-    int16_t baro_gnss_diff;     // Difference between barometric altitude and GNSS altitude
+    etl::optional<int16_t> gnssMinusBaroMetres;
     float lat;                  // lat
     float lon;                  // lon
     int16_t vert_rate;          // Vertical Rate
@@ -39,24 +42,48 @@ struct AdsbCombinedDataStatus
     GATAS::TrafficIngress positionIngress = GATAS::TrafficIngress::Unknown;
     int16_t positionRssiDbm = INT16_MIN;
 
+    static constexpr uint32_t US_PER_SECOND = 1'000'000;
+    static constexpr uint8_t MAX_PRESSURE_AGE_SECONDS = 5;
+
+    int32_t ellipseHeight() const
+    {
+        if (!altitudeIsPressure)
+        {
+            return reportedAltitudeMetres;
+        }
+        if (gnssMinusBaroMetres)
+        {
+            return reportedAltitudeMetres + *gnssMinusBaroMetres;
+        }
+        // Without the reported difference, approximate MSL with pressure altitude.
+        return reportedAltitudeMetres + CoreUtils::egmGeoidOffset(lat, lon);
+    }
+
+    void updateLastSeen(uint32_t nowSeconds)
+    {
+        const uint32_t elapsed = nowSeconds - lastSeenSeconds;
+        pressureAltAgeSeconds += etl::min<uint32_t>(elapsed, UINT8_MAX - pressureAltAgeSeconds);
+        lastSeenSeconds = nowSeconds;
+    }
+
     ~AdsbCombinedDataStatus() = default;
 
     AdsbCombinedDataStatus() = delete;
 
     // Constructor with icao for search functions.
     AdsbCombinedDataStatus(uint32_t icao_)
-        : icao(icao_), callSign(""), messageStatus(0), lastSeen(0),
-          velocity(0.0f), category(0), squawk(-1), heading(0), ellipseHeight(0), raw_even_latitude(0),
-          raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0), baro_gnss_diff(0),
+        : icao(icao_), callSign(""), messageStatus(0), lastSeenSeconds(0),
+          velocity(0.0f), category(0), squawk(-1), heading(0), reportedAltitudeMetres(0), raw_even_latitude(0),
+          raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0),
           lat(0.0f), lon(0.0f), vert_rate(0.0f), airborne(false), evict(false)
     {
     }
 
     // Constructor with icao and lastSeen parameters
-    AdsbCombinedDataStatus(uint32_t icao_, uint32_t lastSeen_)
-        : icao(icao_), callSign(""), messageStatus(0), lastSeen(lastSeen_),
-          velocity(0.0f), category(0), squawk(-1), heading(0), ellipseHeight(0), raw_even_latitude(0),
-          raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0), baro_gnss_diff(0),
+    AdsbCombinedDataStatus(uint32_t icao_, uint32_t lastSeenSeconds_)
+        : icao(icao_), callSign(""), messageStatus(0), lastSeenSeconds(lastSeenSeconds_),
+          velocity(0.0f), category(0), squawk(-1), heading(0), reportedAltitudeMetres(0), raw_even_latitude(0),
+          raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0),
           lat(0.0f), lon(0.0f), vert_rate(0.0f), airborne(false), evict(false)
     {
     }
@@ -117,18 +144,19 @@ public:
     {
         cache.clear();
     }
-    bool start(uint32_t address, uint32_t usTime)
+    bool start(uint32_t address, uint64_t usTime)
     {
+        const auto nowSeconds = static_cast<uint32_t>(usTime / AdsbCombinedDataStatus::US_PER_SECOND);
         auto itf = cache.find(address);
         if (itf != cache.end())
         {
             currentDataStatus = &itf->second;
-            currentDataStatus->lastSeen = usTime;
+            currentDataStatus->updateLastSeen(nowSeconds);
             return true;
         }
 
         if (!cache.full()) {
-            auto [iti, inserted] = cache.insert({address, AdsbCombinedDataStatus{address, usTime}});
+            auto [iti, inserted] = cache.insert({address, AdsbCombinedDataStatus{address, nowSeconds}});
             if (inserted)
             {
                 currentDataStatus = &iti->second;
@@ -139,18 +167,17 @@ public:
         return false;
     }
 
-    void evictOldEntries(uint32_t usTime)
+    void evictOldEntries(uint64_t usTime)
     {
-
         constexpr int32_t EVICT_TIME_MINIMUM = 2'000'000; // Expected to have at least every second an update from ADSB
         int32_t evictTime = EVICT_TIME_US;
         while ((cache.size() > CLEAR_UP_SIZE) && evictTime > EVICT_TIME_MINIMUM)
         {
             for (auto it = cache.cbegin(); it != cache.cend();)
             {
-                if (it->second.evict || (-CoreUtils::usToReferenceRaw(it->second.lastSeen, usTime) > evictTime))
+                const auto lastSeenUs = uint64_t{it->second.lastSeenSeconds} * AdsbCombinedDataStatus::US_PER_SECOND;
+                if (it->second.evict || usTime - lastSeenUs > static_cast<uint32_t>(evictTime))
                 {
-                    // printf("Evict: icao:%06X lastSee:%ld usTime:%ld, diff:%ld\n", it->second.icao, it->second.lastSeen, usTime, CoreUtils::usFromReference(it->second.lastSeen, usTime));
               //      printf(".");
                     it = cache.erase(it);
                 }
@@ -166,11 +193,11 @@ public:
 
     void dump()
     {
-        auto usTime = CoreUtils::timeUs32Raw();
+        const auto nowSeconds = CoreUtils::monotonic() / AdsbCombinedDataStatus::US_PER_SECOND;
         for (const auto &entry : cache)
         {
             const auto &data = entry.second; // Access the value part of the pair
-            printf("icao:%06X status:%02X elsapsed:%06d address:%s gnssAltitude: %d\n", data.icao, data.messageStatus, CoreUtils::usToReferenceRaw(data.lastSeen, usTime) / 1000, data.icaoAddress.c_str(), data.ellipseHeight);
+            printf("icao:%06X status:%02X elapsedSeconds:%lu address:%s gnssAltitude: %d\n", data.icao, data.messageStatus, static_cast<unsigned long>(nowSeconds - data.lastSeenSeconds), data.icaoAddress.c_str(), data.ellipseHeight());
         }
     }
 
@@ -184,16 +211,29 @@ public:
         return *currentDataStatus;
     }
 
-    void updateAltitude(int32_t altitude)
+    int32_t pressureAltitudeAt(uint64_t nowUs) const
     {
-        currentDataStatus->messageStatus |= HAS_ALTITUDE;
-        currentDataStatus->ellipseHeight = altitude + currentDataStatus->baro_gnss_diff;
+        const auto &aircraft = *currentDataStatus;
+        const uint64_t sampleSecond = aircraft.lastSeenSeconds - aircraft.pressureAltAgeSeconds;
+        const uint64_t deadlineUs = (sampleSecond + AdsbCombinedDataStatus::MAX_PRESSURE_AGE_SECONDS) * AdsbCombinedDataStatus::US_PER_SECOND;
+        return nowUs <= deadlineUs ? aircraft.pressureAlt : GATAS::INVALID_BARO_ALTITUDE;
+    }
+
+    void updatePressureAltitude(int32_t metres)
+    {
+        auto &aircraft = current();
+        aircraft.pressureAlt = metres;
+        aircraft.pressureAltAgeSeconds = 0;
+        aircraft.messageStatus |= HAS_ALTITUDE;
+        aircraft.reportedAltitudeMetres = metres;
+        aircraft.altitudeIsPressure = true;
     }
 
     void updateGnssAltitude(int32_t altitude)
     {
         currentDataStatus->messageStatus |= HAS_ALTITUDE;
-        currentDataStatus->ellipseHeight = altitude;
+        currentDataStatus->reportedAltitudeMetres = altitude;
+        currentDataStatus->altitudeIsPressure = false;
     }
 
     void updateCallsign(const GATAS::IcaoAddress &flight, uint8_t aircraft_type)
@@ -242,13 +282,12 @@ public:
         currentDataStatus->heading = heading;
     }
 
-    void updateVelocityHeadingBaroDiff(uint16_t velocity, int16_t vert_rate, int16_t heading, int16_t baro_gnss_diff)
+    void updateVelocityHeading(uint16_t velocity, int16_t vert_rate, int16_t heading)
     {
         currentDataStatus->messageStatus |= HAS_HEADING | HAS_VELOCITY;
         currentDataStatus->velocity = velocity;
         currentDataStatus->vert_rate = vert_rate;
         currentDataStatus->heading = heading;
-        currentDataStatus->baro_gnss_diff = baro_gnss_diff;
     }
 
     bool positionUpdatedAndValid()

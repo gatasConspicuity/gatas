@@ -185,13 +185,14 @@ TEST_CASE("Test filter below and above", "[single-file]")
         sendDump1090Frame(bus, data);
         if (test.received)
         {
+            REQUIRE(test.position.ellipseHeight >= ownship.ellipseHeight - adsbDecoder.filterBelow);
+            REQUIRE(test.position.ellipseHeight <= ownship.ellipseHeight + adsbDecoder.filterAbove);
             totalPlanes += 1;
         }
         adsbDecoder.on_receive(GATAS::Every5SecMsg());
     }
     printf("Total Planes below: %d\n", totalPlanes);
-    // Invalid CPR pairs no longer republish a previous coordinate as new traffic.
-    REQUIRE(4579 == totalPlanes);
+    REQUIRE(4577 == totalPlanes);
     infile.close();
 }
 
@@ -227,8 +228,8 @@ TEST_CASE("Test heading and direction received aircraft", "[single-file]")
     REQUIRE(test.position.addressType == GATAS::AddressType::ICAO);
     REQUIRE(test.position.protocol == GATAS::ConspicuityProtocol::ADSB);
     REQUIRE(test.position.aircraftType == GATAS::AircraftCategory::UNKNOWN);
-    // https://www.unavco.org/software/geodetic-utilities/geoid-height-calculator/geoid-height-calculator.html  for 52.3888,4.7209
-    REQUIRE(test.position.ellipseHeight == /*9029*/ 9072); // geoid aprox 43m
+    // Velocity arrives last and reports GNSS height 675 ft below pressure altitude.
+    REQUIRE(9029 - 205 == test.position.ellipseHeight);
     REQUIRE(test.position.groundSpeed == Catch::Approx(230.98).margin(0.1)); // in m/s
     REQUIRE(test.position.track == 25);                                     // ADSB data shows 25.94.. Should we use floats instead of int?
     REQUIRE(test.position.lat == Catch::Approx(52.3888).margin(0.005));
@@ -403,7 +404,91 @@ TEST_CASE("ADS-B ingress and RSSI come from the position pair")
     send(expected != TrafficIngress::Dump1090, "8d407a0558178312d6eefaca54eb"); // Even
     send(expected == TrafficIngress::Dump1090, "8d407a059908e102980c93715499"); // Velocity
     REQUIRE(receiver.received);
+    REQUIRE(1097 == receiver.position.pressureAlt); // 3,600 ft
     REQUIRE(expected == receiver.position.ingress);
     REQUIRE(GATAS::ConspicuityProtocol::ADSB == receiver.position.protocol);
     REQUIRE((expected == TrafficIngress::Dump1090 ? INT16_MIN : -65) == receiver.rssiDbm);
+}
+
+TEST_CASE("ADS-B pressure altitude expires five seconds after the last valid barometric frame")
+{
+    etl::message_bus<4> bus;
+    MockConfig config{bus};
+    GATAS::OwnshipState state;
+    state.location.store(ownship);
+    ADSBDecoder decoder{bus, config, state};
+    xSemaphoreTakeValue = pdTRUE;
+    REQUIRE(GATAS::PostConstruct::OK == decoder.postConstruct());
+    decoder.start();
+    decoder.on_receive(GATAS::AdapativeRadiusMsg{10'000'000});
+    decoder.filterAbove = 50'000;
+    decoder.filterBelow = 50'000;
+    Test receiver{bus};
+    auto send = [&](const char *hex)
+    {
+        receiver.received = false;
+        uint8_t frame[14];
+        CoreUtils::hexStrToByteArray(hex, frame);
+        sendDump1090Frame(bus, frame);
+    };
+
+    time_us_Value = 10'000'000;
+    send("8d407a059908e102980c93715499"); // Velocity
+    send("8d407a055817867d1ce5ecbe8fdd"); // Odd, 3,600 ft
+    send("8d407a0558058312d6eefa722dae"); // Even, valid zero feet
+    REQUIRE(receiver.received);
+    CHECK(0 == receiver.position.pressureAlt);
+
+    SECTION("Reported height difference replaces the geoid estimate, including zero")
+    {
+        const auto geoid = CoreUtils::egmGeoidOffset(receiver.position.lat, receiver.position.lon);
+        REQUIRE(0 != geoid);
+        const auto checkHeight = [&](const char *velocity, int32_t expected)
+        {
+            send(velocity);
+            send("8d407a0558058312d6eefa722dae"); // Pressure altitude 0 ft
+            REQUIRE(receiver.received);
+            CHECK(0 == receiver.position.pressureAlt);
+            CHECK(expected == receiver.position.ellipseHeight);
+        };
+        checkHeight("8d407a059908e102980c0376b281", 15);  // +50 ft
+        checkHeight("8d407a059908e102980c8371b441", -15); // -50 ft
+        checkHeight("8d407a059908e102980c0176ae9a", 0);   // Reported zero
+        checkHeight("8d407a059908e102980c00895a93", geoid);
+        checkHeight("8d407a059908e102980c808e5c53", geoid); // Sign bit only
+    }
+
+    time_us_Value += 5'000'000;
+    send("8d407a05a0178312d6eefabeb386"); // GNSS height, 3,600 ft
+    REQUIRE(receiver.received);
+    CHECK(1097 == receiver.position.ellipseHeight);
+    CHECK(0 == receiver.position.pressureAlt);
+
+    ++time_us_Value;
+    send("8d407a0558000312d6eefad6e8ef"); // Unavailable barometric altitude
+    REQUIRE(receiver.received);
+    CHECK(GATAS::INVALID_BARO_ALTITUDE == receiver.position.pressureAlt);
+
+    send("8d407a0558080312d6eefa80085b"); // Gillham, -1,200 ft
+    REQUIRE(receiver.received);
+    CHECK(-365 == receiver.position.pressureAlt);
+
+    send("8d407a0558084312d6eefa42bbdb"); // Gillham, 126,700 ft
+    REQUIRE(receiver.received);
+    CHECK(38618 == receiver.position.pressureAlt);
+
+    send("8d407a050017800000000067c0e7"); // Type 0, pressure altitude only
+    CHECK_FALSE(receiver.received);
+    send("8d407a05a0178312d6eefabeb386");
+    REQUIRE(receiver.received);
+    CHECK(1097 == receiver.position.pressureAlt);
+    time_us_Value += uint64_t{1} << 32;
+    decoder.on_receive(GATAS::Every5SecMsg{});
+    send("8d407a059908e102980c93715499"); // Velocity
+    CHECK(1097 == decoder.adsbDataCollector.current().pressureAlt);
+    send("8d407a05a017867d1ce5ecca68b0"); // Odd GNSS position
+    REQUIRE(receiver.received);
+    CHECK(GATAS::INVALID_BARO_ALTITUDE == decoder.adsbDataCollector.current().pressureAlt);
+    CHECK(GATAS::INVALID_BARO_ALTITUDE == receiver.position.pressureAlt);
+
 }

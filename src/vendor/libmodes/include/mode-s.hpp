@@ -12,6 +12,7 @@
 #define MODE_S_LONG_MSG_BYTES (112/8)
 #define MODE_S_UNIT_FEET 0
 #define MODE_S_UNIT_METERS 1
+#define MODE_S_INVALID_ALTITUDE INT32_MIN // Unavailable or invalid DF17 AC12 altitude
 
 // Program state
 typedef struct {
@@ -68,7 +69,7 @@ struct mode_s_msg {
   // Fields used by multiple message types.
   int32_t altitude;
   uint8_t unit;
-  int16_t head;                  // (Height Above Ellipsoid)
+  int16_t gnssMinusBaroFeet;     // TC19 signed difference in feet, INT16_MIN when unavailable
 };
 
 typedef void (*mode_s_callback_t)(mode_s_t *self, struct mode_s_msg *mm);

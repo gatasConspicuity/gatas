@@ -314,27 +314,50 @@ int32_t decode_ac13_field(const uint8_t *msg, uint8_t *unit)
   return 0;
 }
 
+static uint8_t grayToBinary(uint8_t gray)
+{
+  gray ^= gray >> 4;
+  gray ^= gray >> 2;
+  return gray ^ (gray >> 1);
+}
+
 // Decode the 12 bit AC altitude field (in DF 17 and others). Returns the
-// altitude or 0 if it can't be decoded.
+// altitude in feet, or MODE_S_INVALID_ALTITUDE for unavailable or invalid codes.
 int32_t decode_ac12_field(const uint8_t *msg, uint8_t *unit)
 {
+  *unit = MODE_S_UNIT_FEET;
   int q_bit = msg[5] & 1;
 
   if (q_bit)
   {
     // N is the 11 bit integer resulting from the removal of bit Q
-    *unit = MODE_S_UNIT_FEET;
     int n = ((msg[5] >> 1) << 4) | ((msg[6] & 0xF0) >> 4);
     // The final altitude is due to the resulting number multiplied by 25,
     // minus 1000.
     return n * 25 - 1000;
   }
-  else
+
+  const uint16_t code = (msg[5] << 4) | (msg[6] >> 4);
+  // Gillham code in wire order C1 A1 C2 A2 C4 A4 B1 Q B2 D2 B4 D4.
+  const auto bit = [code](unsigned index) { return (code >> index) & 1U; };
+  const uint8_t coarseGray = (bit(2) << 7) | (bit(0) << 6) | (bit(10) << 5) | (bit(8) << 4) |
+                             (bit(6) << 3) | (bit(5) << 2) | (bit(3) << 1) | bit(1);
+  const uint8_t fineGray = (bit(11) << 2) | (bit(9) << 1) | bit(7);
+  const int coarse = grayToBinary(coarseGray);
+  int fine = grayToBinary(fineGray);
+  if (fine == 0 || fine == 5 || fine == 6)
   {
-    // https://mode-s.org/decode/content/ads-b/3-airborne-position.html
-    // In the case where the altitude is higher than 50175 feet, a 100 feet increment is used.
-    return 50175;
+      return MODE_S_INVALID_ALTITUDE;
   }
+  if (fine == 7)
+  {
+      fine = 5;
+  }
+  if (coarse & 1)
+  {
+      fine = 6 - fine;
+  }
+  return coarse * 500 + fine * 100 - 1300;
 }
 
 static const char ais_charset[] = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
@@ -481,6 +504,11 @@ void mode_s_decode_phase2(mode_s_t *self, struct mode_s_msg *mm)
       mm->flight[7] = ais_charset[msg[10] & 63];
       mm->flight[8] = '\0';
     }
+    else if (mm->metype == 0)
+    {
+      // Altitude without horizontal position.
+      mm->altitude = decode_ac12_field(msg, &mm->unit);
+    }
     else if ((mm->metype >= 9 && mm->metype <= 18) || (mm->metype >= 20 && mm->metype <= 22))
     {
       // Airborne position Message
@@ -501,6 +529,8 @@ void mode_s_decode_phase2(mode_s_t *self, struct mode_s_msg *mm)
     else if (mm->metype == 19 && mm->mesub >= 1 && mm->mesub <= 4)
     {
       // Airborne Velocity Message
+      const int magnitude = msg[10] & 0x7F;
+      mm->gnssMinusBaroFeet = magnitude == 0 ? INT16_MIN : (magnitude - 1) * ((msg[10] & 0x80) ? -25 : 25);
       if (mm->mesub == 1 || mm->mesub == 2)
       {
         mm->ew_dir = (msg[5] & 4) >> 2;
@@ -535,15 +565,6 @@ void mode_s_decode_phase2(mode_s_t *self, struct mode_s_msg *mm)
         else
         {
           mm->heading = 0;
-        }
-        // (Height Above Ellipsoid)
-        if (msg[10] != 0)
-        {
-          mm->head = ((msg[10] & 0x7F) - 1) * ((msg[10] & 0x80) ? -25 : 25);
-        }
-        else
-        {
-          mm->head = 0;
         }
       }
       else if (mm->mesub == 3 || mm->mesub == 4)

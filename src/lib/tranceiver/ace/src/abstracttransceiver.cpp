@@ -85,6 +85,7 @@ void AbstractTransceiver::getData(etl::string_stream &stream, const etl::string_
     stream << ",\"receivedPackets:k\":" << statistics.receivedPackets;
     stream << ",\"transmittedPackets:k\":" << statistics.transmittedPackets;
     stream << ",\"buzyWaitsTimeout:err\":" << statistics.buzyWaitsTimeout;
+    stream << ",\"spiLockTimeouts:err\":" << statistics.spiLockTimeouts;
     stream << ",\"txQueueFull:err\":" << statistics.queueFull;
     stream << ",\"txQueueSize:k\":" << txQueue.size();
     stream << ",\"txConfigureStarted:k\":" << statistics.txConfigureStarted;
@@ -153,6 +154,7 @@ void AbstractTransceiver::radioTask(void *arg)
 {
     (void)arg;
     constexpr uint32_t txDeadlineMs = 100;
+    constexpr TickType_t recoveryRetryTicks = pdMS_TO_TICKS(100);
     enum class Operation : uint8_t
     {
         IDLE,
@@ -289,13 +291,11 @@ void AbstractTransceiver::radioTask(void *arg)
             // remaining real work; this is not a periodic retry or RX poll.
             xTaskNotify(taskHandle, TaskState::TX_PENDING, eSetBits);
         }
-        // One bounded recovery attempt per wake. Persistent HAL failures remain
-        // counted and are retried on the next notification, without polling.
     };
 
     while (true)
     {
-        TickType_t waitTicks = portMAX_DELAY;
+        TickType_t waitTicks = recoveryPending ? recoveryRetryTicks : portMAX_DELAY;
         if (operation == Operation::TX && !recoveryPending)
         {
             const uint32_t elapsed = CoreUtils::timeMs32() - txStartedAtMs;
@@ -384,6 +384,15 @@ void AbstractTransceiver::radioTask(void *arg)
             if (doListen && !startListening())
             {
                 recover();
+            }
+        }
+        else
+        {
+            ++statistics.spiLockTimeouts;
+            // An active TX already has a deadline to service a missed interrupt.
+            if (operation != Operation::TX)
+            {
+                recoveryPending = true;
             }
         }
     }

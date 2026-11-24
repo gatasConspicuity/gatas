@@ -45,6 +45,7 @@ protected:
         uint32_t receivedPackets = 0;
         uint32_t transmittedPackets = 0;
         uint32_t buzyWaitsTimeout = 0;
+        uint32_t spiLockTimeouts = 0;
         uint32_t queueFull = 0;
         uint32_t txConfigureStarted = 0;
         uint32_t txConfigureCompleted = 0;
@@ -122,7 +123,7 @@ public:
         return txEnabled && capability != GATAS::RadioCapability::Ook1090 && supportsRx(capability);
     }
     void getData(etl::string_stream &, etl::string_view) const override;
-    void on_receive(const GATAS::ConfigUpdatedMsg &);
+    virtual void on_receive(const GATAS::ConfigUpdatedMsg &);
     void on_receive(const GATAS::RadioTxFrameMsg &);
     void on_receive(const GATAS::RadioControlMsg &);
     void on_receive(const GATAS::GpsStatsMsg &);

@@ -202,6 +202,17 @@ TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
     RadioTest::writes.clear();
     f.radio.configure(profile, false, 0);
     REQUIRE(RadioTest::writes.empty());
+    f.bus.subscribe(f.radio);
+    for (const int gain : {1, 7, 0, 14})
+    {
+        f.config.values["Lr2021_0/ookGain"] = gain;
+        f.bus.receive(GATAS::ConfigUpdatedMsg{f.config, etl::string_view("Lr2021_0")});
+        REQUIRE(RadioTest::writes.empty());
+        f.radio.configure(profile, false, 0);
+        const uint8_t expected = gain == 14 ? 13 : gain;
+        REQUIRE(std::vector<uint8_t>{2, 0x1a, expected} == command(0x021a));
+        RadioTest::writes.clear();
+    }
     f.radio.configure(profile, true, 14);
     REQUIRE(f.radio.hasHalError());
     REQUIRE(RadioTest::writes.empty());
@@ -613,6 +624,33 @@ TEST_CASE("continuous RX preserves a packet across an IRQ acknowledgement failur
     REQUIRE(1 == radio.irqReads);
     REQUIRE(2 == radio.acknowledgements);
     REQUIRE(2 == radio.listens);
+}
+
+TEST_CASE("RX retries recovery after SPI contention without a fresh interrupt")
+{
+    Fixture f;
+    FakeRadio radio(f.bus, f.spi);
+    radio.on_receive(GATAS::RadioControlMsg{parameters, 0});
+    RadioTest::notifications = {8, 1, 0, 0};
+    radio.irqEvents = {1};
+    RadioTest::onWake = [&](size_t index)
+    {
+        // The first two wakes are notifications. The last two are recovery timeouts.
+        if (index >= 2)
+        {
+            REQUIRE(pdMS_TO_TICKS(100) == RadioTest::lastWaitTicks);
+        }
+        xSemaphoreTakeValue = index == 1 ? pdFALSE : pdTRUE;
+        radio.failAck = index == 2;
+    };
+    REQUIRE_THROWS_AS(radio.run(), RadioTest::EndTask);
+    REQUIRE(portMAX_DELAY == RadioTest::lastWaitTicks);
+    REQUIRE(2 == radio.listens);
+    REQUIRE(1 == radio.receivedFrequencies.size());
+    etl::string<1024> status;
+    etl::string_stream stream(status);
+    radio.getData(stream, "");
+    REQUIRE(status.find("\"spiLockTimeouts:err\":1") != status.npos);
 }
 
 TEST_CASE("a receive slot change during TX is applied after transmission completes")

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- ADS-B traffic reports from the onboard receiver and dump1090 now include the aircraft’s reported pressure altitude when the reading is at most five seconds old.
+
 ## [v3.7.0] - 2026-11-23
 
 ### Added

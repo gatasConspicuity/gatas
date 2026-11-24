@@ -363,12 +363,9 @@ static void loadModules(void *arg)
     config.postConstruct();
     config.start();
 
-    const int statusPin = config.valueByPath(26, "port5", "O0");
-    const auto bmp580Pins = config.pinMap(Bmp580::NAME);
-    const bool ledSharesI2cPin = config.isModuleEnabled(Bmp580::NAME) &&
-        (statusPin == CoreUtils::getPin(bmp580Pins, GATAS::PinType::SDA, 0xff) ||
-         statusPin == CoreUtils::getPin(bmp580Pins, GATAS::PinType::SCL, 0xff));
-    if (statusPin >= 0 && static_cast<uint>(statusPin) < NUM_BANK0_GPIOS && !ledSharesI2cPin)
+    const auto hardware = config.strValueByPath("", "hardware", "type");
+    const int statusPin = config.valueByPath(-1, hardware, "port5/O0");
+    if (statusPin >= 0 && static_cast<uint>(statusPin) < NUM_BANK0_GPIOS)
     {
         ledStatusIndicatorPin = statusPin;
         gpio_init(statusPin);

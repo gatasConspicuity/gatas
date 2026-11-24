@@ -10,6 +10,9 @@ class Lr2021 : public AbstractTransceiver
     const int tcxoStartupUs;
     const int rxSwitchDio;
     const int txSwitchDio;
+    uint8_t ookGain;
+    uint8_t appliedOokGain = 0;
+    static uint8_t readOokGain(const Configuration &config, etl::string_view name);
     bool discardPacket = false;
     uint16_t consumedRxPackets = 0;
     uint32_t calibratedFrequency = 0;
@@ -49,6 +52,9 @@ protected:
     void configureIrq(uint32_t mask);
 
 public:
+    using AbstractTransceiver::on_receive;
+    void on_receive(const GATAS::ConfigUpdatedMsg &msg) override;
+
     // Register and schedule the LR2021 without running its hardware driver.
     static constexpr bool SCHEDULER_ONLY = false;
 
@@ -73,7 +79,8 @@ public:
           tcxoVoltage(readHardwareValue(config, NAMES[number], "tcxoVoltage", -1)),
           tcxoStartupUs(readHardwareValue(config, NAMES[number], "tcxoStartupUs", 5000)),
           rxSwitchDio(readHardwareValue(config, NAMES[number], "rxSwitchDio", -1)),
-          txSwitchDio(readHardwareValue(config, NAMES[number], "txSwitchDio", -1))
+          txSwitchDio(readHardwareValue(config, NAMES[number], "txSwitchDio", -1)),
+          ookGain(readOokGain(config, NAMES[number]))
     {
     }
 

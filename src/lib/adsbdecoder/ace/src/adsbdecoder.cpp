@@ -76,7 +76,7 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
     if (auto guard = SemaphoreGuard(10, mutex))
     {
         // printf("Processing  a:%06lX \n", mm.aa);
-        auto usTime = CoreUtils::timeUs32Raw();
+        auto usTime = CoreUtils::monotonic();
         auto positionTime = CoreUtils::timeUs32();
         if (ignoredAirplanes.ifContainsThenUpdate(mm.aa, usTime))
         {
@@ -111,37 +111,49 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
         {
             adsbDataCollector.updateCallsign(mm.flight, mm.aircraft_type);
         }
-        else if ((mm.metype >= 9 && mm.metype <= 18) || (mm.metype >= 20 && mm.metype <= 22))
+        else if (mm.metype == 0 || (mm.metype >= 9 && mm.metype <= 18) || (mm.metype >= 20 && mm.metype <= 22))
         {
-            if (mm.fflag)
+            // Type 0 can supply altitude without a horizontal position.
+            if (mm.metype != 0)
             {
-                adsbDataCollector.updateRawOdd(mm.raw_latitude, mm.raw_longitude, ingress, rssiDbm);
-            }
-            else
-            {
-                adsbDataCollector.updateRawEven(mm.raw_latitude, mm.raw_longitude, ingress, rssiDbm);
+                adsbDataCollector.current().pressureAlt = adsbDataCollector.pressureAltitudeAt(usTime);
+                if (mm.fflag)
+                {
+                    adsbDataCollector.updateRawOdd(mm.raw_latitude, mm.raw_longitude, ingress, rssiDbm);
+                }
+                else
+                {
+                    adsbDataCollector.updateRawEven(mm.raw_latitude, mm.raw_longitude, ingress, rssiDbm);
+                }
             }
 
-            // THis might temporary create a incorrect offset, but should be corrected pretty quickly die to how ADSB sends different information in different packages
-            // In addition this is also not the true altitude
-            int32_t altitude = (mm.unit == MODE_S_UNIT_METERS ? mm.altitude : mm.altitude * FT_TO_M);
-
-            if (mm.metype >= 20 && mm.metype <= 22) // GPS Altitude so far never seen this
+            if (mm.altitude != MODE_S_INVALID_ALTITUDE)
             {
-                adsbDataCollector.updateGnssAltitude(altitude);
-            }
-            else if (mm.metype >= 9 && mm.metype <= 18) // Barometric Altitude
-            {
-                auto &current = adsbDataCollector.current();
-                adsbDataCollector.updateAltitude(altitude + CoreUtils::egmGeoidOffset(current.lat, current.lon));
+                const auto metres = static_cast<int32_t>(mm.altitude * FT_TO_M);
+                if (mm.metype >= 20)
+                {
+                    adsbDataCollector.updateGnssAltitude(metres);
+                }
+                else
+                {
+                    adsbDataCollector.updatePressureAltitude(metres);
+                }
             }
         }
         else if (mm.metype == 19 && mm.mesub >= 1 && mm.mesub <= 4)
         {
+            auto &difference = adsbDataCollector.current().gnssMinusBaroMetres;
+            if (mm.gnssMinusBaroFeet == INT16_MIN)
+            {
+                difference.reset();
+            }
+            else
+            {
+                difference = static_cast<int16_t>(mm.gnssMinusBaroFeet * FT_TO_M);
+            }
             if (mm.mesub == 1 || mm.mesub == 2)
             {
-                // printf("%06lX Ellipsoid:%ldm\n", mm.aa, baro_gnss_diff);
-                adsbDataCollector.updateVelocityHeadingBaroDiff(mm.velocity, mm.vert_rate_sign ? -mm.vert_rate : mm.vert_rate, mm.heading, mm.head * FT_TO_M); // mm.head is always in feet
+                adsbDataCollector.updateVelocityHeading(mm.velocity, mm.vert_rate_sign ? -mm.vert_rate : mm.vert_rate, mm.heading);
             }
             else if (mm.mesub == 3 || mm.mesub == 4)
             {
@@ -173,9 +185,10 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
             auto ownship = ownshipState.location.load();
             auto fromOwn = CoreUtils::getDistanceRelNorthRelEastInt(ownship.lat, ownship.lon, current.lat, current.lon);
 
+            const auto ellipseHeight = current.ellipseHeight();
             // Altitude filtering + Radius filtering
             // to prevent aircraft taking up resources that are not a factor.
-            if (outOfAltitudeRange(ownship, current.ellipseHeight) || fromOwn.distance > filterRadius)
+            if (outOfAltitudeRange(ownship, ellipseHeight) || fromOwn.distance > filterRadius)
             {
                 statistics.totalMsgIgnored += 1;
                 // printf("Ignored  t:%06ld a:%06lX gnsAlt:%ldm gnsAlt:%0.2fft distance:%ld\n", usTime / 1'000'000, current.icao, current.ellipseHeight, current.ellipseHeight * M_TO_FT, fromOwn.distance);
@@ -196,26 +209,27 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
             }
 
             // printf("Received  t:%06ld a:%06lX gnsAlt:%ldm gnsAlt:%0.2fft\n", usTime / 1'000'000, current.icao, current.ellipseHeight, current.ellipseHeight * M_TO_FT);
-            getBus().receive(GATAS::IngressAircraftPositionMsg{
-                {positionTime - ADSBDECODER_US_DELAY_SERIAL_AND_OVERHEAD,
-                 current.callSign,
-                 current.icao,
-                 GATAS::AddressType::ICAO,
-                 current.positionIngress,
-                 GATAS::ConspicuityProtocol::ADSB,
-                 GATAS::AircraftCategory::UNKNOWN, // TODO: Add support for AircraftCategory
-                 false,                            // ADSB does not have privacy
-                 false,                            // No privacy
-                 current.airborne,
-                 current.lat,
-                 current.lon,
-                 current.ellipseHeight > INT16_MAX ? INT16_MAX : static_cast<int16_t>(current.ellipseHeight),
-                 vertical_rate, // https://mode-s.org/decode/content/ads-b/5-airborne-velocity.html,
-                 (float)current.velocity * KN_TO_MS,
-                 static_cast<int16_t>(current.heading),
-                 0.0f,
-                 fromOwn.distance,
-                 current.squawk}, current.positionRssiDbm});
+            GATAS::AircraftPositionInfo position{positionTime - ADSBDECODER_US_DELAY_SERIAL_AND_OVERHEAD,
+                current.callSign,
+                current.icao,
+                GATAS::AddressType::ICAO,
+                current.positionIngress,
+                GATAS::ConspicuityProtocol::ADSB,
+                GATAS::AircraftCategory::UNKNOWN, // TODO: Add support for AircraftCategory
+                false,                           // ADSB does not have privacy
+                false,                           // No privacy
+                current.airborne,
+                current.lat,
+                current.lon,
+                ellipseHeight,
+                vertical_rate, // https://mode-s.org/decode/content/ads-b/5-airborne-velocity.html,
+                (float)current.velocity * KN_TO_MS,
+                static_cast<int16_t>(current.heading),
+                0.0f,
+                fromOwn.distance,
+                current.squawk,
+                adsbDataCollector.pressureAltitudeAt(usTime)};
+            getBus().receive(GATAS::IngressAircraftPositionMsg{position, current.positionRssiDbm});
         }
     }
     else
@@ -234,7 +248,7 @@ void ADSBDecoder::on_receive(const GATAS::Every5SecMsg &msg)
     (void)msg;
     if (auto guard = SemaphoreGuard(10, mutex))
     {
-        auto usTime = CoreUtils::timeUs32Raw();
+        auto usTime = CoreUtils::monotonic();
         ignoredAirplanes.evictOldEntries(usTime);
         adsbDataCollector.evictOldEntries(usTime);
     }

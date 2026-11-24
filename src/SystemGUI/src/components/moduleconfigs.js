@@ -833,6 +833,9 @@ class TransceiverConfig extends ModuleConfig {
         },
       ])
       .onSuccess((event) => {
+        if (!this.$refs.form.reportValidity()) {
+          return;
+        }
         const data = this._getFormData();
         store.updateModuleData(this.name, { ...this.copyOfData, ...data }).then(() => {
           this.close();
@@ -841,12 +844,19 @@ class TransceiverConfig extends ModuleConfig {
   }
 
   _setFormData(data) {
+    if (this.$refs.ookGain) {
+      const gain = data.ookGain ?? 13;
+      this.$refs.fixedGain.checked = gain !== 0;
+      this.$refs.ookGain.disabled = gain === 0;
+      this.$refs.ookGain.value = Number.isInteger(gain) && gain >= 1 && gain <= 13 ? gain : 13;
+    }
     this.$refs.offset.value = data.offset;
     this.$refs.txEnabled.checked = data.txEnabled;
   }
 
   _getFormData() {
     return {
+      ...(this.$refs.ookGain && { ookGain: this.$refs.fixedGain.checked ? this.$refs.ookGain.valueAsNumber : 0 }),
       offset: this.$refs.offset.value,
       txEnabled: this.$refs.txEnabled.checked,
     };
@@ -879,6 +889,17 @@ class TransceiverConfig extends ModuleConfig {
             <br />
             <input type="checkbox" id="txEnabled" ref="txEnabled" placeholder="1" />
           </label>
+          ${this.name.startsWith("Lr2021") ? html`
+            <label>
+              <input type="checkbox" ref="fixedGain" checked
+                onchange=${() => { this.$refs.ookGain.disabled = !this.$refs.fixedGain.checked; }} />
+              Fixed ADS-B gain (clear for automatic)
+            </label>
+            <label>
+              ADS-B gain step (1–13)
+              <input type="number" ref="ookGain" min="1" max="13" step="1" required value="13" />
+            </label>
+          ` : ""}
         </div>
         <br />
 

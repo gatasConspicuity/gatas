@@ -20,6 +20,7 @@ inline size_t responseOffset = 0;
 inline std::vector<char> transfers;
 inline std::vector<uint32_t> notifications;
 inline size_t notificationIndex = 0;
+inline TickType_t lastWaitTicks = 0;
 inline std::function<void(size_t)> onWake;
 struct EndTask {};
 inline void reset()
@@ -42,8 +43,9 @@ inline int xTaskGetSchedulerState() { return 1; }
 #define taskSCHEDULER_RUNNING 1
 #define taskYIELD() ((void)0)
 inline void xTaskNotifyGive(TaskHandle_t) {}
-inline int testNotifyWait(uint32_t, uint64_t, uint32_t *value, TickType_t)
+inline int testNotifyWait(uint32_t, uint64_t, uint32_t *value, TickType_t ticks)
 {
+    RadioTest::lastWaitTicks = ticks;
     if (RadioTest::notificationIndex >= RadioTest::notifications.size()) { throw RadioTest::EndTask{}; }
     if (RadioTest::onWake)
     {

@@ -123,6 +123,25 @@ bool Lr2021::initializeRadio()
     return !hasHalError();
 }
 
+uint8_t Lr2021::readOokGain(const Configuration &config, etl::string_view name)
+{
+    const int gain = config.valueByPath(LR20XX_RADIO_COMMON_GAIN_STEP_G13, name, "ookGain");
+    if (gain < LR20XX_RADIO_COMMON_GAIN_STEP_AUTO || gain > LR20XX_RADIO_COMMON_GAIN_STEP_G13)
+    {
+        return LR20XX_RADIO_COMMON_GAIN_STEP_G13;
+    }
+    return static_cast<uint8_t>(gain);
+}
+
+void Lr2021::on_receive(const GATAS::ConfigUpdatedMsg &msg)
+{
+    AbstractTransceiver::on_receive(msg);
+    if (msg.moduleName == moduleName)
+    {
+        ookGain = readOokGain(msg.config, moduleName);
+    }
+}
+
 void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirection direction, uint8_t length)
 {
     const bool ook = parameters.frequency->mode == GATAS::Modulation::OOK;
@@ -134,7 +153,8 @@ void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirec
         halError = true;
         return;
     }
-    if (ook && currentConfiguredModulation == GATAS::Modulation::OOK && calibratedFrequency == frequency)
+    const uint8_t gain = ookGain;
+    if (ook && gain == appliedOokGain && currentConfiguredModulation == GATAS::Modulation::OOK && calibratedFrequency == frequency)
     {
         // A scheduled restart at this frequency can reuse the OOK configuration.
         return;
@@ -291,17 +311,17 @@ void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirec
         // Match SoftRF's detector flags. Encoding is off for both sync and payload.
         const lr20xx_radio_ook_rx_detector_t detector{
             0x0285, 15, 0, LR20XX_RADIO_OOK_RX_DETECTOR_SFD_TYPE_FALLING_EDGE, 0, true};
-        // Fixed maximum gain; modulation setup selects the default OOK threshold.
         if (!check(lr20xx_radio_common_set_pkt_type(this, LR20XX_RADIO_COMMON_PKT_TYPE_OOK)) ||
             !check(lr20xx_radio_ook_set_modulation_params(this, &modulation)) ||
             !check(lr20xx_radio_ook_set_packet_params(this, &packet)) ||
             !check(lr20xx_radio_ook_set_syncword(this, sync, 8, LR20XX_RADIO_OOK_SYNCWORD_MSBF)) ||
             !check(lr20xx_radio_ook_set_rx_detector(this, &detector)) ||
-            !check(lr20xx_radio_common_set_agc_gain(this, LR20XX_RADIO_COMMON_GAIN_STEP_G13)) ||
+            !check(lr20xx_radio_common_set_agc_gain(this, static_cast<lr20xx_radio_common_gain_step_t>(gain))) ||
             !check(lr20xx_regmem_write_regmem32_mask(this, OOK_TIMING_REGISTER, 0xFF, 0x18)))
         {
             return;
         }
+        appliedOokGain = gain;
     }
     else
     {

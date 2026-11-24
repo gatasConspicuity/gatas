@@ -32,6 +32,35 @@ TEST_CASE("AdsbDataCollector start", "[single-file]")
     REQUIRE(collector.size() == 2);
 }
 
+TEST_CASE("ADS-B pressure altitude expires across the raw timer wrap")
+{
+    AdsbDataCollector<4, 5'000'000> collector;
+    constexpr uint32_t receivedUs = UINT32_MAX - 1'000'000;
+    REQUIRE(collector.start(42, receivedUs));
+    collector.updatePressureAltitude(1234);
+
+    const uint64_t returnUs = (uint64_t{1} << 32) + receivedUs;
+    collector.evictOldEntries(returnUs);
+    CHECK(1234 == collector.current().pressureAlt);
+    REQUIRE(collector.start(42, returnUs));
+    CHECK(GATAS::INVALID_BARO_ALTITUDE == collector.pressureAltitudeAt(returnUs));
+}
+
+TEST_CASE("Frequent ADS-B frames advance the pressure age across the raw clock wrap")
+{
+    AdsbDataCollector<4, 5'000'000> collector;
+    constexpr uint64_t startUs = 4'293'000'000ULL;
+    REQUIRE(collector.start(42, startUs + 400'000));
+    collector.updatePressureAltitude(1234);
+    for (uint32_t offsetUs = 500'000; offsetUs <= 5'000'000; offsetUs += 100'000)
+    {
+        REQUIRE(collector.start(42, startUs + offsetUs));
+        CHECK(1234 == collector.pressureAltitudeAt(startUs + offsetUs));
+    }
+    REQUIRE(collector.start(42, startUs + 5'000'001));
+    CHECK(GATAS::INVALID_BARO_ALTITUDE == collector.pressureAltitudeAt(startUs + 5'000'001));
+}
+
 // TEST_CASE("AdsbDataCollector update and current", "[single-file]")
 // {
 //     AdsbDataCollector<100, 15'000'000> collector;
