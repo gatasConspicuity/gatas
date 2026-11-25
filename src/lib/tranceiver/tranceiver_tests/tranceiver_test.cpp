@@ -112,8 +112,8 @@ public:
         configureRadio(parameters, tx ? RadioDirection::TX : RadioDirection::RX, length);
     }
 };
-const GATAS::LinkLayerConfig link{1, GATAS::ConspicuityProtocol::OGN, true, 26, 16, 32, 8, {0x11, 0x22, 0x33, 0x44, 0, 0, 0, 0}};
-GATAS::RadioParameters parameters{&link, &GATAS::RadioParameters::DEFAULT, 868200000, 0};
+const GATAS::LinkLayerConfig ognLinkConfig{1, GATAS::ConspicuityProtocol::OGN, true, 26, 16, 32, 8, {0x11, 0x22, 0x33, 0x44, 0, 0, 0, 0}};
+GATAS::RadioParameters parameters{&ognLinkConfig, &GATAS::RadioParameters::DEFAULT, 868200000, 0};
 struct Fixture
 {
     etl::message_bus<8> bus;
@@ -293,7 +293,7 @@ TEST_CASE("LR2021 drains fixed GFSK captures without consuming a partial packet"
 TEST_CASE("LR2021 preserves variable packet boundaries or recovers when metadata is lost")
 {
     Fixture f;
-    auto config = link;
+    auto config = ognLinkConfig;
     config.packetLength = 0;
     config.manchester = false;
     auto profile = parameters;
@@ -361,7 +361,7 @@ TEST_CASE("LR2021 FIFO overflow requests recovery before reading corrupted bound
 TEST_CASE("LR2021 explicit LoRa drains a rejected packet before accepting the next one")
 {
     Fixture f;
-    auto config = link;
+    auto config = ognLinkConfig;
     config.packetLength = 0;
     config.manchester = false;
     auto rf = *parameters.frequency;
@@ -449,7 +449,7 @@ TEST_CASE("FSK translation keeps the SX1262 wire format")
 TEST_CASE("variable FSK length and LoRa coding rate are restored for RX")
 {
     Fixture f;
-    auto config = link;
+    auto config = ognLinkConfig;
     config.packetLength = 0;
     config.manchester = false;
     auto values = parameters;
