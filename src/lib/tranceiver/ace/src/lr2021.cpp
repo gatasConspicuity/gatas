@@ -11,7 +11,6 @@
 
 namespace
 {
-    constexpr uint8_t DF17_SYNC = 0x95;
     constexpr uint8_t MODE_S_FRAME_BYTES = GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH;
     constexpr uint8_t OOK_FIFO_BYTES = 2 * MODE_S_FRAME_BYTES - 1;
     constexpr uint32_t OOK_TIMING_REGISTER = 0xF30150;
@@ -307,14 +306,15 @@ void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirec
         const lr20xx_radio_ook_pkt_params_t packet{
             16, LR20XX_RADIO_OOK_ADDRESS_FILTERING_DISABLED, LR20XX_RADIO_OOK_HEADER_IMPLICIT,
             OOK_FIFO_BYTES, LR20XX_RADIO_OOK_CRC_OFF, LR20XX_RADIO_OOK_ENCODING_OFF};
-        const uint8_t sync[LR20XX_RADIO_OOK_SYNCWORD_LENGTH]{0, 0, 0, DF17_SYNC};
+        const auto &config = *parameters.config;
+        const uint8_t sync[LR20XX_RADIO_OOK_SYNCWORD_LENGTH]{config.syncWord[0], config.syncWord[1], config.syncWord[2], config.syncWord[3]};
         // Match SoftRF's detector flags. Encoding is off for both sync and payload.
         const lr20xx_radio_ook_rx_detector_t detector{
             0x0285, 15, 0, LR20XX_RADIO_OOK_RX_DETECTOR_SFD_TYPE_FALLING_EDGE, 0, true};
         if (!check(lr20xx_radio_common_set_pkt_type(this, LR20XX_RADIO_COMMON_PKT_TYPE_OOK)) ||
             !check(lr20xx_radio_ook_set_modulation_params(this, &modulation)) ||
             !check(lr20xx_radio_ook_set_packet_params(this, &packet)) ||
-            !check(lr20xx_radio_ook_set_syncword(this, sync, 8, LR20XX_RADIO_OOK_SYNCWORD_MSBF)) ||
+            !check(lr20xx_radio_ook_set_syncword(this, sync, config.syncLength, LR20XX_RADIO_OOK_SYNCWORD_MSBF)) ||
             !check(lr20xx_radio_ook_set_rx_detector(this, &detector)) ||
             !check(lr20xx_radio_common_set_agc_gain(this, static_cast<lr20xx_radio_common_gain_step_t>(gain))) ||
             !check(lr20xx_regmem_write_regmem32_mask(this, OOK_TIMING_REGISTER, 0xFF, 0x18)))
@@ -532,7 +532,7 @@ void Lr2021::receivePacket(uint16_t length, int16_t rssi, etl::optional<uint16_t
         {
             return;
         }
-        if (!ook || decodeOokFrame(data))
+        if (!ook || decodeOokFrame(data, lastRadioParameters.config->syncWord[3]))
         {
             ++statistics.receivedPackets;
             rxDataFrameQueue->push(etl::move(frame));
@@ -540,9 +540,9 @@ void Lr2021::receivePacket(uint16_t length, int16_t rssi, etl::optional<uint16_t
     }
 }
 
-bool Lr2021::decodeOokFrame(uint8_t *data)
+bool Lr2021::decodeOokFrame(uint8_t *data, uint8_t syncByte)
 {
-    data[0] = DF17_SYNC;
+    data[0] = syncByte;
     uint8_t errors[MODE_S_FRAME_BYTES]{};
     manchesterDecodeInline(data, errors, 2 * MODE_S_FRAME_BYTES);
     for (size_t i = 0; i < MODE_S_FRAME_BYTES; ++i)

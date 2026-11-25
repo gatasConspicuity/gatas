@@ -11,5 +11,7 @@ struct CprPosition
     float lon;
 };
 
+int16_t cprNLFunction(float lat);
+
 etl::optional<CprPosition> decodeCPR(bool fflag, uint32_t even_cprlat, uint32_t even_cprlon,
                                      uint32_t odd_cprlat, uint32_t odd_cprlon);

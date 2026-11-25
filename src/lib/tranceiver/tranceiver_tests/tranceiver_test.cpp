@@ -183,7 +183,7 @@ TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
 {
     Fixture f;
     const GATAS::RfConfig rf{GATAS::Modulation::OOK, 1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
-    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, false, 14, 0, 0, 0, {}};
+    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, false, 14, 0, 8, 0, {0, 0, 0, 0x95}};
     const GATAS::RadioParameters profile{&adsb, &rf, rf.baseFrequency, 0};
     f.radio.configure(profile, false, 0);
     REQUIRE_FALSE(f.radio.hasHalError());
@@ -230,13 +230,13 @@ TEST_CASE("LR2021 reconstructs a DF17 frame from the OOK FIFO chips")
     const uint8_t expected[]{0x8d, 0x40, 0x62, 0x1d, 0x58, 0xc3, 0x82, 0xd6, 0x90, 0xc8, 0xac, 0x28, 0x63, 0xa7};
     SECTION("valid chip pairs")
     {
-        REQUIRE(TestLr2021::decodeOokFrame(data.data()));
+        REQUIRE(TestLr2021::decodeOokFrame(data.data(), 0x95));
         REQUIRE(etl::equal(data.begin(), data.begin() + sizeof(expected), expected));
     }
     SECTION("invalid chip pair")
     {
         data[2] = 0;
-        REQUIRE_FALSE(TestLr2021::decodeOokFrame(data.data()));
+        REQUIRE_FALSE(TestLr2021::decodeOokFrame(data.data(), 0x95));
     }
 }
 
@@ -244,7 +244,7 @@ TEST_CASE("LR2021 drains complete OOK captures and leaves partial captures for t
 {
     Fixture f;
     const GATAS::RfConfig rf{GATAS::Modulation::OOK, 1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
-    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, false, 14, 0, 0, 0, {}};
+    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, false, 14, 0, 8, 0, {0, 0, 0, 0x95}};
     f.radio.configure({&adsb, &rf, rf.baseFrequency, 0}, false, 0);
     f.radio.listen();
     REQUIRE(std::vector<uint8_t>{2, 0x0c, 0xff, 0xff, 0xff} == command(0x020c));

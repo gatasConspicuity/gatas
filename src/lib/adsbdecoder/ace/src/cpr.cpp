@@ -33,6 +33,7 @@
 
 
 #include "../cpr.hpp"
+#include <etl/algorithm.h>
 #include <cmath>
 
 int16_t  cprModint (int16_t  a, int16_t  b)
@@ -52,83 +53,40 @@ float cprModDouble(float a, float b)
 
 
 
-/* The NL function uses the precomputed table from 1090-WP-9-14 */
-int16_t  cprNLFunction(float lat)
+/* The NL function uses the precomputed table from 1090-WP-9-14. */
+int16_t cprNLFunction(float lat)
 {
-    if (lat < 0.0f) lat = -lat; /* Table is simmetric about the equator. */
-    if (lat < 10.47047130f) return 59;
-    if (lat < 14.82817437f) return 58;
-    if (lat < 18.18626357f) return 57;
-    if (lat < 21.02939493f) return 56;
-    if (lat < 23.54504487f) return 55;
-    if (lat < 25.82924707f) return 54;
-    if (lat < 27.93898710f) return 53;
-    if (lat < 29.91135686f) return 52;
-    if (lat < 31.77209708f) return 51;
-    if (lat < 33.53993436f) return 50;
-    if (lat < 35.22899598f) return 49;
-    if (lat < 36.85025108f) return 48;
-    if (lat < 38.41241892f) return 47;
-    if (lat < 39.92256684f) return 46;
-    if (lat < 41.38651832f) return 45;
-    if (lat < 42.80914012f) return 44;
-    if (lat < 44.19454951f) return 43;
-    if (lat < 45.54626723f) return 42;
-    if (lat < 46.86733252f) return 41;
-    if (lat < 48.16039128f) return 40;
-    if (lat < 49.42776439f) return 39;
-    if (lat < 50.67150166f) return 38;
-    if (lat < 51.89342469f) return 37;
-    if (lat < 53.09516153f) return 36;
-    if (lat < 54.27817472f) return 35;
-    if (lat < 55.44378444f) return 34;
-    if (lat < 56.59318756f) return 33;
-    if (lat < 57.72747354f) return 32;
-    if (lat < 58.84763776f) return 31;
-    if (lat < 59.95459277f) return 30;
-    if (lat < 61.04917774f) return 29;
-    if (lat < 62.13216659f) return 28;
-    if (lat < 63.20427479f) return 27;
-    if (lat < 64.26616523f) return 26;
-    if (lat < 65.31845310f) return 25;
-    if (lat < 66.36171008f) return 24;
-    if (lat < 67.39646774f) return 23;
-    if (lat < 68.42322022f) return 22;
-    if (lat < 69.44242631f) return 21;
-    if (lat < 70.45451075f) return 20;
-    if (lat < 71.45986473f) return 19;
-    if (lat < 72.45884545f) return 18;
-    if (lat < 73.45177442f) return 17;
-    if (lat < 74.43893416f) return 16;
-    if (lat < 75.42056257f) return 15;
-    if (lat < 76.39684391f) return 14;
-    if (lat < 77.36789461f) return 13;
-    if (lat < 78.33374083f) return 12;
-    if (lat < 79.29428225f) return 11;
-    if (lat < 80.24923213f) return 10;
-    if (lat < 81.19801349f) return 9;
-    if (lat < 82.13956981f) return 8;
-    if (lat < 83.07199445f) return 7;
-    if (lat < 83.99173563f) return 6;
-    if (lat < 84.89166191f) return 5;
-    if (lat < 85.75541621f) return 4;
-    if (lat < 86.53536998f) return 3;
-    if (lat < 87.00000000f) return 2;
-    else return 1;
-}
+    static constexpr float thresholds[] =
+    {
+        10.47047130f, 14.82817437f, 18.18626357f, 21.02939493f,
+        23.54504487f, 25.82924707f, 27.93898710f, 29.91135686f,
+        31.77209708f, 33.53993436f, 35.22899598f, 36.85025108f,
+        38.41241892f, 39.92256684f, 41.38651832f, 42.80914012f,
+        44.19454951f, 45.54626723f, 46.86733252f, 48.16039128f,
+        49.42776439f, 50.67150166f, 51.89342469f, 53.09516153f,
+        54.27817472f, 55.44378444f, 56.59318756f, 57.72747354f,
+        58.84763776f, 59.95459277f, 61.04917774f, 62.13216659f,
+        63.20427479f, 64.26616523f, 65.31845310f, 66.36171008f,
+        67.39646774f, 68.42322022f, 69.44242631f, 70.45451075f,
+        71.45986473f, 72.45884545f, 73.45177442f, 74.43893416f,
+        75.42056257f, 76.39684391f, 77.36789461f, 78.33374083f,
+        79.29428225f, 80.24923213f, 81.19801349f, 82.13956981f,
+        83.07199445f, 83.99173563f, 84.89166191f, 85.75541621f,
+        86.53536998f, 87.00000000f
+    };
 
-int16_t  cprNFunction(float lat, bool  fflag)
-{
-    int16_t  nl = cprNLFunction(lat) - (fflag ? 1 : 0);
-    if (nl < 1) nl = 1;
-    return nl;
-}
+    if (lat < 0.0f)
+    {
+        lat = -lat;
+    }
 
-float cprDlonFunction(float lat, bool  fflag, bool surface=false)
-{
-    return (surface ? 90.0f : 360.0f) / cprNFunction(lat, fflag);
-}
+    const auto* boundary = etl::upper_bound(
+        thresholds,
+        thresholds + (sizeof(thresholds) / sizeof(thresholds[0])),
+        lat);
 
+    return static_cast<int16_t>(59 - (boundary - thresholds));
+}
 
 /* This algorithm comes from:
  * http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html.
@@ -167,8 +125,8 @@ etl::optional<CprPosition> decodeCPR(bool fflag, uint32_t even_cprlat, uint32_t 
         return etl::nullopt;
     }
 
-    float cprLat0 = cprNLFunction(rlat0);
-    float cprLat1 = cprNLFunction(rlat1);
+    int16_t cprLat0 = cprNLFunction(rlat0);
+    int16_t cprLat1 = cprNLFunction(rlat1);
 
     /* Check that both are in the same latitude zone, or abort. */
     if (cprLat0 != cprLat1)
@@ -180,18 +138,22 @@ etl::optional<CprPosition> decodeCPR(bool fflag, uint32_t even_cprlat, uint32_t 
     if (fflag)
     {
         /* Use odd packet. */
-        int16_t  ni = cprNFunction(rlat1,true);
+        int16_t ni = cprLat1 - 1;
+        if (ni < 1)
+        {
+            ni = 1;
+        }
         int16_t  m = static_cast<int16_t>(floorf((((lon0 * (cprLat1-1)) -  (lon1 * cprLat1)) / 131072.0f) + 0.5f));
-        rlon = cprDlonFunction(rlat1,true) * (cprModint (m,ni)+lon1/131072);
+        rlon = (360.0f / ni) * (cprModint (m,ni)+lon1/131072);
         rlat = rlat1;
 
     }
     else
     {
         /* Use even packet. */
-        int16_t  ni = cprNFunction(rlat0,false);
+        int16_t ni = cprLat0;
         int16_t  m = static_cast<int16_t>(floorf((((lon0 * (cprLat0-1)) -  (lon1 * cprLat0)) / 131072.0f) + 0.5f));
-        rlon = cprDlonFunction(rlat0,false) * (cprModint (m,ni)+lon0/131072);
+        rlon = (360.0f / ni) * (cprModint (m,ni)+lon0/131072);
         rlat = rlat0;
     }
     rlon -= floorf( (rlon + 180.0f) / 360.0f ) * 360.0f;

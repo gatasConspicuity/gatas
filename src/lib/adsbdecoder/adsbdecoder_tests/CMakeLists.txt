@@ -43,6 +43,7 @@ set(SOURCES_IDIOMATIC_EXAMPLES # Tests
     adsb_test.cpp
     addresscache_test.cpp
     adsbdatacollector_test.cpp
+    cpr_test.cpp
 )
 
 string(REPLACE ".cpp" "" BASENAMES_IDIOMATIC_EXAMPLES

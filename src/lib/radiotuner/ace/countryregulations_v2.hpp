@@ -89,7 +89,7 @@ public:
     static constexpr GATAS::RfConfig Europe_hdr   {GATAS::Modulation::GFSK,   869'525'000, 200'000, 27, 234300, 200000, 50000,  5, GATAS::RadioCapability::Gfsk868}; // 869.525
     static constexpr GATAS::RfConfig Europe_ldr   {GATAS::Modulation::GFSK,   869'525'000, 200'000, 27, 234300,  38400, 12500, 10, GATAS::RadioCapability::Gfsk868}; // 869.525
     static constexpr GATAS::RfConfig Europe_lora  {GATAS::Modulation::LORA,   868'200'000, 200'000, 22, 250000,      0,     0,  0, GATAS::RadioCapability::Lora868}; // 868.200 / 868.400
-    static constexpr GATAS::RfConfig Adsb1090     {GATAS::Modulation::OOK,  1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
+    static constexpr GATAS::RfConfig Adsb1090     {GATAS::Modulation::OOK,  1'090'000'000,        0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
 
     // Not validated
     static constexpr GATAS::RfConfig NorthAmerica {GATAS::Modulation::GFSK, 902'200'000, 400'000, 30, 234300, 100000, 50000, 5, GATAS::RadioCapability::Gfsk915};
@@ -110,7 +110,7 @@ public:
     static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSL          { 4, GATAS::ConspicuityProtocol::ADSL_M_BAND,      true,  25, 16, 48, 8, {0x55, 0x99, 0x95, 0xA6, 0x9A, 0x65}};                   // ADSL on normal 0xA9, 0x6A => 0x18 26Byte first byt elength = 25Byte
     static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSLO_HDR     { 5, GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR, false,   0, 16, 16, 0, {0x2D, 0xD4}};                                           // ADSL on O band HDR
     static constexpr GATAS::LinkLayerConfig PROTOCOL_FANET         { 7, GATAS::ConspicuityProtocol::FANET,     false, 200, 12,  8, 0, {0xF1}};                                                 // FANET
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSB          {10, GATAS::ConspicuityProtocol::ADSB,      false, 14, 0, 0, 0, {}};
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSB          {10, GATAS::ConspicuityProtocol::ADSB,      false, 14, 0, 8, 0, {0, 0, 0, 0x95}};
 
     // Needs further research I did not get reliable reception yet
     static constexpr GATAS::LinkLayerConfig PROTOCOL_RX_ADSLFLARM  { 8, GATAS::ConspicuityProtocol::NONE,  true,  29, 16, 16, 0, {0x96, 0xA5}, GATAS::CombinedRadioRx::AdslFlarm};     // works to receive FLARM                                     // ADSL/FLARM RX Sync
