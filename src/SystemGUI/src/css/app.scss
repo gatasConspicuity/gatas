@@ -456,6 +456,20 @@ input.secondary {
   background: color-mix(in srgb, var(--gatas-warning) 10%, transparent);
 }
 
+.notice--danger {
+  display: block;
+  padding: 1rem;
+  border: 2px solid var(--gatas-danger);
+  border-left-width: 0.45rem;
+  background: color-mix(in srgb, var(--gatas-danger) 14%, transparent);
+}
+
+.notice--danger strong {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 1.2rem;
+}
+
 .notice p:last-child {
   margin-bottom: 0;
 }

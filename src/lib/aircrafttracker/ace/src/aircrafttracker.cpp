@@ -90,6 +90,10 @@ void AircraftTracker::getData(etl::string_stream &stream, const etl::string_view
         {
             pressureSource = selected->origin == GATAS::BarometricSource::Internal ? "BMP280" : "Mobile";
         }
+        else if (selected->method == GATAS::PressureSource::ADSBDerived)
+        {
+            pressureSource = "ADS-B derived";
+        }
         else if (selected->origin == GATAS::BarometricSource::External &&
                  selected->method == GATAS::PressureSource::Calculated)
         {

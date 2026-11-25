@@ -427,3 +427,13 @@ TEST_CASE("northEastDistance", "[single-file]")
     REQUIRE( result.east == -7155.5698_a );
     REQUIRE( result.north == -11113.73047_a );
 }
+
+
+TEST_CASE("isReachedS checks second deadlines across rollover", "[single-file]")
+{
+    REQUIRE_FALSE(CoreUtils::isReachedS(10, 9));
+    REQUIRE(CoreUtils::isReachedS(10, 10));
+    REQUIRE(CoreUtils::isReachedS(10, 11));
+    REQUIRE_FALSE(CoreUtils::isReachedS(2, UINT32_MAX));
+    REQUIRE(CoreUtils::isReachedS(UINT32_MAX, 2));
+}

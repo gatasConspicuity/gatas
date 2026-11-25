@@ -48,6 +48,11 @@ spin_lock_t *sharedSpinLock()
     return claimedSpinLock;
 }
 
+bool isUsReached(uint32_t referenceUs, uint32_t us)
+{
+    return usToReference(referenceUs, us) <= 0;
+}
+
 uint32_t timeUs32()
 {
     return time_us_32() - timeUs32PpsOffset;

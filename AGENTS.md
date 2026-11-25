@@ -145,7 +145,7 @@ Firmware code favors fixed-size containers and predictable memory behavior. Pref
 
 ## GDL90 Nearby-Traffic Altitude Decision
 
-- Use `CoreUtils::resolveTrafficAltitude(...)` for GDL90 traffic. It prefers the target’s pressure altitude, then applies the target–ownship ellipsoid height difference to ownship pressure altitude when available. If both pressure sources are unavailable and MSL fallback is enabled, using ownship geoid separation for nearby traffic is an accepted approximation. Revisit this decision if traffic is reported over substantially larger distances or if an aircraft-specific geoid separation becomes available.
+- Use `CoreUtils::resolveTrafficAltitude(...)` for GDL90 traffic. When ownship pressure altitude is unavailable and MSL fallback is enabled (the default), use MSL for both ownship and traffic, even if the target reports pressure altitude. Using ownship geoid separation for nearby traffic is an accepted approximation. Otherwise prefer target pressure altitude, then apply the target–ownship ellipsoid height difference to ownship pressure altitude when available. Revisit this decision if traffic is reported over substantially larger distances or if an aircraft-specific geoid separation becomes available.
 
 ## Testing Notes
 

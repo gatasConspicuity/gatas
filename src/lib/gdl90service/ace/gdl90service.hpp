@@ -51,7 +51,7 @@ private:
     const GATAS::OwnshipState &ownshipState;
     GATAS::GpsStats gpsStats;
     SynchronizedValue<GATAS::CallSign> ownshipCallsign{CoreUtils::sharedSpinLock()};
-    bool mslAltFallback = false;
+    bool mslAltFallback = true;
 
 private:
     static void gdl90ServiceTask(void *arg);

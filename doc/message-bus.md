@@ -2,6 +2,8 @@
 
 This document maps every message type to its sender(s) and receiver(s).
 
+ADSBDecoder updates OwnshipState directly with one nearby aircraft’s reported GNSS-minus-baro difference. The local ADS-B estimate uses fresh ownship WGS84 height and is selected only after existing pressure sources expire. Reference limits are less than 10 km horizontally and 750 m vertically. Updates are at least 5 seconds apart and expire after 150 seconds. A different aircraft can become the reference after that expiry.
+
 GatasConnect sends ownship V3 (COBS type 14) through its existing UDP/Bluetooth
 routes. It copies the fresh selected pressure sample from OwnshipState and only
 uploads `PressureSource::PressureSensor`. The absolute pressure altitude is a
@@ -35,8 +37,8 @@ ambiguous variable-length packet metadata or FIFO overflow triggers recovery.
 Decoded aircraft positions carry independent address type, ingress, and protocol
 fields. Direct radio reports use `Transceiver`. Targets reported by an ADS-L
 uplink station use `RadioRelay`. ADSBDecoder also accepts
-`Dump1090` frames and labels a position `Mixed` when its odd and even coordinate
-frames came from different inputs. GatasConnect translates the existing COBS
+`Dump1090` frames. Each cached aircraft accepts frames from its first ingress until
+the entry is evicted. Dump1090 is intended for development and testing. GatasConnect translates the existing COBS
 traffic byte to `ConspicuityProtocol` and publishes `Connect` positions for both BLE
 and UDP. AircraftTracker consumes both single positions and batches. Its Monitor
 counts tracks and processed positions across all inputs. Antenna plots use only

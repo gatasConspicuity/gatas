@@ -137,7 +137,7 @@ public:
         const auto qnh = reader.read<uint16_t>();
         const auto source = reader.read<uint8_t>();
         if (!pressure || !qnh || !source ||
-            source.value() >= static_cast<uint8_t>(GATAS::PressureSource::PRESSURE_SOURCE_NO_ITEMS))
+            source.value() >= static_cast<uint8_t>(GATAS::PressureSource::ADSBDerived))
         {
             return etl::nullopt;
         }

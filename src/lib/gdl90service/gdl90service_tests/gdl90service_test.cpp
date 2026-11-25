@@ -334,14 +334,14 @@ TEST_CASE("GDL90 service geometric altitude uses ellipsoid height", "[gdl90]")
     REQUIRE(feet == Catch::Approx(position.ellipseHeight * M_TO_FT).margin(5.f));
 }
 
-TEST_CASE("GDL90 sends egress pressure regardless of ownship pressure and MSL fallback", "[gdl90]")
+TEST_CASE("GDL90 encodes native traffic pressure on the pressure reference", "[gdl90]")
 {
     CoreUtils::init();
     GATAS::OwnshipState state;
     state.init(CoreUtils::sharedSpinLock());
     MockConfig mockConfig{bus};
     Gdl90Service service{bus, mockConfig, state};
-    service.mslAltFallback = GENERATE(false, true);
+    service.mslAltFallback = false;
     Test receiver{&bus};
     GDL90 gdl90;
 
@@ -391,55 +391,40 @@ TEST_CASE("GDL90 sends egress pressure regardless of ownship pressure and MSL fa
     }
 }
 
-TEST_CASE("GDL90 ownship altitude policy is strict by default", "[gdl90]")
+TEST_CASE("GDL90 defaults to MSL and supports explicit pressure-only mode", "[gdl90]")
 {
     CoreUtils::init();
     GATAS::OwnshipState state;
     state.init(CoreUtils::sharedSpinLock());
-    MockConfig mockConfig{bus};
-    Gdl90Service service{bus, mockConfig, state};
+    struct FallbackConfig : MockConfig
+    {
+        using MockConfig::MockConfig;
+        etl::optional<bool> savedFallback;
+        int valueByPath(int defaultValue, etl::string_view path, etl::string_view key) const override
+        {
+            if (path == Gdl90Service::NAME && key == "mslAltFallback")
+            {
+                return savedFallback ? *savedFallback : defaultValue;
+            }
+            return MockConfig::valueByPath(defaultValue, path, key);
+        }
+    } config{bus};
+    Gdl90Service service{bus, config, state};
     Test receiver{&bus};
     GATAS::OwnshipPositionInfo position{};
-    position.timestamp = 1;
-    position.ellipseHeight = 1600;
+    position.ellipseHeight = 1647;
+    position.geoidSeparation = 47;
     state.location.store(position);
 
-    GDL90 gdl90;
-    GDL90::RawBytes unpacked;
-    uint32_t latitude = 0;
-    uint32_t longitude = 0;
-    uint32_t altitude = 0;
-    float feet = 0.0f;
-    bool isOwnership = true;
-    GDL90::ALERT_STATUS alertStatus = GDL90::ALERT_STATUS::__LAST;
-    GDL90::ADDR_TYPE addressType = GDL90::ADDR_TYPE::__LAST;
-    uint32_t address = 0;
-    uint32_t misc = 0;
-    GDL90::NIC nic = GDL90::NIC::__LAST;
-    GDL90::NACP nacp = GDL90::NACP::__LAST;
-    uint32_t horizontalVelocity = 0;
-    uint32_t verticalVelocity = 0;
-    uint32_t track = 0;
-    GDL90::EMITTER emitter = GDL90::EMITTER::__LAST;
-    etl::string<8> callSign;
-    GDL90::EMERGENCY_PRIO emergencyPriority = GDL90::EMERGENCY_PRIO::__LAST;
-
     service.on_receive(GATAS::OwnshipPositionMsg{});
-    REQUIRE(gdl90.unpack(receiver.msg, unpacked));
-    REQUIRE(gdl90.ownership_or_traffic_report_decode(
-        unpacked, isOwnership, alertStatus, addressType, address, latitude, longitude, altitude, misc, nic, nacp,
-        horizontalVelocity, verticalVelocity, track, emitter, callSign, emergencyPriority));
-    REQUIRE(gdl90.altitude_decode(altitude, feet));
-    REQUIRE(std::isnan(feet));
+    const auto altitude = reportAltitudeFeet(receiver, 0x0A);
+    REQUIRE(altitude.has_value());
+    REQUIRE(altitude.value() == Catch::Approx(1600.0f * M_TO_FT).margin(25.0f));
 
-    service.mslAltFallback = true;
+    config.savedFallback = false;
+    service.on_receive(GATAS::ConfigUpdatedMsg{config, Gdl90Service::NAME});
     service.on_receive(GATAS::OwnshipPositionMsg{});
-    REQUIRE(gdl90.unpack(receiver.positionReport, unpacked));
-    REQUIRE(gdl90.ownership_or_traffic_report_decode(
-        unpacked, isOwnership, alertStatus, addressType, address, latitude, longitude, altitude, misc, nic, nacp,
-        horizontalVelocity, verticalVelocity, track, emitter, callSign, emergencyPriority));
-    REQUIRE(gdl90.altitude_decode(altitude, feet));
-    REQUIRE(feet == Catch::Approx(1600.0f * M_TO_FT).margin(25.0f));
+    REQUIRE_FALSE(reportAltitudeFeet(receiver, 0x0A).has_value());
 }
 
 TEST_CASE("GDL90 traffic altitude selection follows pressure availability and MSL fallback", "[gdl90]")
@@ -483,9 +468,8 @@ TEST_CASE("GDL90 traffic altitude selection follows pressure availability and MS
     const auto altitude = reportAltitudeFeet(receiver, 0x14);
     if (trafficHasPressure || ownshipHasPressure || service.mslAltFallback)
     {
-        // Native pressure wins; otherwise map the +100 m difference onto ownship pressure,
-        // or use target MSL only when neither pressure altitude is available and fallback is enabled.
-        const float expectedMetres = trafficHasPressure ? 500.0f : (ownshipHasPressure ? 1000.0f : 1100.0f);
+        const bool usingMsl = !ownshipHasPressure && service.mslAltFallback;
+        const float expectedMetres = usingMsl ? 1100.0f : (trafficHasPressure ? 500.0f : 1000.0f);
         REQUIRE(altitude.has_value());
         REQUIRE(altitude.value() == Catch::Approx(expectedMetres * M_TO_FT).margin(25.0f));
     }

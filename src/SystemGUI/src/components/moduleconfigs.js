@@ -209,7 +209,7 @@ customElements.define("dataport-config", DataPortConfig);
 
 class Gdl90ServiceConfig extends ModuleConfig {
   created() {
-    this._initForm(store.getModuleData("Gdl90Service"));
+    this._initForm(store.getModuleData("Gdl90Service").then(data => ({ mslAltFallback: true, ...data })));
   }
 
   mounted() {
@@ -233,7 +233,7 @@ class Gdl90ServiceConfig extends ModuleConfig {
   }
 
   render(html) {
-    const mslAltFallback = this.state?.data?.mslAltFallback === true || this.state?.data?.mslAltFallback === 1;
+    const mslAltFallback = Boolean(this.state?.data?.mslAltFallback ?? true);
     return html`
       <h4>Configuration of the GDL90 Service</h4>
       <p>
@@ -247,7 +247,7 @@ class Gdl90ServiceConfig extends ModuleConfig {
             <span class="help-label" tabindex="0" aria-label="About MSL altitude fallback">
               ${html.raw(icon.help)}
               <span class="app-tooltip" role="tooltip">
-                When disabled, GDL90 sends pressure altitude as unavailable if no pressure altitude is available. When enabled, GDL90 substitutes GPS-derived MSL altitude.
+                Enabled by default. When ownship pressure altitude is unavailable, OpenAce uses GPS-derived MSL altitude for both ownship and traffic reports.
               </span>
             </span>
           </div>
@@ -255,13 +255,18 @@ class Gdl90ServiceConfig extends ModuleConfig {
             type="checkbox"
             id="mslAltFallback"
             ref="mslAltFallback"
+            aria-describedby="mslFallbackNotice"
             onchange=${(event) => { this.state.data.mslAltFallback = event.target.checked; }}
           />
           ${mslAltFallback
-        ? html`<div class="notice notice--warning">
+        ? html`<div class="notice notice--warning" id="mslFallbackNotice">
                 MSL altitude is not pressure altitude. Use this fallback for conspicuity only; do not rely on it for flying or vertical separation.
               </div>`
-        : ""}
+        : html`<div class="notice notice--danger" id="mslFallbackNotice" role="alert">
+                <strong>Warning: Nearby traffic may disappear from your EFB</strong>
+                <p>With MSL fallback off, some EFBs may hide nearby aircraft when OpenAce has no ownship pressure altitude.
+                   Your own position can still appear on the map. Enable MSL fallback to keep sending altitude with traffic reports.</p>
+              </div>`}
         </div>
         ${this.buttonArray(html)}
       </form>
@@ -779,6 +784,7 @@ class Dump1090ClientConfig extends ModuleConfig {
   render(html) {
     return html`
       <h4>Configuration of the Dump1090 Client</h4>
+      <p class="notice notice--warning">Dump1090 is intended for development and testing only.</p>
       <p>
         This module enables reading ADS-B data in the format '*8D7C7181215D01A08208204D8BF1;' from an external system like Dump1090 into GATAS (port
         &lt;IP&gt;:30002), processing them as traffic targets. Ensure that the ADSBDecoder is enabled and there is traffic within the filtered ranges above or

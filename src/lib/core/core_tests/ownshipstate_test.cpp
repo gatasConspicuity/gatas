@@ -9,7 +9,7 @@
 using Source = GATAS::PressureSource;
 using Origin = GATAS::BarometricSource;
 
-TEST_CASE("Pressure selection prefers origin first then method", "[ownshipstate]")
+TEST_CASE("Pressure selection prefers method then origin", "[ownshipstate]")
 {
     GATAS::OwnshipState state;
     state.init(spin_lock_instance(0));
@@ -20,9 +20,9 @@ TEST_CASE("Pressure selection prefers origin first then method", "[ownshipstate]
     state.updateBarometricPressure(currentOrigin, {1013.25f, currentMethod}, 1000);
     const auto snapshot = state.loadPressureState();
     state.updateBarometricPressure(incomingOrigin, {898.7628f, incomingMethod}, 2000);
-    const bool incomingPreferred = currentOrigin != incomingOrigin
-        ? incomingOrigin == Origin::Internal
-        : static_cast<uint8_t>(incomingMethod) >= static_cast<uint8_t>(currentMethod);
+    const bool incomingPreferred = currentMethod != incomingMethod
+        ? static_cast<uint8_t>(incomingMethod) > static_cast<uint8_t>(currentMethod)
+        : incomingOrigin == Origin::Internal || currentOrigin == Origin::External;
     REQUIRE(state.calculatePressureAltitude(2000).value() ==
             Catch::Approx(incomingPreferred ? 1000.0f : 0.0f).margin(0.1f));
     REQUIRE(snapshot.sample(currentOrigin, currentMethod).value.pressurehPa == 1013.25f);
@@ -150,4 +150,41 @@ TEST_CASE("Pressure expiry handles epoch clock corrections", "[ownshipstate]")
     REQUIRE_FALSE(state.calculatePressureAltitude(now + 1'000'000));
     state.updateBarometricPressure(Origin::External, {898.7628f, Source::Calculated}, now - 100'000);
     REQUIRE(state.calculatePressureAltitude(now - 100'000).value() == Catch::Approx(1000.0f).margin(0.1f));
+}
+
+TEST_CASE("ADS-B pressure reference stays local, rate limited, and below measured pressure", "[ownshipstate]")
+{
+    GATAS::OwnshipState state;
+    state.init(spin_lock_instance(0));
+    GATAS::OwnshipPositionInfo own{};
+    own.timestamp = CoreUtils::timeUs32() - 1;
+    own.ellipseHeight = 800;
+    state.location.store(own);
+    const auto selectedAt = [&](uint64_t nowMs)
+    {
+        time_us_Value = nowMs * 1000;
+        own.timestamp = CoreUtils::timeUs32();
+        state.location.store(own);
+        return state.selectedPressureAltitude(nowMs);
+    };
+    state.updateAdsbAltitudeDifference(1, 60, 0, 0, 1);
+    REQUIRE(740 == selectedAt(1000)->metres);
+    state.updateAdsbAltitudeDifference(2, -100, 0, 0, 6);
+    REQUIRE(740 == selectedAt(6000)->metres);
+    state.updateAdsbAltitudeDifference(1, 0, 0, 0, 6);
+    REQUIRE(800 == selectedAt(6000)->metres);
+    state.updateBarometricPressure(Origin::External, {1013.25f, Source::Calculated}, 6000);
+    REQUIRE(Source::ADSBDerived == selectedAt(6000)->method);
+    state.updateBarometricPressure(Origin::External, {1013.25f, Source::PressureSensor}, 6000);
+    REQUIRE(Source::PressureSensor == selectedAt(6000)->method);
+    state.updateBarometricPressure(Origin::External, {GATAS::INVALID_PRESSSURE_HPA, Source::PressureSensor}, 6000);
+    REQUIRE(Source::ADSBDerived == selectedAt(6000)->method);
+    own.ellipseHeight = 950;
+    REQUIRE(950 == selectedAt(156'000)->metres);
+    state.updateAdsbAltitudeDifference(2, -100, 0, 0, 156);
+    REQUIRE(950 == selectedAt(156'000)->metres);
+    state.updateBarometricPressure(Origin::External, {1013.25f, Source::Calculated}, 157'000);
+    REQUIRE(Source::Calculated == selectedAt(157'000)->method);
+    state.updateAdsbAltitudeDifference(2, -100, 0, 0, 157);
+    REQUIRE(1050 == selectedAt(157'000)->metres);
 }

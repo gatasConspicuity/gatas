@@ -208,7 +208,6 @@ namespace GATAS
         Transceiver,
         Connect, // GATAS Connect COBS over BLE or UDP
         Dump1090,
-        Mixed, // Position reconstructed from more than one ingress
         RadioRelay // A local radio received another station's report about the aircraft
     };
 
@@ -677,7 +676,7 @@ namespace GATAS
         Unavailable = 0,
         Calculated = 1,
         PressureSensor = 2,
-        PRESSURE_SOURCE_NO_ITEMS = 3
+        ADSBDerived = 3 // Local altitude offset; never an ambient-pressure wire source
     };
 
     struct BarometricPressure

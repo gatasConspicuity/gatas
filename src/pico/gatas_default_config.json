@@ -113,6 +113,9 @@
     "ip": "0.0.0.0",
     "port": 30002
   },
+  "Gdl90Service": {
+    "mslAltFallback": true
+  },
   "GDLoverUDP": {
     "defaultPorts": [
       4000

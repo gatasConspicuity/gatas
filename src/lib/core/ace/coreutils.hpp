@@ -23,9 +23,10 @@ namespace CoreUtils
     /** Resolve a traffic altitude in metres using the ownship pressure reference.
      *
      * Egress pressure | Ownship pressure | MSL fallback | Egress altitude
-     * Available       | Any              | Any          | Egress pressure
+     * Available       | Available        | Any          | Egress pressure
+     * Available       | Missing          | Disabled     | Egress pressure
      * Missing         | Available        | Any          | Ownship pressure + egress HAE - ownship HAE
-     * Missing         | Missing          | Enabled      | Egress HAE - ownship geoid separation
+     * Any             | Missing          | Enabled      | Egress HAE - ownship geoid separation
      * Missing         | Missing          | Disabled     | Unavailable
      *
      * HAE values are assumed to be suitable for comparison. MSL fallback is a
@@ -35,7 +36,8 @@ namespace CoreUtils
                                                          const GATAS::OwnshipState &ownshipState,
                                                          bool allowMslFallback)
     {
-        if (position.isPressureAltitudeValid())
+        const auto ownshipPressureAltitude = ownshipState.calculatePressureAltitude();
+        if (position.isPressureAltitudeValid() && (ownshipPressureAltitude || !allowMslFallback))
         {
             return position.pressureAlt;
         }
@@ -43,7 +45,7 @@ namespace CoreUtils
         const auto ownship = ownshipState.location.load();
         // Use a wider intermediate so out-of-range inputs cannot overflow during subtraction.
         int64_t altitudeMetres = position.ellipseHeight;
-        if (const auto ownshipPressureAltitude = ownshipState.calculatePressureAltitude())
+        if (ownshipPressureAltitude)
         {
             altitudeMetres += static_cast<int32_t>(ownshipPressureAltitude.value()) - static_cast<int64_t>(ownship.ellipseHeight);
         }
@@ -166,13 +168,16 @@ namespace CoreUtils
      * It will properly handle wraparounds if the time is less than 35 minutes in difference
      * \sa timeUs32
      */
-    inline bool isUsReached(uint32_t referenceUs, uint32_t us = timeUs32())
-    {
-        return usToReference(referenceUs, us) <= 0;
-    }
+    bool isUsReached(uint32_t referenceUs, uint32_t us = timeUs32());
     inline bool isUsReachedRaw(uint32_t referenceUs, uint32_t us = timeUs32Raw())
     {
         return usToReferenceRaw(referenceUs, us) <= 0;
+    }
+
+    // Compare startup-second deadlines across uint32_t wrap, within half the counter range.
+    inline bool isReachedS(uint32_t referenceSeconds, uint32_t nowSeconds = timeS32())
+    {
+        return static_cast<int32_t>(referenceSeconds - nowSeconds) <= 0;
     }
 
     /**

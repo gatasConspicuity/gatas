@@ -7,11 +7,14 @@
 
 #include "models.hpp"
 #include "spinlockguard.hpp"
+#include "pico/time.h"
 
 // Forward declaration avoids the coreutils/messages/ownshipstate include cycle.
 namespace CoreUtils
 {
     uint64_t msSinceEpoch();
+    uint32_t timeUs32();
+    bool isUsReached(uint32_t referenceUs, uint32_t us);
 }
 
 namespace GATAS
@@ -40,8 +43,15 @@ namespace GATAS
 
     struct OwnshipPressureState
     {
+        struct AdsbOffset
+        {
+            uint32_t observedSeconds;
+            uint32_t icao;
+            int16_t gnssMinusBaroMetres;
+        };
+        etl::optional<AdsbOffset> adsbOffset;
         static constexpr size_t METHOD_COUNT =
-            static_cast<size_t>(PressureSource::PRESSURE_SOURCE_NO_ITEMS);
+            static_cast<size_t>(PressureSource::ADSBDerived);
         static constexpr size_t ORIGIN_COUNT = 2;
 
         etl::array<etl::array<BarometricPressureSample, METHOD_COUNT>, ORIGIN_COUNT> samples{};
@@ -100,6 +110,36 @@ namespace GATAS
     public:
         SynchronizedValue<OwnshipPositionInfo> location;
 
+        // ADS-B-derived offsets expire after 150 seconds.
+        static constexpr uint32_t OWNSHIP_POSITION_MAX_AGE_US = 5'000'000;
+        static constexpr uint32_t ADSB_MAX_HORIZONTAL_DISTANCE_METRES = 10'000;
+        static constexpr int32_t ADSB_MAX_VERTICAL_DISTANCE_METRES = 750;
+        // Whole seconds retain the offset for at least 150 seconds.
+        static constexpr uint32_t ADSB_OFFSET_MAX_AGE_SECONDS = 150;
+
+        static bool withinAdsbReferenceRange(uint32_t horizontalMetres, int64_t verticalMetres)
+        {
+            return horizontalMetres < ADSB_MAX_HORIZONTAL_DISTANCE_METRES &&
+                   verticalMetres > -ADSB_MAX_VERTICAL_DISTANCE_METRES && verticalMetres < ADSB_MAX_VERTICAL_DISTANCE_METRES;
+        }
+
+        void updateAdsbAltitudeDifference(uint32_t icao, int16_t differenceMetres, uint32_t horizontalMetres,
+                                          int64_t verticalMetres, uint32_t observedSeconds = static_cast<uint32_t>(time_us_64() / 1'000'000))
+        {
+            if (withinAdsbReferenceRange(horizontalMetres, verticalMetres))
+            {
+                pressure.update([&](OwnshipPressureState &state)
+                {
+                    const auto &reference = state.adsbOffset;
+                    if (!reference || reference->icao == icao ||
+                        observedSeconds - reference->observedSeconds > ADSB_OFFSET_MAX_AGE_SECONDS)
+                    {
+                        state.adsbOffset = OwnshipPressureState::AdsbOffset{observedSeconds, icao, differenceMetres};
+                    }
+                });
+            }
+        }
+
         void updateBarometricPressure(
             BarometricSource origin,
             const BarometricPressure &value,
@@ -108,7 +148,7 @@ namespace GATAS
             GATAS_ASSERT(origin == BarometricSource::Internal || origin == BarometricSource::External,
                          "Invalid pressure origin");
             GATAS_ASSERT(static_cast<uint8_t>(value.source) <
-                             static_cast<uint8_t>(PressureSource::PRESSURE_SOURCE_NO_ITEMS),
+                             static_cast<uint8_t>(PressureSource::ADSBDerived),
                          "Invalid pressure source");
             const bool valid = validPressure(value.pressurehPa);
             // Standard-pressure altitude, referenced to 1013.25 hPa. The tropospheric
@@ -136,25 +176,41 @@ namespace GATAS
         {
             const auto snapshot = pressure.load();
 
-            // Preserve the existing priority: internal before external, then measured
-            // before calculated within each origin. Keep lower-priority samples for failover.
+            // Prefer measured pressure from either origin over estimated sources.
             constexpr BarometricSource origins[] = {BarometricSource::Internal, BarometricSource::External};
-            constexpr PressureSource methods[] = {PressureSource::PressureSensor, PressureSource::Calculated,
-                                                  PressureSource::Unavailable};
             for (const auto origin : origins)
             {
-                for (const auto method : methods)
+                const auto &sample = snapshot.sample(origin, PressureSource::PressureSensor);
+                if (fresh(sample.valid, sample.msSinceEpoch, nowMsSinceEpoch, PressureSource::PressureSensor))
                 {
-                    const auto &sample = snapshot.sample(origin, method);
-                    if (!fresh(sample.valid, sample.msSinceEpoch, nowMsSinceEpoch, method))
-                    {
-                        continue;
-                    }
-                    return SelectedPressureAltitude{sample.pressureAltitudeMetres, origin, method};
+                    return SelectedPressureAltitude{sample.pressureAltitudeMetres, origin, PressureSource::PressureSensor};
                 }
             }
 
-            // No fresh pressure: GPS height alone is not pressure altitude.
+            const auto &ref = snapshot.adsbOffset;
+            const auto monotonicSeconds = static_cast<uint32_t>(time_us_64() / 1'000'000);
+            if (ref && monotonicSeconds - ref->observedSeconds <= ADSB_OFFSET_MAX_AGE_SECONDS)
+            {
+                const auto own = location.load();
+                if (own.timestamp && CoreUtils::isUsReached(own.timestamp, CoreUtils::timeUs32()) &&
+                    !CoreUtils::isUsReached(own.timestamp + OWNSHIP_POSITION_MAX_AGE_US + 1, CoreUtils::timeUs32()))
+                {
+                    return SelectedPressureAltitude{static_cast<float>(own.ellipseHeight) - ref->gnssMinusBaroMetres,
+                                                    BarometricSource::Internal, PressureSource::ADSBDerived};
+                }
+            }
+            constexpr PressureSource methods[] = {PressureSource::Calculated, PressureSource::Unavailable};
+            for (const auto method : methods)
+            {
+                for (const auto origin : origins)
+                {
+                    const auto &sample = snapshot.sample(origin, method);
+                    if (fresh(sample.valid, sample.msSinceEpoch, nowMsSinceEpoch, method))
+                    {
+                        return SelectedPressureAltitude{sample.pressureAltitudeMetres, origin, method};
+                    }
+                }
+            }
             return etl::nullopt;
         }
 

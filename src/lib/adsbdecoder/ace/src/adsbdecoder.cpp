@@ -17,6 +17,7 @@ GATAS::PostConstruct ADSBDecoder::postConstruct()
     mode_s_init(&state);
     ignoredAirplanes.clear();
     adsbDataCollector.clear();
+    lastAdsbOffsetUpdateSeconds = CoreUtils::timeS32();
     return GATAS::PostConstruct::OK;
 }
 
@@ -86,11 +87,18 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
 
         mode_s_decode_phase2(&state, &mm);
 
+        if (!adsbDataCollector.acceptsIngress(mm.aa, ingress))
+        {
+            return;
+        }
+
         if (!adsbDataCollector.start(mm.aa, usTime))
         {
             statistics.knownAircraftFull += 1;
             return;
         }
+
+        adsbDataCollector.current().positionIngress = ingress;
 
         if (mm.msgtype == 5 || mm.msgtype == 21)
         {
@@ -106,10 +114,9 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
         /**
          * https://mode-s.org/decode/content/ads-b/1-basics.html
          */
-        adsbDataCollector.updateAirborne(true);
         if (mm.metype >= 1 && mm.metype <= 4)
         {
-            adsbDataCollector.updateCallsign(mm.flight, mm.aircraft_type);
+            adsbDataCollector.updateCallsign(mm.flight, getAircraftCategory(mm.metype, mm.mesub));
         }
         else if (mm.metype == 0 || (mm.metype >= 9 && mm.metype <= 18) || (mm.metype >= 20 && mm.metype <= 22))
         {
@@ -119,11 +126,11 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
                 adsbDataCollector.current().pressureAlt = adsbDataCollector.pressureAltitudeAt(usTime);
                 if (mm.fflag)
                 {
-                    adsbDataCollector.updateRawOdd(mm.raw_latitude, mm.raw_longitude, ingress, rssiDbm);
+                    adsbDataCollector.updateRawOdd(mm.raw_latitude, mm.raw_longitude, rssiDbm);
                 }
                 else
                 {
-                    adsbDataCollector.updateRawEven(mm.raw_latitude, mm.raw_longitude, ingress, rssiDbm);
+                    adsbDataCollector.updateRawEven(mm.raw_latitude, mm.raw_longitude, rssiDbm);
                 }
             }
 
@@ -139,6 +146,7 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
                     adsbDataCollector.updatePressureAltitude(metres);
                 }
             }
+
         }
         else if (mm.metype == 19 && mm.mesub >= 1 && mm.mesub <= 4)
         {
@@ -192,7 +200,7 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
             {
                 statistics.totalMsgIgnored += 1;
                 // printf("Ignored  t:%06ld a:%06lX gnsAlt:%ldm gnsAlt:%0.2fft distance:%ld\n", usTime / 1'000'000, current.icao, current.ellipseHeight, current.ellipseHeight * M_TO_FT, fromOwn.distance);
-                if (!ignoredAirplanes.insert(current.icao, usTime))
+                if (!ignoredAirplanes.insert(mm.aa, usTime))
                 {
                     statistics.ignoredAircraftFull += 1;
                 }
@@ -208,17 +216,25 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
                 vertical_rate = (current.vert_rate - 1) * 64.f * FTPMIN_TO_MS;
             }
 
+            const int64_t verticalMetres = static_cast<int64_t>(ellipseHeight) - ownship.ellipseHeight;
+            if (current.gnssMinusBaroMetres &&
+                    CoreUtils::isReachedS(lastAdsbOffsetUpdateSeconds))
+            {
+                ownshipState.updateAdsbAltitudeDifference(mm.aa, *current.gnssMinusBaroMetres, fromOwn.distance, verticalMetres);
+                lastAdsbOffsetUpdateSeconds = CoreUtils::timeS32() + ADSB_OFFSET_UPDATE_INTERVAL_SECONDS;
+            }
+
             // printf("Received  t:%06ld a:%06lX gnsAlt:%ldm gnsAlt:%0.2fft\n", usTime / 1'000'000, current.icao, current.ellipseHeight, current.ellipseHeight * M_TO_FT);
             GATAS::AircraftPositionInfo position{positionTime - ADSBDECODER_US_DELAY_SERIAL_AND_OVERHEAD,
                 current.callSign,
-                current.icao,
+                mm.aa,
                 GATAS::AddressType::ICAO,
                 current.positionIngress,
                 GATAS::ConspicuityProtocol::ADSB,
-                GATAS::AircraftCategory::UNKNOWN, // TODO: Add support for AircraftCategory
+                current.category,
                 false,                           // ADSB does not have privacy
                 false,                           // No privacy
-                current.airborne,
+                true,
                 current.lat,
                 current.lon,
                 ellipseHeight,
@@ -275,82 +291,22 @@ void ADSBDecoder::getData(etl::string_stream &stream, const etl::string_view pat
     stream << "}";
 }
 
-GATAS::AircraftCategory ADSBDecoder::getAircraftCategory(const etl::string_view category) const
+GATAS::AircraftCategory ADSBDecoder::getAircraftCategory(uint8_t typeCode, uint8_t category)
 {
-    if (category == "A1")
+    using AC = GATAS::AircraftCategory;
+    // DO-260B identification type codes 2, 3 and 4 select sets C, B and A.
+    // B4 groups ultralights, hang gliders and paragliders under GDL90 emitter 12.
+    static constexpr AC::enum_type categories[][8] = {
+        {AC::UNKNOWN, AC::SURFACE_EMERGENCY_VEHICLE, AC::SURFACE_VEHICLE, AC::POINT_OBSTACLE,
+         AC::CLUSTER_OBSTACLE, AC::LINE_OBSTACLE, AC::UNKNOWN, AC::UNKNOWN},
+        {AC::UNKNOWN, AC::GLIDER, AC::LIGHT_THAN_AIR, AC::SKY_DIVER,
+         AC::ULTRA_LIGHT_FIXED_WING, AC::UNKNOWN, AC::UN_MANNED, AC::SPACE_VEHICLE},
+        {AC::UNKNOWN, AC::LIGHT, AC::SMALL, AC::LARGE,
+         AC::HIGH_VORTEX, AC::HEAVY_ICAO, AC::AEROBATIC, AC::ROTORCRAFT}
+    };
+    if (typeCode < 2 || typeCode > 4 || category > 7)
     {
-        return GATAS::AircraftCategory::LIGHT; // < 15500lbs
+        return AC::UNKNOWN;
     }
-    else if (category == "A2")
-    {
-        return GATAS::AircraftCategory::SMALL; // 15500lbs to 75000lbs
-    }
-    else if (category == "A3")
-    {
-        return GATAS::AircraftCategory::LARGE; // 75000lbs to 300000lbs
-    }
-    else if (category == "A4")
-    {
-        return GATAS::AircraftCategory::HIGH_VORTEX; // Such as Boing 757
-    }
-    else if (category == "A5")
-    {
-        return GATAS::AircraftCategory::HEAVY_ICAO; // > 300000lbs
-    }
-    else if (category == "A6")
-    {
-        return GATAS::AircraftCategory::AEROBATIC;
-    }
-    else if (category == "A7")
-    {
-        return GATAS::AircraftCategory::ROTORCRAFT;
-    }
-    else if (category == "B1")
-    {
-        return GATAS::AircraftCategory::GLIDER;
-    }
-    else if (category == "B2")
-    {
-        return GATAS::AircraftCategory::LIGHT_THAN_AIR;
-    }
-    else if (category == "B3")
-    {
-        return GATAS::AircraftCategory::SKY_DIVER;
-    }
-    else if (category == "B4")
-    {
-        return GATAS::AircraftCategory::PARA_GLIDER;
-    }
-    else if (category == "B6")
-    {
-        return GATAS::AircraftCategory::UN_MANNED;
-    }
-    else if (category == "B7")
-    {
-        return GATAS::AircraftCategory::SPACE_VEHICLE;
-    }
-    else if (category == "C1")
-    {
-        return GATAS::AircraftCategory::SURFACE_EMERGENCY_VEHICLE;
-    }
-    else if (category == "C2")
-    {
-        return GATAS::AircraftCategory::SURFACE_VEHICLE;
-    }
-    else if (category == "C3")
-    {
-        return GATAS::AircraftCategory::POINT_OBSTACLE;
-    }
-    else if (category == "C4")
-    {
-        return GATAS::AircraftCategory::CLUSTER_OBSTACLE;
-    }
-    else if (category == "C5")
-    {
-        return GATAS::AircraftCategory::LINE_OBSTACLE;
-    }
-    else
-    {
-        return GATAS::AircraftCategory::UNKNOWN;
-    }
+    return categories[typeCode - 2][category];
 }

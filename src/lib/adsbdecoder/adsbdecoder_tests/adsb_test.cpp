@@ -240,6 +240,25 @@ TEST_CASE("Test heading and direction received aircraft", "[single-file]")
     REQUIRE(test.position.relNorthFromOwn(ownship) == Catch::Approx(32099).margin(1));
     REQUIRE(test.position.relEastFromOwn(ownship) == Catch::Approx(-5402).margin(1));
     // REQUIRE(test.position.bearingFromOwn == Catch::Approx(351).margin(0.5));
+    ownship.lat = test.position.lat;
+    ownship.lon = test.position.lon;
+    ownship.ellipseHeight = test.position.ellipseHeight;
+    time_us_Value += 10'000'000;
+    ownship.timestamp = CoreUtils::timeUs32() - 1;
+    ownshipState.location.store(ownship);
+    CoreUtils::hexStrToByteArray("8d502cd1589992ecbaf1a4140b65", data);
+    sendDump1090Frame(bus, data);
+    CoreUtils::hexStrToByteArray("8d502cd15899965802eb001f31d8", data);
+    sendDump1090Frame(bus, data);
+    CoreUtils::hexStrToByteArray("8d502cd19908c532903c9cced691", data);
+    sendDump1090Frame(bus, data);
+    CoreUtils::hexStrToByteArray("8d502cd15899965802eb001f31d8", data);
+    sendDump1090Frame(bus, data);
+    const auto selected = ownshipState.selectedPressureAltitude();
+    REQUIRE(selected.has_value());
+    REQUIRE(GATAS::PressureSource::ADSBDerived == selected->method);
+    REQUIRE(9029 == selected->metres);
+
 }
 
 TEST_CASE("Test descending aircraft", "[single-file]")
@@ -321,7 +340,6 @@ TEST_CASE("ADSB decoder accepts complete DF17 frames from the radio bus")
     REQUIRE(decoder.adsbDataCollector.size() == 0);
     send(GATAS::ConspicuityProtocol::ADSB, sizeof(sample));
     REQUIRE(decoder.adsbDataCollector.size() == 1);
-    REQUIRE(decoder.adsbDataCollector.current().icao == 0x40621d);
 }
 
 TEST_CASE("Dump1090 Monitor counts frames dropped when the pool is full")
@@ -355,7 +373,7 @@ TEST_CASE("Dump1090 Monitor counts frames dropped when the pool is full")
 TEST_CASE("ADS-B ingress and RSSI come from the position pair")
 {
     using GATAS::TrafficIngress;
-    const auto expected = GENERATE(TrafficIngress::Transceiver, TrafficIngress::Dump1090, TrafficIngress::Mixed);
+    const auto expected = GENERATE(TrafficIngress::Transceiver, TrafficIngress::Dump1090);
     etl::message_bus<4> radioBus;
     MockConfig config{radioBus};
     Dump1090Client dump1090{radioBus, config};
@@ -400,10 +418,15 @@ TEST_CASE("ADS-B ingress and RSSI come from the position pair")
         }
     };
 
+    send(expected == TrafficIngress::Transceiver, "8d407a05202cc371c32ce08133fc"); // A0, category unavailable
+    send(expected == TrafficIngress::Transceiver, "8d407a05272cc371c32ce0944b22"); // A7, same callsign
     send(expected == TrafficIngress::Transceiver, "8d407a055817867d1ce5ecbe8fdd"); // Odd
-    send(expected != TrafficIngress::Dump1090, "8d407a0558178312d6eefaca54eb"); // Even
-    send(expected == TrafficIngress::Dump1090, "8d407a059908e102980c93715499"); // Velocity
+    send(expected != TrafficIngress::Transceiver, "8d407a0558178312d6eefaca54eb"); // Rejected even frame
+    send(expected == TrafficIngress::Transceiver, "8d407a059908e102980c93715499"); // Velocity
+    REQUIRE_FALSE(receiver.received);
+    send(expected == TrafficIngress::Transceiver, "8d407a0558178312d6eefaca54eb"); // Even
     REQUIRE(receiver.received);
+    REQUIRE(GATAS::AircraftCategory::ROTORCRAFT == receiver.position.aircraftType);
     REQUIRE(1097 == receiver.position.pressureAlt); // 3,600 ft
     REQUIRE(expected == receiver.position.ingress);
     REQUIRE(GATAS::ConspicuityProtocol::ADSB == receiver.position.protocol);

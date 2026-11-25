@@ -13,14 +13,13 @@
 
 struct AdsbCombinedDataStatus
 {
-    uint32_t icao; // ICAO address
     GATAS::CallSign callSign;
     uint8_t messageStatus; // How complete this message is
     uint32_t lastSeenSeconds; // Monotonic seconds since boot
 
     // Data from ADSB
     uint16_t velocity;          // Non decoded Ground speed in knots
-    uint8_t category;           // category
+    GATAS::AircraftCategory category = GATAS::AircraftCategory::UNKNOWN;
     uint8_t pressureAltAgeSeconds = 0; // Whole second boundaries crossed as of lastSeenSeconds
     int16_t squawk;             // Mode A squawk, -1 when unknown
     int16_t heading;            // Heading in degrees
@@ -35,10 +34,7 @@ struct AdsbCombinedDataStatus
     float lat;                  // lat
     float lon;                  // lon
     int16_t vert_rate;          // Vertical Rate
-    bool airborne;              // true when airplane is airborne
     bool evict;                 // When set to true, the aircraft needs to be removed from cache in the next evict cycle
-    GATAS::TrafficIngress oddIngress = GATAS::TrafficIngress::Unknown;
-    GATAS::TrafficIngress evenIngress = GATAS::TrafficIngress::Unknown;
     GATAS::TrafficIngress positionIngress = GATAS::TrafficIngress::Unknown;
     int16_t positionRssiDbm = INT16_MIN;
 
@@ -72,20 +68,22 @@ struct AdsbCombinedDataStatus
 
     // Constructor with icao for search functions.
     AdsbCombinedDataStatus(uint32_t icao_)
-        : icao(icao_), callSign(""), messageStatus(0), lastSeenSeconds(0),
-          velocity(0.0f), category(0), squawk(-1), heading(0), reportedAltitudeMetres(0), raw_even_latitude(0),
+        : callSign(""), messageStatus(0), lastSeenSeconds(0),
+          velocity(0.0f), squawk(-1), heading(0), reportedAltitudeMetres(0), raw_even_latitude(0),
           raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0),
-          lat(0.0f), lon(0.0f), vert_rate(0.0f), airborne(false), evict(false)
+          lat(0.0f), lon(0.0f), vert_rate(0.0f), evict(false)
     {
+        (void)icao_;
     }
 
     // Constructor with icao and lastSeen parameters
     AdsbCombinedDataStatus(uint32_t icao_, uint32_t lastSeenSeconds_)
-        : icao(icao_), callSign(""), messageStatus(0), lastSeenSeconds(lastSeenSeconds_),
-          velocity(0.0f), category(0), squawk(-1), heading(0), reportedAltitudeMetres(0), raw_even_latitude(0),
+        : callSign(""), messageStatus(0), lastSeenSeconds(lastSeenSeconds_),
+          velocity(0.0f), squawk(-1), heading(0), reportedAltitudeMetres(0), raw_even_latitude(0),
           raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0),
-          lat(0.0f), lon(0.0f), vert_rate(0.0f), airborne(false), evict(false)
+          lat(0.0f), lon(0.0f), vert_rate(0.0f), evict(false)
     {
+        (void)icao_;
     }
 
 };
@@ -115,24 +113,24 @@ private:
     etl::unordered_map<uint32_t, AdsbCombinedDataStatus, SIZE, SIZE> cache;
 
 
-    void updatePosition(bool fflag, int16_t rssiDbm)
+    bool updatePosition(bool fflag, int16_t rssiDbm)
     {
         auto &aircraft = *currentDataStatus;
         constexpr uint8_t hasBothPositions = HAS_POSITION_ODD | HAS_POSITION_EVEN;
         if ((aircraft.messageStatus & hasBothPositions) != hasBothPositions)
         {
-            return;
+            return false;
         }
         if (const auto position = decodeCPR(fflag, aircraft.raw_even_latitude, aircraft.raw_even_longitude,
                                            aircraft.raw_odd_latitude, aircraft.raw_odd_longitude))
         {
             aircraft.lat = position->lat;
             aircraft.lon = position->lon;
-            aircraft.positionIngress = aircraft.oddIngress == aircraft.evenIngress
-                                           ? aircraft.oddIngress : GATAS::TrafficIngress::Mixed;
             aircraft.positionRssiDbm = rssiDbm;
             aircraft.messageStatus |= HAS_POSITION_UPDATED;
+            return true;
         }
+        return false;
     }
 
     AdsbCombinedDataStatus *currentDataStatus = nullptr;
@@ -144,6 +142,13 @@ public:
     {
         cache.clear();
     }
+    bool acceptsIngress(uint32_t address, GATAS::TrafficIngress ingress) const
+    {
+        const auto entry = cache.find(address);
+        return entry == cache.end() || entry->second.positionIngress == GATAS::TrafficIngress::Unknown ||
+               entry->second.positionIngress == ingress;
+    }
+
     bool start(uint32_t address, uint64_t usTime)
     {
         const auto nowSeconds = static_cast<uint32_t>(usTime / AdsbCombinedDataStatus::US_PER_SECOND);
@@ -197,7 +202,7 @@ public:
         for (const auto &entry : cache)
         {
             const auto &data = entry.second; // Access the value part of the pair
-            printf("icao:%06X status:%02X elapsedSeconds:%lu address:%s gnssAltitude: %d\n", data.icao, data.messageStatus, static_cast<unsigned long>(nowSeconds - data.lastSeenSeconds), data.icaoAddress.c_str(), data.ellipseHeight());
+            printf("icao:%06X status:%02X elapsedSeconds:%lu address:%s gnssAltitude: %d\n", entry.first, data.messageStatus, static_cast<unsigned long>(nowSeconds - data.lastSeenSeconds), data.icaoAddress.c_str(), data.ellipseHeight());
         }
     }
 
@@ -236,15 +241,14 @@ public:
         currentDataStatus->altitudeIsPressure = false;
     }
 
-    void updateCallsign(const GATAS::IcaoAddress &flight, uint8_t aircraft_type)
+    void updateCallsign(const GATAS::IcaoAddress &flight, GATAS::AircraftCategory category)
     {
-        (void)flight;
+        currentDataStatus->category = category;
         if (!(currentDataStatus->messageStatus & CHECK_HAS_CALLSIGN))
         {
             currentDataStatus->messageStatus |= CHECK_HAS_CALLSIGN;
             currentDataStatus->callSign = flight;
             etl::trim_whitespace(currentDataStatus->callSign);
-            currentDataStatus->category = aircraft_type;
         }
     }
 
@@ -253,27 +257,20 @@ public:
         currentDataStatus->squawk = static_cast<int16_t>(squawk);
     }
 
-    void updateRawOdd(uint32_t raw_latitude, uint32_t raw_longitude, GATAS::TrafficIngress ingress, int16_t rssiDbm)
+    bool updateRawOdd(uint32_t raw_latitude, uint32_t raw_longitude, int16_t rssiDbm)
     {
         currentDataStatus->messageStatus |= HAS_POSITION_ODD;
         currentDataStatus->raw_odd_latitude = raw_latitude;
         currentDataStatus->raw_odd_longitude = raw_longitude;
-        currentDataStatus->oddIngress = ingress;
-        updatePosition(true, rssiDbm);
+        return updatePosition(true, rssiDbm);
     }
 
-    void updateRawEven(uint32_t raw_latitude, uint32_t raw_longitude, GATAS::TrafficIngress ingress, int16_t rssiDbm)
+    bool updateRawEven(uint32_t raw_latitude, uint32_t raw_longitude, int16_t rssiDbm)
     {
         currentDataStatus->messageStatus |= HAS_POSITION_EVEN;
         currentDataStatus->raw_even_latitude = raw_latitude;
         currentDataStatus->raw_even_longitude = raw_longitude;
-        currentDataStatus->evenIngress = ingress;
-        updatePosition(false, rssiDbm);
-    }
-
-    void updateAirborne(bool airborne)
-    {
-        currentDataStatus->airborne = airborne;
+        return updatePosition(false, rssiDbm);
     }
 
     void updateHeading(int16_t heading)

@@ -43,15 +43,19 @@ private:
     AddressCache<MAX_ADDRESS_CACHE_SIZE, 15'000'000> ignoredAirplanes; // A quick cache to store all airplanes that we already know we should not track for up to 30 seconds
     AdsbDataCollector<MAX_PLANES_TRACKED, 5'000'000> adsbDataCollector;
 
+    // Whole-second timestamps need six ticks to guarantee at least five elapsed seconds.
+    static constexpr uint32_t ADSB_OFFSET_UPDATE_INTERVAL_SECONDS = 6;
+    uint32_t lastAdsbOffsetUpdateSeconds = 0;
+
     SemaphoreHandle_t mutex;
     uint32_t filterRadius=100'000;
-    const GATAS::OwnshipState &ownshipState;
+    GATAS::OwnshipState &ownshipState;
     mode_s_t state;
     int32_t filterAbove; // Filter out all aircraft above me in meters. 1000 means all aircraft 1000m or more above me will not get processed
     int32_t filterBelow; // Filter out all aircraft below me in meters. 100 means all aircraft 100m below me or more are not processed
 public:
     static constexpr const etl::string_view NAME = "ADSBDecoder";
-    ADSBDecoder(etl::imessage_bus &bus, const Configuration &config, const GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), mutex(nullptr), filterRadius(100000), ownshipState(ownshipState_)
+    ADSBDecoder(etl::imessage_bus &bus, const Configuration &config, GATAS::OwnshipState &ownshipState_) : BaseModule(bus, NAME), mutex(nullptr), filterRadius(100000), ownshipState(ownshipState_)
     {
         filterAbove = config.valueByPath(true, NAME, "filterAbove");
         filterBelow = config.valueByPath(true, NAME, "filterBelow");
@@ -96,5 +100,5 @@ private:
         (void)msg;
     }
 
-    GATAS::AircraftCategory getAircraftCategory(const etl::string_view category) const;
+    static GATAS::AircraftCategory getAircraftCategory(uint8_t typeCode, uint8_t category);
 };

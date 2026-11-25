@@ -124,7 +124,7 @@ void Gdl90Service::on_receive(const GATAS::ConfigUpdatedMsg &msg)
         const Configuration &config = msg.config;
         auto gaTasConfig = config.gaTasConfig();
         auto ownCallSign = config.getCallSignFromHex(gaTasConfig.conspicuity.icaoAddress);
-        mslAltFallback = config.valueByPath(false, NAME, "mslAltFallback");
+        mslAltFallback = config.valueByPath(true, NAME, "mslAltFallback");
 
         ownshipCallsign.store(makeGdlCallsign(ownCallSign));
     }
