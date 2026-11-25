@@ -6,7 +6,7 @@
 
 void Idle::start()
 {
-    if (xTaskCreate(idleTask, Idle::NAME.cbegin(), configMINIMAL_STACK_SIZE + 1024, this, tskIDLE_PRIORITY + 6, &taskHandle) != pdPASS)
+    if (xTaskCreate(idleTask, Idle::NAME.cbegin(), configMINIMAL_STACK_SIZE + 512, this, tskIDLE_PRIORITY + 6, &taskHandle) != pdPASS)
     {
         cancel_repeating_timer(&timer);
         BaseModule::setModuleStatus(NAME, GATAS::PostConstruct::TASK_ERROR);

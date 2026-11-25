@@ -133,7 +133,8 @@ configRUN_TIME_COUNTER_TYPE getRuntimeCounterValue();
 #define configUSE_TIMERS                        1
 #define configTIMER_TASK_PRIORITY               ( configMAX_PRIORITIES - 1 )
 #define configTIMER_QUEUE_LENGTH                15
-#define configTIMER_TASK_STACK_DEPTH            1024
+// 25-Nov-2026 Chsnge drorm 1024 to 128
+#define configTIMER_TASK_STACK_DEPTH            128
 
 /* Interrupt nesting behaviour configuration. */
 /*
