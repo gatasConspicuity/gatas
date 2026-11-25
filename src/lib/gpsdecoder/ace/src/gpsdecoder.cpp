@@ -338,20 +338,20 @@ void GpsDecoder::sendMessageWhenGGAisRMC()
         auto altGeoid = altitudeGeoid();
 
         // TODO: Can we get bank angle from turnrate?? https://aviation.stackexchange.com/questions/65628/what-is-the-formula-for-the-bank-angle-required-for-a-turn-in-line-abreast-forma
-        const GATAS::OwnshipPositionInfo position{
-                    .timestamp = CoreUtils::timeUs32(),
-                    .lat = latitude,
-                    .lon = longitude,
-                    .ellipseHeight = static_cast<int16_t>(altGeoid + geoidSeparation + heightAboveGps),
-                    .verticalSpeed = altitudeGeoid.perSecond(), // vertical speed
-                    .groundSpeed = groundSpeed,                 // Ground Speed
-                    .track = course(),
-                    .hTurnRate = course.perSecond(), // hTurnRate   // degrees per second
+        GATAS::OwnshipPositionInfo position{};
+        position.timestamp = CoreUtils::timeUs32();
+        position.lat = latitude;
+        position.lon = longitude;
+        position.ellipseHeight = static_cast<int16_t>(altGeoid + geoidSeparation + heightAboveGps);
+        position.verticalSpeed = altitudeGeoid.perSecond(); // vertical speed
+        position.groundSpeed = groundSpeed; // Ground Speed
+        position.track = course();
+        position.hTurnRate = course.perSecond(); // degrees per second
 //                    .velocityNorth = velocityNorth,
 //                    .velocityEast = velocityEast,
-                    .geoidSeparation = static_cast<int16_t>(geoidSeparation),
-                    .airborne = CoreUtils::isAirborn(conspicuity.category, groundSpeed),
-                    .conspicuity = conspicuity};
+        position.geoidSeparation = static_cast<int16_t>(geoidSeparation);
+        position.airborne = CoreUtils::isAirborn(conspicuity.category, groundSpeed);
+        position.conspicuity = conspicuity;
         ownshipState.location.store(position);
         getBus().receive(GATAS::OwnshipPositionMsg{});
     }

@@ -205,7 +205,7 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
                     statistics.ignoredAircraftFull += 1;
                 }
 
-                current.evict = true;
+                current.markForEviction();
                 return;
             }
 

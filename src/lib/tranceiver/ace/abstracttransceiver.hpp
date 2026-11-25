@@ -110,7 +110,8 @@ public:
           capabilities(capabilities), schedulerOnly(schedulerOnly),
           txEnabled(transmit), groundStation(ground), offsetHz(offset) {}
     static uint8_t readCapabilities(const Configuration &, etl::string_view name,
-                                    uint8_t supported = GATAS::LEGACY_RADIO_CAPABILITIES);
+                                    uint8_t supported = GATAS::LEGACY_RADIO_CAPABILITIES,
+                                    uint8_t missingDefault = 0);
     GATAS::PostConstruct postConstruct() override;
     void start() override;
     uint8_t radio() const override { return radioNo; }

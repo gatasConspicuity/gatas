@@ -161,7 +161,8 @@ public:
             config.valueByPath(true, NAMES[index], "txEnabled"),
             config.gaTasConfig().conspicuity.groundStation,
             config.valueByPath(0, NAMES[index], "offset"), NAMES[index],
-            readCapabilities(config, NAMES[index])) {
+            readCapabilities(config, NAMES[index], GATAS::LEGACY_RADIO_CAPABILITIES,
+                             GATAS::LEGACY_RADIO_CAPABILITIES)) {
     }
 
     // index is the configuration slot, not the runtime radio number.

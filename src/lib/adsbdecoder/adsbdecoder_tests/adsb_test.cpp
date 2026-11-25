@@ -66,27 +66,19 @@ static void sendDump1090Frame(etl::imessage_bus &bus, const uint8_t *frame)
     bus.receive(GATAS::ADSBMessageBinMsg{pool, copy, length, GATAS::TrafficIngress::Dump1090});
 }
 
-auto ownship = GATAS::OwnshipPositionInfo{
-    CoreUtils::timeUs32(),
-    52.2,
-    4.2,
-    1500, // Altitude above WGS84 ellipsoid in meters
-    0,    // in m/s
-    50,   // in m/s
-    0,    // 0..359
-    0,    // deg/s Turn rate in the horizontal plane
-    // 50,   // North velocity in m/s
-    // 0,    // East velocity in m/s
-    20,    // Height of geoid above WGS84 ellipsoid
-    true,
-    {
-        0x123456,
-        GATAS::AircraftCategory::LIGHT,
-        GATAS::AddressType::ICAO,
-        false,
-        false
-    },
-};
+auto ownship = []()
+{
+    GATAS::OwnshipPositionInfo position{};
+    position.timestamp = CoreUtils::timeUs32();
+    position.lat = 52.2f;
+    position.lon = 4.2f;
+    position.ellipseHeight = 1500; // Altitude above WGS84 ellipsoid in meters
+    position.groundSpeed = 50.0f;
+    position.geoidSeparation = 20; // Height of geoid above WGS84 ellipsoid
+    position.airborne = true;
+    position.conspicuity = {0x123456, GATAS::AircraftCategory::LIGHT, GATAS::AddressType::ICAO, false, false};
+    return position;
+}();
 
 
 // This test needs a bit more validation

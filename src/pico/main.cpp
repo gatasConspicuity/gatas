@@ -216,17 +216,11 @@ BaseModule *loadModule(etl::string_view name, etl::imessage_bus &bus, Configurat
     if (name == WifiService::NAME)
         return new WifiService(bus, config);
     if (name == Gdl90Service::NAME)
-    {
         return new Gdl90Service(bus, config, ownshipState);
-    }
     if (name == Bmp280::NAME)
-    {
         return new Bmp280(bus, config, ownshipState);
-    }
     if (name == Bmp580::NAME)
-    {
         return new Bmp580(bus, config, ownshipState);
-    }
     if (name == AceSpi::NAMES[0])
         return new AceSpi(bus, config, 0);
     if (name == AceSpi::NAMES[1])

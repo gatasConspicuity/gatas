@@ -385,19 +385,19 @@ namespace GATAS
     struct OwnshipPositionInfo
     {
         uint32_t timestamp; // Timestamp when the position was received
+        int32_t ellipseHeight; // Height above the Ellipsoid (WGS84) in meters. For aircraft where altitude is based from BARO, this is an estimate
+        int32_t baroAlt = INVALID_BARO_ALTITUDE; // Pressure altitude in meters, when available
         float lat;
         float lon;
-        int32_t ellipseHeight;                   // Height above the Ellipsoid (WGS84) in meters. For aircraft where altitude is based from BARO, this is an estimate
-        float verticalSpeed;                     // in m/s
-        float groundSpeed;                       // in m/s
-        float track;                             // 0..359
-        float hTurnRate;                         // deg/s Turn rate in the horizontal plane
+        float verticalSpeed; // in m/s
+        float groundSpeed; // in m/s
+        float track; // 0..359
+        float hTurnRate; // deg/s Turn rate in the horizontal plane
                                                  //        float velocityNorth;             // North velocity in m/s
                                                  //        float velocityEast;              // East velocity in m/s
         int16_t geoidSeparation;                 // The distance from the surface of an ellipsoid to the surface of the geoid.
         bool airborne;                           // Is the aircraft airborne, can this be taken from GS? It can be rare under normal situations that GS is low, even though we are flying (large headwind??)
         Config::Conspicuity conspicuity;         // Configuration for this aircraft, used to send out the correct data
-        int32_t baroAlt = INVALID_BARO_ALTITUDE; // Pressure altitude in meters, when available
         int32_t heightMsl() const
         {
             return ellipseHeight - geoidSeparation;
@@ -416,10 +416,18 @@ namespace GATAS
     struct AircraftPositionInfo
     {
         uint32_t timestamp;
+        AircraftAddress address;
+        int32_t ellipseHeight; // Altitude above the GeoId (MSL) in meters. For aircraft where altitude is based from BARO, this is an estimate
+        uint32_t distanceFromOwn; // Distance to ownship in meters,
+        int32_t pressureAlt = INVALID_BARO_ALTITUDE; // Pressure altitude in meters, when available
+        float lat;
+        float lon;
+        float verticalSpeed; // in m/s
+        float groundSpeed; // in m/s
+        float hTurnRate; // deg/s horizontal turn rate; 0 means straight flight, not unknown
         GATAS::CallSign callSign;
         int16_t squawk;
-
-        AircraftAddress address;
+        int16_t track; // 0..359
         AddressType addressType;
         TrafficIngress ingress = TrafficIngress::Unknown;
         ConspicuityProtocol protocol;
@@ -427,18 +435,6 @@ namespace GATAS
         bool stealth;  // Privacy/Stealth option
         bool noTrack;  // this aircraft does not want to be tracked
         bool airborne; // Is the aircraft airborne
-        float lat;
-        float lon;
-        int32_t ellipseHeight; // Altitude above the GeoId (MSL) in meters. For aircraft where altitude is based from BARO, this is an estimate
-        float verticalSpeed;   // in m/s
-        float groundSpeed;     // in m/s
-        int16_t track;         // 0..359
-        float hTurnRate;       // deg/s horizontal turn rate; 0 means straight flight, not unknown
-
-        // These can be used by received to understand where the target is relative to ownship
-        uint32_t distanceFromOwn; // Distance to ownship in meters,
-        //        int16_t bearingFromOwn;   // Bearing to ownship in degrees, currently only used in AntennaRadiationPattern?
-        int32_t pressureAlt = INVALID_BARO_ALTITUDE; // Pressure altitude in meters, when available
 
         CoreUtils::distanceRelNorthRelEastInt relativeFromOwn(float ownshipLat, float ownshipLon) const;
         //        CoreUtils::distanceRelNorthRelEastInt relativeFromOwn(const OwnshipMinimalPositionInfo &ownship) const;
@@ -451,11 +447,11 @@ namespace GATAS
         int32_t relEastFromOwn(const OwnshipPositionInfo &ownship) const;
 
         AircraftPositionInfo(uint32_t timestamp_, GATAS::CallSign callSign_, AircraftAddress address_, AddressType addressType_, TrafficIngress ingress_, ConspicuityProtocol protocol_, AircraftCategory aircraftType_, bool stealth_, bool noTrack_, bool airborne_, float lat_, float lon_, int32_t ellipseHeight_, float verticalSpeed_, float groundSpeed_, int16_t track_, float hTurnRate_, uint32_t distanceFromOwn_, int16_t squawk_ = -1, int32_t pressureAlt_ = INVALID_BARO_ALTITUDE /*, int16_t bearingFromOwn_*/)
-            : timestamp(timestamp_), callSign(callSign_), squawk(squawk_), address(address_), addressType(addressType_), ingress(ingress_), protocol(protocol_), aircraftType(aircraftType_), stealth(stealth_), noTrack(noTrack_), airborne(airborne_), lat(lat_), lon(lon_), ellipseHeight(ellipseHeight_), verticalSpeed(verticalSpeed_), groundSpeed(groundSpeed_), track(track_), hTurnRate(hTurnRate_), distanceFromOwn(distanceFromOwn_), pressureAlt(pressureAlt_) // , bearingFromOwn(bearingFromOwn_)
+            : timestamp(timestamp_), address(address_), ellipseHeight(ellipseHeight_), distanceFromOwn(distanceFromOwn_), pressureAlt(pressureAlt_), lat(lat_), lon(lon_), verticalSpeed(verticalSpeed_), groundSpeed(groundSpeed_), hTurnRate(hTurnRate_), callSign(callSign_), squawk(squawk_), track(track_), addressType(addressType_), ingress(ingress_), protocol(protocol_), aircraftType(aircraftType_), stealth(stealth_), noTrack(noTrack_), airborne(airborne_)
         {
         }
         // Default constructor
-        AircraftPositionInfo() : timestamp(0), callSign(""), squawk(-1), address(0), addressType(AddressType::RANDOM), protocol(ConspicuityProtocol::NONE), aircraftType(AircraftCategory::UNKNOWN), stealth(false), noTrack(false), airborne(false), lat(0), lon(0), ellipseHeight(0), verticalSpeed(0), groundSpeed(0), track(0), hTurnRate(0), distanceFromOwn(UINT32_MAX) // , bearingFromOwn(INT16_MIN)
+        AircraftPositionInfo() : timestamp(0), address(0), ellipseHeight(0), distanceFromOwn(UINT32_MAX), lat(0), lon(0), verticalSpeed(0), groundSpeed(0), hTurnRate(0), callSign(""), squawk(-1), track(0), addressType(AddressType::RANDOM), protocol(ConspicuityProtocol::NONE), aircraftType(AircraftCategory::UNKNOWN), stealth(false), noTrack(false), airborne(false) // , bearingFromOwn(INT16_MIN)
         {
         }
 

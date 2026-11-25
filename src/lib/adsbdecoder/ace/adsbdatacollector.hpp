@@ -13,37 +13,37 @@
 
 struct AdsbCombinedDataStatus
 {
-    GATAS::CallSign callSign;
-    uint8_t messageStatus; // How complete this message is
     uint32_t lastSeenSeconds; // Monotonic seconds since boot
-
-    // Data from ADSB
-    uint16_t velocity;          // Non decoded Ground speed in knots
-    GATAS::AircraftCategory category = GATAS::AircraftCategory::UNKNOWN;
-    uint8_t pressureAltAgeSeconds = 0; // Whole second boundaries crossed as of lastSeenSeconds
-    int16_t squawk;             // Mode A squawk, -1 when unknown
-    int16_t heading;            // Heading in degrees
     int32_t reportedAltitudeMetres;
-    bool altitudeIsPressure = false;
     int32_t pressureAlt = GATAS::INVALID_BARO_ALTITUDE; // Standard pressure altitude in metres
     int32_t raw_even_latitude;  // Non decoded latitude  even
     int32_t raw_even_longitude; // Non decoded longitude even
     int32_t raw_odd_latitude;   // Non decoded latitude   odd
     int32_t raw_odd_longitude;  // Non decoded longitude  odd
-    etl::optional<int16_t> gnssMinusBaroMetres;
     float lat;                  // lat
     float lon;                  // lon
+    GATAS::CallSign callSign;
+    etl::optional<int16_t> gnssMinusBaroMetres;
+    uint16_t velocity;          // Ground speed in knots
+    int16_t squawk;             // Mode A squawk, -1 when unknown
+    int16_t heading;            // Heading in degrees
     int16_t vert_rate;          // Vertical Rate
-    bool evict;                 // When set to true, the aircraft needs to be removed from cache in the next evict cycle
-    GATAS::TrafficIngress positionIngress = GATAS::TrafficIngress::Unknown;
     int16_t positionRssiDbm = INT16_MIN;
+    uint8_t messageStatus; // How complete this message is
+    GATAS::AircraftCategory category = GATAS::AircraftCategory::UNKNOWN;
+    GATAS::TrafficIngress positionIngress = GATAS::TrafficIngress::Unknown;
+    uint8_t pressureAltAgeSeconds = 0; // Whole second boundaries crossed as of lastSeenSeconds
+    uint8_t flags = 0;
+
+    static constexpr uint8_t ALTITUDE_IS_PRESSURE = 1 << 0;
+    static constexpr uint8_t EVICT = 1 << 1;
 
     static constexpr uint32_t US_PER_SECOND = 1'000'000;
     static constexpr uint8_t MAX_PRESSURE_AGE_SECONDS = 5;
 
     int32_t ellipseHeight() const
     {
-        if (!altitudeIsPressure)
+        if ((flags & ALTITUDE_IS_PRESSURE) == 0)
         {
             return reportedAltitudeMetres;
         }
@@ -53,6 +53,16 @@ struct AdsbCombinedDataStatus
         }
         // Without the reported difference, approximate MSL with pressure altitude.
         return reportedAltitudeMetres + CoreUtils::egmGeoidOffset(lat, lon);
+    }
+
+    bool shouldEvict() const
+    {
+        return (flags & EVICT) != 0;
+    }
+
+    void markForEviction()
+    {
+        flags |= EVICT;
     }
 
     void updateLastSeen(uint32_t nowSeconds)
@@ -68,20 +78,18 @@ struct AdsbCombinedDataStatus
 
     // Constructor with icao for search functions.
     AdsbCombinedDataStatus(uint32_t icao_)
-        : callSign(""), messageStatus(0), lastSeenSeconds(0),
-          velocity(0.0f), squawk(-1), heading(0), reportedAltitudeMetres(0), raw_even_latitude(0),
+        : lastSeenSeconds(0), reportedAltitudeMetres(0), raw_even_latitude(0),
           raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0),
-          lat(0.0f), lon(0.0f), vert_rate(0.0f), evict(false)
+          lat(0.0f), lon(0.0f), callSign(""), velocity(0), squawk(-1), heading(0), vert_rate(0), messageStatus(0)
     {
         (void)icao_;
     }
 
     // Constructor with icao and lastSeen parameters
     AdsbCombinedDataStatus(uint32_t icao_, uint32_t lastSeenSeconds_)
-        : callSign(""), messageStatus(0), lastSeenSeconds(lastSeenSeconds_),
-          velocity(0.0f), squawk(-1), heading(0), reportedAltitudeMetres(0), raw_even_latitude(0),
+        : lastSeenSeconds(lastSeenSeconds_), reportedAltitudeMetres(0), raw_even_latitude(0),
           raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0),
-          lat(0.0f), lon(0.0f), vert_rate(0.0f), evict(false)
+          lat(0.0f), lon(0.0f), callSign(""), velocity(0), squawk(-1), heading(0), vert_rate(0), messageStatus(0)
     {
         (void)icao_;
     }
@@ -181,7 +189,7 @@ public:
             for (auto it = cache.cbegin(); it != cache.cend();)
             {
                 const auto lastSeenUs = uint64_t{it->second.lastSeenSeconds} * AdsbCombinedDataStatus::US_PER_SECOND;
-                if (it->second.evict || usTime - lastSeenUs > static_cast<uint32_t>(evictTime))
+                if (it->second.shouldEvict() || usTime - lastSeenUs > static_cast<uint32_t>(evictTime))
                 {
               //      printf(".");
                     it = cache.erase(it);
@@ -231,14 +239,14 @@ public:
         aircraft.pressureAltAgeSeconds = 0;
         aircraft.messageStatus |= HAS_ALTITUDE;
         aircraft.reportedAltitudeMetres = metres;
-        aircraft.altitudeIsPressure = true;
+        aircraft.flags |= AdsbCombinedDataStatus::ALTITUDE_IS_PRESSURE;
     }
 
     void updateGnssAltitude(int32_t altitude)
     {
         currentDataStatus->messageStatus |= HAS_ALTITUDE;
         currentDataStatus->reportedAltitudeMetres = altitude;
-        currentDataStatus->altitudeIsPressure = false;
+        currentDataStatus->flags &= static_cast<uint8_t>(~AdsbCombinedDataStatus::ALTITUDE_IS_PRESSURE);
     }
 
     void updateCallsign(const GATAS::IcaoAddress &flight, GATAS::AircraftCategory category)

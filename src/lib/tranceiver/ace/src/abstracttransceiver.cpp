@@ -418,7 +418,7 @@ int AbstractTransceiver::readHardwareValue(const Configuration &config, etl::str
 }
 
 uint8_t AbstractTransceiver::readCapabilities(const Configuration &config, etl::string_view name,
-                                              uint8_t supported)
+                                              uint8_t supported, uint8_t missingDefault)
 {
     using GATAS::RadioCapability;
     static constexpr GATAS::Mapping<RadioCapability, etl::string_view> capabilities[] = {
@@ -429,6 +429,10 @@ uint8_t AbstractTransceiver::readCapabilities(const Configuration &config, etl::
     };
     const auto path = hardwareConfigPath(config, name);
     const auto configured = path.empty() ? GATAS::ConfigString{} : config.strValueByPath("", path, "capabilities");
+    if (configured.empty())
+    {
+        return missingDefault;
+    }
     etl::string_view remaining(configured.data(), configured.size());
     uint8_t mask = 0;
     while (!remaining.empty())
