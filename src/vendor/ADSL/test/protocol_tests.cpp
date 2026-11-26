@@ -94,6 +94,8 @@ TEST_CASE("Protocol handleRx", "[Protocol]")
     Protocol protocol(&conn);
     protocol.crcCheckOnReceive = true;
 
+    REQUIRE(protocol.handleRx(-42, etl::span<uint32_t>{}) == Protocol::RxStatudeCode::UNEXPECTED_BUFFER_SIZE);
+
     // Actual generated and validated ADSL packet
     auto newBuffer = buffer;
     FrameBuffer buf{newBuffer.data(), newBuffer.size()};
@@ -112,14 +114,14 @@ TEST_CASE("Protocol handleRx", "[Protocol]")
     // Validate parsed traffic payload fields
     REQUIRE(conn.trafficSet);
     REQUIRE(conn.lastTrafficPayload.timestampQms() == 10);
-    REQUIRE(conn.lastTrafficPayload.flightState() == TrafficPayload::FlightState::AIRBORNE);
+    REQUIRE(conn.lastTrafficPayload.flightState() == TrafficPayload::FlightState::ON_GROUND);
     REQUIRE(conn.lastTrafficPayload.aircraftCategory() == TrafficPayload::AircraftCategory::LIGHT_FIXED_WING);
     REQUIRE(conn.lastTrafficPayload.emergencyStatus() == TrafficPayload::EmergencyStatus::NO_EMERGENCY);
     REQUIRE(Catch::Approx(54.107014) == conn.lastTrafficPayload.latitude());
     REQUIRE(Catch::Approx(3.856962) == conn.lastTrafficPayload.longitude());
     REQUIRE(Catch::Approx(55.50).epsilon(0.01) == conn.lastTrafficPayload.speed());
     REQUIRE(Catch::Approx(184.92).epsilon(0.01) == conn.lastTrafficPayload.groundTrack());
-    REQUIRE(conn.lastTrafficPayload.altitude() == 7685);
+    REQUIRE(conn.lastTrafficPayload.altitude() == 7684);
     REQUIRE(Catch::Approx(-3.25).epsilon(0.01) == conn.lastTrafficPayload.verticalRate());
     REQUIRE(conn.lastTrafficPayload.sourceIntegrityLevel() == TrafficPayload::SourceIntegrityLevel::UNDEFINED_SIL);
     REQUIRE(conn.lastTrafficPayload.designAssurance() == TrafficPayload::DesignAssurance::UNDEFINED_NONE);
@@ -560,6 +562,39 @@ TEST_CASE("Protocol send payload type and network version", "[Protocol]")
         REQUIRE(conn.statusSet);
         REQUIRE(conn.lastHeader.type() == Header::PayloadTypeIdentifier::STATUS);
     }
+}
+
+TEST_CASE("Uplink identifies the transmitting station and both original senders", "[Protocol]")
+{
+    struct Receiver : TestConnector
+    {
+        bool received = false;
+
+        void adsl_receivedUplinkTraffic(const Header &header, etl::span<const UplinkEntry> entries) override
+        {
+            received = true;
+            // Issue 2 F.2 and G.3: station in the header, original senders in the entries.
+            REQUIRE(5 == header.addressMappingTable());
+            REQUIRE(0xACEACEU == header.address().asUint());
+            REQUIRE(2U == entries.size());
+            REQUIRE(5 == entries[0].addressMappingTable());
+            REQUIRE(0x123456U == entries[0].address().asUint());
+            REQUIRE(6 == entries[1].addressMappingTable());
+            REQUIRE(0x654321U == entries[1].address().asUint());
+        }
+    } receiver;
+
+    TestConnector sender;
+    Protocol tx(&sender);
+    Protocol rx(&receiver);
+    tx.setAddress(0xACEACE);
+    rx.crcCheckOnReceive = true;
+    const etl::array<UplinkEntry, 2> entries{
+        UplinkEntry{5, 0x123456U, TrafficPayload{}},
+        UplinkEntry{6, 0x654321U, TrafficPayload{}}};
+    tx.rqSendUplinkPayload(nullptr, false, entries);
+    REQUIRE(Protocol::RxStatudeCode::OK == rx.handleRx(-42, sender.lastFrame.usedSpan32()));
+    REQUIRE(receiver.received);
 }
 
 TEST_CASE("Protocol rqSendUplinkPayload round-trip", "[Protocol]")

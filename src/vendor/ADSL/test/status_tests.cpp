@@ -65,6 +65,26 @@ TEST_CASE("StatusPayload XpdrCapability Getter/Setter", "[StatusPayload]")
     REQUIRE(payload.xpdrCapability() == StatusPayload::XpdrCapability::ModeC);
 }
 
+TEST_CASE("StatusPayload keeps each band capability independent", "[StatusPayload]")
+{
+    StatusPayload payload;
+    payload.mBandReceiveCapability(StatusPayload::ReceiveCapability::Occasional);
+    payload.oBandReceiveCapability(StatusPayload::ReceiveCapability::Partial);
+    payload.oBandHdrReceiveCapability(StatusPayload::ReceiveCapability::Full);
+
+    REQUIRE(payload.mBandReceiveCapability() == StatusPayload::ReceiveCapability::Occasional);
+    REQUIRE(payload.oBandReceiveCapability() == StatusPayload::ReceiveCapability::Partial);
+    REQUIRE(payload.oBandHdrReceiveCapability() == StatusPayload::ReceiveCapability::Full);
+
+    auto packet = createRadioPacket([&](etl::bit_stream_writer &writer)
+                                    { payload.serialize_issue2(writer); });
+    auto reader = createReader(packet);
+    const auto decoded = StatusPayload::deserialize_issue2(reader);
+    REQUIRE(decoded.mBandReceiveCapability() == StatusPayload::ReceiveCapability::Occasional);
+    REQUIRE(decoded.oBandReceiveCapability() == StatusPayload::ReceiveCapability::Partial);
+    REQUIRE(decoded.oBandHdrReceiveCapability() == StatusPayload::ReceiveCapability::Full);
+}
+
 // ============================================================================
 // EConspicuityBits Tests - Receive
 // ============================================================================

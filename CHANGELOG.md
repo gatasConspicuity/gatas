@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Corrected ADS-L Issue 2 traffic field encoding, O-band status capability fields,
+  and the sender address and target timestamps in traffic uplinks.
+
 ## [v3.7.0] - 2026-11-23
 
 ### Added

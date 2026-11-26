@@ -55,6 +55,7 @@ void ADSLAce::on_receive(const GATAS::RadioRxMsg &msg)
     {
         return;
     }
+    // HDR uses variable-length GFSK. The radio delivers the payload after the length byte.
     protocol.crcCheckOnReceive = true;
     auto status = protocol.handleRx(msg.rssidBm, msg.frame32Span()); // Currently expected that the frame size is always a multiple of 4
 
@@ -159,22 +160,19 @@ void ADSLAce::on_receive(const GATAS::RadioTxPositionRequestMsg &msg)
     auto tp = buildOwnshipTrafficPayload(ownship);
 
     Tx_Struct *txParams;
-    bool addPayloadLength;
     if (adslm)
     {
         rqMBandRadioParameters = Tx_Struct{msg.radioParameters, msg.radioNo};
         txParams = &rqMBandRadioParameters;
-        addPayloadLength = true;
     }
     else
     {
         rqOBandRadioParameters = Tx_Struct{msg.radioParameters, msg.radioNo};
         txParams = &rqOBandRadioParameters;
-        addPayloadLength = false;
     }
 
     protocol.tick(ownship.lat, ownship.lon, ownship.ellipseHeight, ownship.groundSpeed, ownship.track);
-    protocol.rqSendTrafficPayload(txParams, addPayloadLength, tp);
+    protocol.rqSendTrafficPayload(txParams, adslm, tp);
     statistics.transmittedAircraftPositions += 1;
 }
 
@@ -185,19 +183,32 @@ void ADSLAce::on_receive(const GATAS::EgressAircraftPositionsMsg &msg)
     }
 
     etl::vector<ADSL::UplinkEntry, GATAS::IngressAircraftPositionsMsg::MAX_POSITIONS> traffic={};
+    const auto nowUs = CoreUtils::timeUs32();
+    const auto nowEpochMs = CoreUtils::msSinceEpoch();
     for (auto &&t : msg.positions)
     {
-        if (!traffic.full())
+        const auto ageUs = static_cast<uint32_t>(nowUs - t.timestamp);
+        if (!traffic.full() && ageUs <= 10'000'000U)
         {
-            traffic.emplace_back(0x05, t.address, this->buildTrafficPayload(t));
+            auto payload = buildTrafficPayload(t);
+            payload.timestamp(nowEpochMs - (ageUs / 1000U));
+            traffic.emplace_back(0x05, t.address, payload);
         } else {
-            GATAS_WARN("traffic queue full");
+            if (traffic.full())
+            {
+                GATAS_WARN("traffic queue full");
+            }
         }
     }
 
+    const auto ownship = ownshipState.location.load();
+    protocol.setAddress(ownship.conspicuity.icaoAddress);
     rqOBandRadioParameters = Tx_Struct{msg.radioParameters, msg.radioNo};
     protocol.rqSendUplinkPayload(&rqOBandRadioParameters, false, traffic);
-    statistics.uplinksPacketsSend += 1;
+    if (!traffic.empty())
+    {
+        statistics.uplinksPacketsSend += 1;
+    }
 }
 
 // Called when a payload/header/status is received by the protocol layer
@@ -328,7 +339,7 @@ ADSL::TrafficPayload ADSLAce::buildOwnshipTrafficPayload(const GATAS::OwnshipPos
     tp.altitude(ownship.ellipseHeight);
     tp.verticalRate(ownship.verticalSpeed);
     tp.groundTrack(ownship.track);
-    tp.flightState(ownship.groundSpeed > GATAS::GROUNDSPEED_CONSIDERING_AIRBORN ? TrafficPayload::FlightState::AIRBORNE : TrafficPayload::FlightState::ON_GROUND);
+    tp.flightState(ownship.airborne ? TrafficPayload::FlightState::AIRBORNE : TrafficPayload::FlightState::ON_GROUND);
     tp.aircraftCategory(mapAircraftCategory(ownship.conspicuity.category));
 
     constexpr float uereDGPS = 2.7f;
@@ -349,16 +360,13 @@ ADSL::TrafficPayload ADSLAce::buildTrafficPayload(const GATAS::AircraftPositionI
     using ADSL::TrafficPayload;
     TrafficPayload tp;
 
-    protocol.setAddress(traffic.address);
-
-    tp.timestamp(CoreUtils::msSinceEpoch());
     tp.latitude(traffic.lat);
     tp.longitude(traffic.lon);
     tp.speed(traffic.groundSpeed);
     tp.altitude(traffic.ellipseHeight);
     tp.verticalRate(traffic.verticalSpeed);
     tp.groundTrack(traffic.track);
-    tp.flightState(traffic.groundSpeed > GATAS::GROUNDSPEED_CONSIDERING_AIRBORN ? TrafficPayload::FlightState::AIRBORNE : TrafficPayload::FlightState::ON_GROUND);
+    tp.flightState(traffic.airborne ? TrafficPayload::FlightState::AIRBORNE : TrafficPayload::FlightState::ON_GROUND);
     tp.aircraftCategory(mapAircraftCategory(traffic.aircraftType));
 
     constexpr float uereDGPS = 2.7f;
@@ -388,7 +396,7 @@ void ADSLAce::adsl_buildStatusPayload(const void *ctx, ADSL::StatusPayload &sp)
 {
     (void)ctx;
     sp.mBandReceiveCapability(ADSL::StatusPayload::ReceiveCapability::Partial);
-    sp.oBandHdrReceiveCapability(ADSL::StatusPayload::ReceiveCapability::Partial);
+    sp.oBandReceiveCapability(ADSL::StatusPayload::ReceiveCapability::Partial);
     sp.oBandHdrReceiveCapability(ADSL::StatusPayload::ReceiveCapability::Partial);
     sp.adslTrafficUplinkClient(true);
 
@@ -434,7 +442,7 @@ ADSL::TrafficPayload::AircraftCategory ADSLAce::mapAircraftCategory(GATAS::Aircr
         case B::GYROCOPTER:               return A::GYROCOPTER;
         case B::HANG_GLIDER:              return A::HANGGLIDER;
         case B::PARA_GLIDER:              return A::PARAGLIDER;
-        case B::POINT_OBSTACLE:           return A::STATIC_OBJECT;
+        case B::POINT_OBSTACLE:           return A::NO_INFO;
 
         default:
             return A::NO_INFO;
@@ -463,7 +471,6 @@ GATAS::AircraftCategory ADSLAce::mapAircraftCategory(ADSL::TrafficPayload::Aircr
         case A::PARACHUTIST:               return B::SKY_DIVER;
         case A::GYROCOPTER:                return B::GYROCOPTER;
         case A::MODEL_PLANE:               return B::ULTRA_LIGHT_FIXED_WING;
-        case A::STATIC_OBJECT:             return B::POINT_OBSTACLE;
 
         case A::UAS_OPEN_CATEGORY:
         case A::UAS_SPECIFIC_CATEGORY:

@@ -23,16 +23,16 @@ namespace ADSL
     {
       enum enum_type : uint8_t
       {
-        ON_GROUND = 0,
-        AIRBORNE = 1,
-        ALTITUDE_SOURCE_INVALID = 2,
+        UNDEFINED = 0,
+        ON_GROUND = 1,
+        AIRBORNE = 2,
         RESERVED = 3
       };
 
       ETL_DECLARE_ENUM_TYPE(FlightState, uint8_t)
+      ETL_ENUM_TYPE(UNDEFINED, "UNDEFINED")
       ETL_ENUM_TYPE(ON_GROUND, "ON_GROUND")
       ETL_ENUM_TYPE(AIRBORNE, "AIRBORNE")
-      ETL_ENUM_TYPE(ALTITUDE_SOURCE_INVALID, "ALTITUDE_SOURCE_INVALID")
       ETL_ENUM_TYPE(RESERVED, "RESERVED")
       ETL_END_ENUM_TYPE
     };
@@ -60,7 +60,7 @@ namespace ADSL
         HANGGLIDER = 16,
         PARAMOTOR = 17,
         // 18-31: Reserved
-        STATIC_OBJECT = 31 // Not official, but needed a place for a static object
+        STATIC_OBJECT = 31 // Reserved by ADS-L; do not transmit this value.
       };
 
       ETL_DECLARE_ENUM_TYPE(AircraftCategory, uint8_t)
@@ -241,7 +241,7 @@ namespace ADSL
     };
 
     // Constants
-    static constexpr uint32_t INVALID_POSITION = 0x800000; // ADS-L.4.SRD860.G.1.5
+    static constexpr int32_t INVALID_POSITION = -8'388'608; // 24-bit signed 0x800000 sentinel.
     static constexpr uint8_t INVALID_GROUND_SPEED = 0xFF;
     static constexpr uint16_t INVALID_ALTITUDE = 0x3FFF;
     static constexpr uint16_t INVALID_VERTICAL_RATE = 0x1FF;
@@ -281,19 +281,14 @@ namespace ADSL
 
     float latitude() const
     {
-      auto l = latitude_;
-      l <<= 8;
-      l >>= 1;
-      return FNTtoFloat(l);
+      return FNTtoFloat(latitude_ * 128);
     }
 
     void longitude(float lon) { longitude_ = (FloatToFNT(lon) + 0x80) >> 8; }
 
     float longitude() const
     {
-      auto l = longitude_;
-      l <<= 8;
-      return FNTtoFloat(l);
+      return FNTtoFloat(longitude_ * 256);
     }
 
     void speed(float groundSpeed)
@@ -310,7 +305,7 @@ namespace ADSL
     void altitude(int32_t altitude)
     {
       altitude = etl::clamp(altitude, static_cast<int32_t>(-320), static_cast<int32_t>(61112));
-      altitude_ = UnsVRencode<uint32_t, 12>(altitude + 320);
+      altitude_ = static_cast<uint16_t>(etl::min<uint32_t>(UnsVRencode<uint32_t, 12>(static_cast<uint32_t>(altitude + 320)), 0x3FFEu));
     }
 
     int32_t altitude() const
@@ -320,7 +315,7 @@ namespace ADSL
 
     void verticalRate(float verticalRate)
     {
-      verticalRate = etl::clamp(static_cast<int16_t>(verticalRate * 8.f + 0.5f), static_cast<int16_t>(-118 * 8), static_cast<int16_t>(119 * 8));
+      verticalRate = etl::clamp(static_cast<int16_t>(roundf(verticalRate * 8.f)), static_cast<int16_t>(-118 * 8), static_cast<int16_t>(119 * 8));
       verticalRate_ = SignVRencode<int16_t, 6>(verticalRate);
     }
 
@@ -527,8 +522,14 @@ namespace ADSL
       traffic.flightState_ = FlightState(reader.read_unchecked<uint8_t>(2U));
       traffic.aircraftCategory_ = AircraftCategory(reader.read_unchecked<uint8_t>(5U));
       traffic.emergencyStatus_ = EmergencyStatus(reader.read_unchecked<uint8_t>(3U));
-      traffic.latitude_ = reader.read_unchecked<uint32_t>(24U);
-      traffic.longitude_ = reader.read_unchecked<uint32_t>(24U);
+      const auto latitudeBits = reader.read_unchecked<uint32_t>(24U);
+      const auto longitudeBits = reader.read_unchecked<uint32_t>(24U);
+      traffic.latitude_ = (latitudeBits & 0x800000U) != 0U
+                              ? static_cast<int32_t>(latitudeBits | 0xFF000000U)
+                              : static_cast<int32_t>(latitudeBits);
+      traffic.longitude_ = (longitudeBits & 0x800000U) != 0U
+                               ? static_cast<int32_t>(longitudeBits | 0xFF000000U)
+                               : static_cast<int32_t>(longitudeBits);
       traffic.groundSpeed_ = reader.read_unchecked<uint8_t>(8U);
       traffic.altitude_ = reader.read_unchecked<uint16_t>(14U);
       traffic.verticalRate_ = reader.read_unchecked<int16_t>(9U);

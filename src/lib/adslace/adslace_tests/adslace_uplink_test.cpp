@@ -49,6 +49,41 @@ namespace
         void on_receive_unknown(const etl::imessage &) {}
     };
 
+    class RadioTxCollector : public etl::message_router<RadioTxCollector, GATAS::RadioTxFrameMsg>
+    {
+    public:
+        etl::array<uint8_t, 256> frame{};
+        size_t length = 0;
+
+        void on_receive(const GATAS::RadioTxFrameMsg &msg)
+        {
+            length = msg.length;
+            REQUIRE(length <= frame.size());
+            std::memcpy(frame.data(), msg.frame.get(), length);
+        }
+        void on_receive_unknown(const etl::imessage &) {}
+    };
+
+    class UplinkDecoder : public ADSL::Connector
+    {
+    public:
+        etl::array<uint32_t, 64> scratch{};
+        ADSL::Header header{};
+        etl::vector<ADSL::UplinkEntry, ADSL::Protocol::MAX_UPLINK_TARGETS> entries;
+
+        uint32_t adsl_getTick() const override { return CoreUtils::timeUs32(); }
+        uint8_t *adsl_alloc(const void *, size_t) override { return reinterpret_cast<uint8_t *>(scratch.data()); }
+        bool adsl_sendFrame(const void *, const uint8_t *, size_t) override { return true; }
+        void adsl_receivedTraffic(const ADSL::Header &, const ADSL::TrafficPayload &) override {}
+        void adsl_receivedStatus(const ADSL::Header &, const ADSL::StatusPayload &) override {}
+        void adsl_receivedUplinkTraffic(const ADSL::Header &rxHeader, etl::span<const ADSL::UplinkEntry> rxEntries) override
+        {
+            header = rxHeader;
+            entries.assign(rxEntries.begin(), rxEntries.end());
+        }
+        void adsl_buildStatusPayload(const void *, ADSL::StatusPayload &) override {}
+    };
+
     struct UplinkFixture
     {
         GATAS::ThreadSafeBus<8> bus;
@@ -56,6 +91,7 @@ namespace
         GATAS::OwnshipState ownshipState;
         ADSLAce receiver{bus, config, ownshipState};
         PositionCollector collector;
+        RadioTxCollector txCollector;
 
         UplinkFixture()
         {
@@ -72,6 +108,7 @@ namespace
             REQUIRE(receiver.postConstruct() == GATAS::PostConstruct::OK);
             receiver.start();
             bus.subscribe(collector);
+            bus.subscribe(txCollector);
         }
 
         void receive(etl::span<const ADSL::UplinkEntry> entries)
@@ -160,4 +197,58 @@ TEST_CASE("ADS-L uplink filtering preserves the remaining batch and suppresses o
     const etl::array<ADSL::UplinkEntry, 1> ownshipOnly{makeEntry(0xACEACE, 0)};
     fixture.receive(ownshipOnly);
     REQUIRE(fixture.collector.batches == 1);
+}
+
+TEST_CASE("ADS-L uplink transmit keeps station sender and target age in the HDR FIFO payload", "[adsl][uplink]")
+{
+    UplinkFixture fixture;
+    GATAS::AdslObandUplinkAircraft positions;
+    const auto nowUs = CoreUtils::timeUs32();
+    for (uint32_t index = 0; index < 2; ++index)
+    {
+        GATAS::AircraftPositionInfo position;
+        position.timestamp = nowUs - 2'000'000U;
+        position.address = 0x100001U + index;
+        position.addressType = GATAS::AddressType::ICAO;
+        position.dataSource = GATAS::DataSource::ADSB;
+        position.aircraftType = GATAS::AircraftCategory::LIGHT;
+        position.airborne = true;
+        position.lat = 52.1f + static_cast<float>(index) * 0.01f;
+        position.lon = 4.1f;
+        position.ellipseHeight = 1'000;
+        position.groundSpeed = 30.0f;
+        position.track = 90;
+        positions.push_back(position);
+    }
+    GATAS::AircraftPositionInfo stale;
+    stale.timestamp = nowUs - 11'000'000U;
+    stale.address = 0x100003U;
+    stale.dataSource = GATAS::DataSource::ADSB;
+    stale.aircraftType = GATAS::AircraftCategory::LIGHT;
+    stale.lat = 52.2f;
+    stale.lon = 4.1f;
+    positions.push_back(stale);
+
+    GATAS::LinkLayerConfig linkConfig{};
+    linkConfig.__dataSource = GATAS::DataSource::ADSLO_HDR;
+    const GATAS::RadioParameters radioParameters{&linkConfig, &GATAS::RadioParameters::DEFAULT, 0, 0};
+    fixture.bus.receive(GATAS::EgressAircraftPositionsMsg{positions, radioParameters, 0});
+
+    // Two 19-byte entries plus padding give 39 payload bytes (G.3).
+    // With network byte, five-byte header and CRC24, the FIFO holds 48 bytes.
+    REQUIRE(48U == fixture.txCollector.length);
+    const auto dataLength = fixture.txCollector.length;
+    etl::array<uint32_t, 64> receivedWords{};
+    std::memcpy(receivedWords.data(), fixture.txCollector.frame.data(), dataLength);
+    UplinkDecoder decoder;
+    ADSL::Protocol protocol{&decoder};
+    protocol.crcCheckOnReceive = true;
+    REQUIRE(protocol.handleRx(-42, etl::span<uint32_t>(receivedWords.data(), dataLength / sizeof(uint32_t))) == ADSL::Protocol::RxStatudeCode::OK);
+    REQUIRE(decoder.header.address().asUint() == 0xACEACE);
+    REQUIRE(decoder.entries.size() == 2);
+    REQUIRE(decoder.entries[0].address().asUint() == 0x100001U);
+    REQUIRE(decoder.entries[1].address().asUint() == 0x100002U);
+    const auto encodedAgeMs = CoreUtils::msSinceEpoch() - decoder.entries[0].payload().timestampRestored(CoreUtils::msSinceEpoch());
+    CHECK(encodedAgeMs >= 1'750);
+    CHECK(encodedAgeMs <= 2'250);
 }

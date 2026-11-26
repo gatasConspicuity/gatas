@@ -501,6 +501,11 @@ namespace ADSL
     RxStatudeCode handleRx(int16_t rssddBm, etl::span<uint32_t> wordBuffer)
     {
 
+      if (wordBuffer.size() < 3)
+      {
+        return RxStatudeCode::UNEXPECTED_BUFFER_SIZE;
+      }
+
       // printf("Received packet size: %d, RSSI: %d dBm\n", wordBuffer.size() * sizeof(uint32_t), rssddBm);
       //      printBufferHex(wordBuffer);
       // Create a view into the word buffer as bytes

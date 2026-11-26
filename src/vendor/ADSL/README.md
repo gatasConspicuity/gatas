@@ -14,7 +14,7 @@ __Specifications used in this implementation__
 
 [ADSL ISSUE 1](https://www.easa.europa.eu/sites/default/files/dfu/ads-l_4_srd860_issue_1.pdf)
 
-[ADSL ISSUE 1](https://www.easa.europa.eu/sites/default/files/dfu2025-09-24_ads-l_4_srd860_issue_2_finalpdf)
+[ADS-L 4 SRD-860 Issue 2](https://www.easa.europa.eu/sites/default/files/dfu/2025-09-24_ads-l_4_srd860_issue_2_final.pdf)
 
 ## Dependencies
 
@@ -42,17 +42,18 @@ __Specifications used in this implementation__
 
 ## Table with O-band vs M-Band LDR and HDR
 
-### ADS-L SRD860 Packet Length & Band Cheat Sheet (Issue 1 vs Issue 2)
+### ADS-L SRD-860 Issue 2 Packet Framing
 
 Band vs Packet Length (Issue 2)
 
-| Band   | Packet Size | Packet Length Field | Manchester |
-| ------ | ----------- | ------------------- |----------- |
-| m-band | Fixed only  | ❌ Must NOT be sent |  ✅         |
-| o-band | Variable    | ✅ Must be sent     |  ❌         |
+| Channel | Packet format | Packet Length field | Manchester |
+| ------- | ------------- | ------------------- | ---------- |
+| M-band | Fixed-size traffic/status | Required | Yes |
+| O-band LDR | Fixed legacy format | Not used | No |
+| O-band HDR | Variable-size, including traffic uplinks | Required | No |
 
 Rules
 
-- m-band is fixed-size forever
-- o-band is the only place variable-length frames exist, supported by sx1262
-- LDR/HDR does not change Packet Length rules
+- Both channels carry one length byte on air. OpenAce supplies it before Manchester encoding on M-band. On O-band HDR, the SX1262 supplies it in variable-length GFSK mode (datasheet §6.2.3.3).
+- O-band LDR uses its separate fixed legacy frame format.
+- Traffic uplinks use O-band HDR and require the packet length field.
