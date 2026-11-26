@@ -162,13 +162,15 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
             if (mm.metype != 0)
             {
                 adsbDataCollector.current().pressureAlt = adsbDataCollector.pressureAltitudeAt(usTime);
+                // Dump1090 AVR frames carry no signal-strength measurement.
+                const int16_t positionRssiDbm = ingress == GATAS::TrafficIngress::Dump1090 ? INT16_MIN : rssiDbm;
                 if (mm.fflag)
                 {
-                    adsbDataCollector.updateRawOdd(mm.raw_latitude, mm.raw_longitude, rssiDbm);
+                    adsbDataCollector.updateRawOdd(mm.raw_latitude, mm.raw_longitude, positionRssiDbm);
                 }
                 else
                 {
-                    adsbDataCollector.updateRawEven(mm.raw_latitude, mm.raw_longitude, rssiDbm);
+                    adsbDataCollector.updateRawEven(mm.raw_latitude, mm.raw_longitude, positionRssiDbm);
                 }
             }
 

@@ -478,7 +478,7 @@ TEST_CASE("ADS-B ingress and RSSI come from the position pair")
     dump1090.processNewSentence(badHex);
     REQUIRE(0 == receiver.binaryFrames);
 
-    auto send = [&](bool onboard, const char *hex)
+    auto send = [&](bool onboard, const char *hex, int8_t rssiDbm = -80)
     {
         constexpr size_t length = 14;
         if (onboard)
@@ -487,7 +487,7 @@ TEST_CASE("ADS-B ingress and RSSI come from the position pair")
             auto *frame = static_cast<uint8_t *>(pool.alloc(length));
             REQUIRE(frame != nullptr);
             CoreUtils::hexStrToByteArray(hex, frame);
-            radioBus.receive(GATAS::RadioRxMsg{pool, frame, length, 0, 1'090'000'000, GATAS::ConspicuityProtocol::ADSB, -65});
+            radioBus.receive(GATAS::RadioRxMsg{pool, frame, length, 0, 1'090'000'000, GATAS::ConspicuityProtocol::ADSB, rssiDbm});
         }
         else
         {
@@ -502,9 +502,18 @@ TEST_CASE("ADS-B ingress and RSSI come from the position pair")
     send(expected == TrafficIngress::Transceiver, "8d407a05272cc371c32ce0944b22"); // A7, same callsign
     send(expected == TrafficIngress::Transceiver, "8d407a055817867d1ce5ecbe8fdd"); // Odd
     send(expected != TrafficIngress::Transceiver, "8d407a0558178312d6eefaca54eb"); // Rejected even frame
-    send(expected == TrafficIngress::Transceiver, "8d407a059908e102980c93715499"); // Velocity
-    REQUIRE_FALSE(receiver.received);
-    send(expected == TrafficIngress::Transceiver, "8d407a0558178312d6eefaca54eb"); // Even
+    SECTION("A velocity report cannot complete a mixed-ingress position pair")
+    {
+        send(expected == TrafficIngress::Transceiver, "8d407a059908e102980c93715499", -40);
+        REQUIRE_FALSE(receiver.received);
+        send(expected == TrafficIngress::Transceiver, "8d407a0558178312d6eefaca54eb", -65);
+    }
+    SECTION("A later velocity report publishes the position pair's RSSI")
+    {
+        send(expected == TrafficIngress::Transceiver, "8d407a0558178312d6eefaca54eb", -65);
+        REQUIRE_FALSE(receiver.received);
+        send(expected == TrafficIngress::Transceiver, "8d407a059908e102980c93715499", -40);
+    }
     REQUIRE(receiver.received);
     REQUIRE(GATAS::AircraftCategory::ROTORCRAFT == receiver.position.aircraftType);
     REQUIRE(1097 == receiver.position.pressureAlt); // 3,600 ft
