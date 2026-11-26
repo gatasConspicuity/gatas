@@ -37,11 +37,11 @@ Capabilities are read only from the hardware profile, with no top-level fallback
 | `Gfsk868` | GFSK in the 868/869 MHz band |
 | `Lora868` | LoRa in the 868 MHz band |
 | `Gfsk915` | GFSK in the 915 MHz band, including North American profiles starting at 902.2 MHz |
-| `Ook1090` | 1090 MHz OOK reception of ADS-B extended squitter (DF17), on LR2021 |
+| `Ook1090` | 1090 MHz OOK reception on LR2021; frames are decoded by the shared RX queue and ADS-B/Mode S decoder |
 
 Use comma-separated names, such as `"capabilities": "Gfsk868,Lora868"`. An empty or missing list leaves an LR2021 with zero capabilities. For SX1262, an empty or missing list defaults to its legacy `Gfsk868`, `Lora868`, and `Gfsk915` capabilities so saved configurations from before this setting was added continue to work. An unknown name invalidates the list and logs a warning.
 
-For ADS-B, add `Ook1090` to `capabilities` on an LR2021 with a suitable 1090 MHz RF path and antenna. Enable `ADSBDecoder` in Modules and set **ADS-B (1090 MHz)** to **RX** in Aircraft Configuration. In JSON, add `{"ADSB": {"mode": "RX"}}` to the active aircraft's `protocols` list. The receive schedule works before a GNSS fix. A radio with other enabled RX profiles time-shares between them. The LR2021 settings follow [SoftRF's DF17 profile](https://github.com/lyusupov/SoftRF/blob/master/software/firmware/source/SoftRF/src/driver/radio/radiolib.cpp).
+For 1090 MHz reception, add `Ook1090` to `capabilities` on an LR2021 with a suitable 1090 MHz RF path and antenna. Enable `ADSBDecoder` in Modules and set **ADS-B (1090 MHz)** to **RX** in Aircraft Configuration. In JSON, add `{"ADSB": {"mode": "RX"}}` to the active aircraft's `protocols` list. The receive schedule works before a GNSS fix. A radio with other enabled RX profiles time-shares between them. The LR2021 uses the OOK detector and modulation settings based on [SoftRF's profile](https://github.com/lyusupov/SoftRF/blob/master/software/firmware/source/SoftRF/src/driver/radio/radiolib.cpp), but leaves downlink-format discrimination to firmware.
 
 ### Testing LR2021 scheduling without radio traffic
 

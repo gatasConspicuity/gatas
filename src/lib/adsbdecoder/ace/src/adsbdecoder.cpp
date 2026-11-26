@@ -4,6 +4,7 @@
 #include "ace/semaphoreguard.hpp"
 #include "ace/spinlockguard.hpp"
 #include "../adsbdecoder.hpp"
+#include "../errorCorrect.hpp"
 
 GATAS::PostConstruct ADSBDecoder::postConstruct()
 {
@@ -13,8 +14,8 @@ GATAS::PostConstruct ADSBDecoder::postConstruct()
         return GATAS::PostConstruct::MUTEX_ERROR;
     }
     GATAS_REGISTER_MUTEX(mutex, "ADSBDecoder_mutex");
-    state.fix_errors = false;
     mode_s_init(&state);
+    state.fix_errors = false;
     ignoredAirplanes.clear();
     adsbDataCollector.clear();
     lastAdsbOffsetUpdateSeconds = CoreUtils::timeS32();
@@ -40,28 +41,65 @@ void ADSBDecoder::on_receive(const GATAS::ConfigUpdatedMsg &msg)
     }
 }
 
-void ADSBDecoder::on_receive(const GATAS::ADSBMessageBinMsg &msg)
-{
-    processAdsbData(msg.frame.get(), msg.length, msg.ingress, INT16_MIN);
-}
-
 void ADSBDecoder::on_receive(const GATAS::RadioRxMsg &msg)
 {
     if (msg.protocol == GATAS::ConspicuityProtocol::ADSB)
     {
-        processAdsbData(msg.frame.get(), msg.lengthBytes, GATAS::TrafficIngress::Transceiver, msg.rssidBm);
+        processAdsbData(msg.frame.get(), msg.lengthBytes, msg.ingress, msg.rssidBm);
     }
+}
+
+void ADSBDecoder::on_receive(const GATAS::RadioRxManchesterMsg &msg)
+{
+    if (msg.protocol != GATAS::ConspicuityProtocol::ADSB)
+    {
+        return;
+    }
+
+    if (msg.lengthBytes != 7 && msg.lengthBytes != GATAS::MAX_MODE_S_MESSAGE_LENGTH)
+    {
+        return;
+    }
+
+    uint8_t correctedData[ADSB::MAX_MODE_S_PACKET_BYTES]{};
+    for (size_t i = 0; i < msg.lengthBytes; ++i)
+    {
+        correctedData[i] = msg.frame.get()[i];
+    }
+
+    const int correctedBits = ADSB::Correct(
+        etl::span<uint8_t>(correctedData, msg.lengthBytes),
+        msg.errorSpan());
+    if (correctedBits > 0)
+    {
+        statistics.correctedFrames += 1;
+    }
+
+    processAdsbData(correctedData, msg.lengthBytes, msg.ingress, msg.rssidBm);
 }
 
 void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::TrafficIngress ingress, int16_t rssiDbm)
 {
-    if (data == nullptr || length != GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH)
+    if (data == nullptr || (length != 7 && length != GATAS::MAX_MODE_S_MESSAGE_LENGTH))
     {
         return;
     }
+
+    uint8_t paddedData[GATAS::MAX_MODE_S_MESSAGE_LENGTH]{};
+    for (size_t i = 0; i < length; ++i)
+    {
+        paddedData[i] = data[i];
+    }
+
     mode_s_msg mm;
     // Two phase decoder to first decode the address.. when not in ignoredAirplanes continue decoding
-    mode_s_decode_phase1(&state, &mm, data);
+    mode_s_decode_phase1(&state, &mm, paddedData);
+
+    const size_t expectedLength = ADSB::isLongModeSPacket(mm.msgtype) ? 14 : 7;
+    if (length != expectedLength)
+    {
+        return;
+    }
 
     if (mm.msgtype != 17 && mm.msgtype != 5 && mm.msgtype != 21)
     {
@@ -159,16 +197,15 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
             {
                 difference = static_cast<int16_t>(mm.gnssMinusBaroFeet * FT_TO_M);
             }
-            if (mm.mesub == 1 || mm.mesub == 2)
+            if (mm.vert_rate != 0)
             {
-                adsbDataCollector.updateVelocityHeading(mm.velocity, mm.vert_rate_sign ? -mm.vert_rate : mm.vert_rate, mm.heading);
+                const int rateFpm = (mm.vert_rate - 1) * 64;
+                adsbDataCollector.current().verticalRateFpm = mm.vert_rate_sign ? -rateFpm : rateFpm;
             }
-            else if (mm.mesub == 3 || mm.mesub == 4)
+            // Only ground-vector reports supply true ground track.
+            if ((mm.mesub == 1 || mm.mesub == 2) && mm.velocity != MODE_S_INVALID_GROUND_SPEED)
             {
-                if (mm.heading_is_valid)
-                {
-                    adsbDataCollector.updateHeading(mm.heading);
-                }
+                adsbDataCollector.updateVelocityHeading(mm.velocity, mm.heading);
             }
         }
 
@@ -209,13 +246,6 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
                 return;
             }
 
-            float vertical_rate = current.vert_rate;
-            if (vertical_rate > 0)
-            {
-                // https://mode-s.org/1090mhz/content/ads-b/5-airborne-velocity.html
-                vertical_rate = (current.vert_rate - 1) * 64.f * FTPMIN_TO_MS;
-            }
-
             const int64_t verticalMetres = static_cast<int64_t>(ellipseHeight) - ownship.ellipseHeight;
             if (current.gnssMinusBaroMetres &&
                     CoreUtils::isReachedS(lastAdsbOffsetUpdateSeconds))
@@ -238,7 +268,7 @@ void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::Tra
                 current.lat,
                 current.lon,
                 ellipseHeight,
-                vertical_rate, // https://mode-s.org/decode/content/ads-b/5-airborne-velocity.html,
+                current.verticalRateFpm * FTPMIN_TO_MS,
                 (float)current.velocity * KN_TO_MS,
                 static_cast<int16_t>(current.heading),
                 0.0f,
@@ -280,6 +310,7 @@ void ADSBDecoder::getData(etl::string_stream &stream, const etl::string_view pat
     (void)path;
     stream << "{";
     stream << "\"crcErrors\":" << statistics.crcErrors;
+    stream << ",\"correctedFrames\":" << statistics.correctedFrames;
     stream << ",\"adsbDataCollectorSize\":" << adsbDataCollector.size();
     stream << ",\"adsbDataCollectorFull\":" << statistics.knownAircraftFull;
     stream << ",\"ignoredAircraftSize\":" << ignoredAirplanes.size();

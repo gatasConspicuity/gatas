@@ -12,6 +12,7 @@
 #define MODE_S_LONG_MSG_BYTES (112/8)
 #define MODE_S_UNIT_FEET 0
 #define MODE_S_UNIT_METERS 1
+#define MODE_S_INVALID_GROUND_SPEED UINT16_MAX // TC19 ground vector unavailable
 #define MODE_S_INVALID_ALTITUDE INT32_MIN // Unavailable or invalid DF17 AC12 altitude
 
 // Program state
@@ -57,7 +58,7 @@ struct mode_s_msg {
   int ns_velocity;                 // N/S velocity.
   uint8_t vert_rate_source;        // Vertical rate source.
   uint8_t vert_rate_sign;     // Vertical rate sign.
-  int16_t vert_rate;               // Vertical rate.
+  int16_t vert_rate;               // Encoded TC19 magnitude: 0 unavailable, 1 level, then 64 ft/min per step.
   uint16_t velocity;               // Computed from EW and NS velocity.
 
   // DF4, DF5, DF20, DF21
@@ -80,5 +81,7 @@ void mode_s_detect(mode_s_t *self, uint16_t *mag, uint32_t maglen, mode_s_callba
 void mode_s_decode(mode_s_t *self, struct mode_s_msg *mm, const uint8_t *msg);
 void mode_s_decode_phase1(mode_s_t *self, struct mode_s_msg *mm, const uint8_t *msg);
 void mode_s_decode_phase2(mode_s_t *self, struct mode_s_msg *mm);
+uint32_t mode_s_checksum(const uint8_t *msg, int bits);
+extern const uint32_t mode_s_checksum_table[112];
 
 #endif

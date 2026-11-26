@@ -86,6 +86,14 @@ void RxDataFrameQueue::radioQueueTask(void *arg)
 
                 manchesterDecodeInline(msg.frame.get(), msg.error.get(), rxFrame.length);
 
+                if (rxFrame.config->invertManchesterDecodedBits)
+                {
+                    for (size_t i = 0; i < byteLength; ++i)
+                    {
+                        msg.frame.get()[i] = static_cast<uint8_t>(~msg.frame.get()[i]);
+                    }
+                }
+
                 // Handle multi protocol situations
                 // auto ds = classifyCombinedFrame(*rxFrame.config, msg.frame32(), rxFrame.length );
                 // if (GATAS::radioProtocolIndex(ds.protocol) < GATAS::RADIO_PROTOCOLS.size())

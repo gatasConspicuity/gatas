@@ -521,6 +521,7 @@ namespace GATAS
         uint8_t syncSkipInRxLength;      // When setting the receiver, skip n bytes from the sync
         etl::array<uint8_t, 8> syncWord; // Sync word for RX/TX depending on the mode we only take portion or full sync
         CombinedRadioRx combinedRx = CombinedRadioRx::None;
+        bool invertManchesterDecodedBits = false; // Invert decoded bits for OOK Mode S chip polarity
 
         constexpr GATAS::ConspicuityProtocol protocol() const
         {

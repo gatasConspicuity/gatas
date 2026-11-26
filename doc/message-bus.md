@@ -131,8 +131,8 @@ rectangle "Infrastructure" {
 [RxDataFrameQueue] --> [Flarm2024] : RadioRxManchesterMsg
 [RxDataFrameQueue] --> [ADSLAce] : RadioRxManchesterMsg\nRadioRxMsg
 [RxDataFrameQueue] --> [FanetAce] : RadioRxMsg
-[RxDataFrameQueue] --> [ADSBDecoder] : RadioRxMsg (1090 MHz ADS-B)
-[Dump1090Client] --> [ADSBDecoder] : ADSBMessageBinMsg (Dump1090 ingress)
+[RxDataFrameQueue] --> [ADSBDecoder] : RadioRxManchesterMsg (1090 MHz ADS-B)
+[Dump1090Client] --> [ADSBDecoder] : RadioRxManchesterMsg (zero error mask, Dump1090 ingress)
 [Ogn1] --> [AircraftTracker] : IngressAircraftPositionMsg
 [Flarm2024] --> [AircraftTracker] : IngressAircraftPositionMsg
 [ADSLAce] --> [AircraftTracker] : IngressAircraftPositionMsg\nIngressAircraftPositionsMsg
@@ -268,8 +268,8 @@ package "Monitoring" {
 [RxDataFrameQueue] --> [Flarm2024] : RadioRxManchesterMsg
 [RxDataFrameQueue] --> [ADSLAce] : RadioRxManchesterMsg\nRadioRxMsg
 [RxDataFrameQueue] --> [FanetAce] : RadioRxMsg
-[RxDataFrameQueue] --> [ADSBDecoder] : RadioRxMsg (1090 MHz ADS-B)
-[Dump1090Client] --> [ADSBDecoder] : ADSBMessageBinMsg (Dump1090 ingress)
+[RxDataFrameQueue] --> [ADSBDecoder] : RadioRxManchesterMsg (1090 MHz ADS-B)
+[Dump1090Client] --> [ADSBDecoder] : RadioRxManchesterMsg (zero error mask, Dump1090 ingress)
 
 [Ogn1] --> [AircraftTracker] : IngressAircraftPositionMsg
 [Flarm2024] --> [AircraftTracker] : IngressAircraftPositionMsg
@@ -502,8 +502,8 @@ package "Wifi Consumers" {
 | `UtcTimeMsg` | `GpsDecoder` | `PicoRtc` | RTC synchronization. |
 | `GpsStatsMsg` | `GpsDecoder` | `Ogn1`, `ADSLAce`, `Sx1262` / `Lr2021`, `Gdl90Service`, `DataPort`, `GatasConnect`, `Idle` | GPS fix and DOP status. |
 | `BarometricPressureMsg` | `Bmp280`, `Bmp580`, `GatasConnect` | `Ogn1` | Empty notification after updating a timestamped ambient-pressure sample in `OwnshipState` and releasing its lock. COBS type 11 is exactly 6 bytes: type u8, pressure u16 in 0.1 hPa (0xffff unavailable), QNH u16 in 0.1 hPa (consumed but ignored), source u8; multi-byte fields are big endian. Sources: Unavailable/Unknown=0, Calculated=1, PressureSensor=2. The existing map retains the accepted sample keyed by measured/calculated method, with 5-second expiry. The update function takes an internal/external parameter (not a model or wire field). BMP280 and BMP580 are internal and COBS is external. It rejects external updates while internal data is fresh; for the same origin it prefers measured over calculated, then unknown-method data. Equal-priority updates replace the sample; stale data may be replaced by the next lower-priority update. Rejected updates are not cached and do not refresh the accepted timestamp. Missing data may invalidate its own accepted origin/method; malformed frames do not update or notify. Pressure altitude is calculated locally using 1013.25 hPa, without QNH or a GPS/QNH fallback. |
-| `RadioRxManchesterMsg` | `RxDataFrameQueue` | `Ogn1`, `Flarm2024`, `ADSLAce` | Produced after `Sx1262` / `Lr2021` receive + Manchester decode. |
-| `RadioRxMsg` | `RxDataFrameQueue` | `ADSLAce`, `FanetAce`, `ADSBDecoder` | Includes DF17 frames after the LR2021 driver decodes the 1090 MHz OOK chips. |
+| `RadioRxManchesterMsg` | `RxDataFrameQueue`, `Dump1090Client` | `Ogn1`, `Flarm2024`, `ADSLAce`, `ADSBDecoder` | Carries decoded bytes and a per-bit error mask. Radio frames are Manchester-decoded by `RxDataFrameQueue`; ADS-B corrects marked errors against the Mode S CRC. Dump1090 sends the same message with a zero error mask and `Dump1090` ingress. |
+| `RadioRxMsg` | `RxDataFrameQueue` | `ADSLAce`, `FanetAce`, `ADSBDecoder` | Non-Manchester radio frames. |
 | `IngressAircraftPositionMsg` | `Ogn1`, `Flarm2024`, `ADSLAce`, `FanetAce`, `ADSBDecoder` | `AircraftTracker`, `RadioTunerRx`, `GatasConnect` | Single aircraft decoded from any protocol. |
 | `IngressAircraftPositionsMsg` | `ADSLAce` | `AircraftTracker` | Batched ADS-L uplink traffic. |
 | `EgressAircraftPositionMsg` | `AircraftTracker` | `Gdl90Service`, `DataPort` | Tracker-selected traffic for outputs. `Gdl90Service` uses `AircraftPositionInfo::pressureAlt` for report 20. Both ownship and traffic pressure-altitude fields use `0xFFF` when unavailable or outside the encoding range; no MSL/ellipsoid fallback is used. |
@@ -523,7 +523,6 @@ package "Wifi Consumers" {
 | `SystemActionMsg` | `Config` (web handlers and pending device actions dispatched on `IdleMsg`) | `Idle` | Requests watchdog restart or USB boot; Idle owns the platform reset calls. These actions do not implicitly save flash. |
 | `WifiModeRequestMsg` | `GatasConnect` | `WifiService` | Companion-originated WiFi mode switch request derived from framed binary control traffic. |
 | `WifiConnectionStateMsg` | `WifiService` | `Dump1090Client`, `GDLoverUDP`, `GatasConnect`, `GatasConnectUDP`, `DataPort`, `AirConnect`, `StaticGPS`, `Idle` | Shared network state. |
-| `ADSBMessageBinMsg` | `Dump1090Client` | `ADSBDecoder` | Owns a pool-backed Mode S frame and carries its `TrafficIngress`. The frame is returned to the pool after synchronous dispatch. |
 | `AccessPointClientsMsg` | `WifiService` | `GDLoverUDP` | AP client list for UDP output policy. |
 | `IdleMsg` | `Idle` | `Config` | Dispatches the pending device action. Save attempts `configMutex` without waiting and calls `saveToFlash()` if acquired; Restart/USB boot publish `SystemActionMsg`. After execution, clears the optional if it still matches the executed action. A different action queued during execution remains pending; Save also remains pending if the configuration mutex is busy. |
 | `Every1SecMsg` | `Idle` | `DataPort`, `Bmp280`, `Bmp580` | PFLAU heartbeat and internal pressure sampling. |

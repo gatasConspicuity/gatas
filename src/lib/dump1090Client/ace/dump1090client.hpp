@@ -10,7 +10,7 @@
 #include "ace/tcpbufferedclient.hpp"
 
 /**
- * Converts dump1090 TCP lines into binary Mode S bus messages.
+ * Converts dump1090 TCP lines into decoded Mode S radio receive messages.
  * Note: This module is experimental
  */
 class Dump1090Client : public BaseModule,

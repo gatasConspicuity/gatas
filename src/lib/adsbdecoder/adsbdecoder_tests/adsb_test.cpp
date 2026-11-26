@@ -17,7 +17,7 @@
 
 #include "adsbdecoder.hpp"
 
-class Test : public etl::message_router<Test, GATAS::IngressAircraftPositionMsg, GATAS::ADSBMessageBinMsg>
+class Test : public etl::message_router<Test, GATAS::IngressAircraftPositionMsg, GATAS::RadioRxManchesterMsg>
 {
 
 public:
@@ -42,7 +42,7 @@ public:
         position = msg.position;
         rssiDbm = msg.rssidBm;
     }
-    void on_receive(const GATAS::ADSBMessageBinMsg &)
+    void on_receive(const GATAS::RadioRxManchesterMsg &)
     {
         ++binaryFrames;
     }
@@ -58,12 +58,24 @@ GATAS::OwnshipState ownshipState;
 
 static void sendDump1090Frame(etl::imessage_bus &bus, const uint8_t *frame)
 {
-    constexpr auto length = GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH;
+    constexpr auto length = GATAS::MAX_MODE_S_MESSAGE_LENGTH;
     auto &pool = BaseModule::getGlobalPool();
     auto *copy = static_cast<uint8_t *>(pool.alloc(length));
     REQUIRE(copy != nullptr);
+    auto *error = static_cast<uint8_t *>(pool.alloc(length));
+    REQUIRE(error != nullptr);
     etl::copy_n(frame, length, copy);
-    bus.receive(GATAS::ADSBMessageBinMsg{pool, copy, length, GATAS::TrafficIngress::Dump1090});
+    etl::fill_n(error, length, 0);
+    bus.receive(GATAS::RadioRxManchesterMsg{
+        pool,
+        copy,
+        error,
+        length,
+        0,
+        1'090'000'000,
+        GATAS::ConspicuityProtocol::ADSB,
+        INT8_MIN,
+        GATAS::TrafficIngress::Dump1090});
 }
 
 auto ownship = []()
@@ -222,7 +234,7 @@ TEST_CASE("Test heading and direction received aircraft", "[single-file]")
     REQUIRE(test.position.aircraftType == GATAS::AircraftCategory::UNKNOWN);
     // Velocity arrives last and reports GNSS height 675 ft below pressure altitude.
     REQUIRE(9029 - 205 == test.position.ellipseHeight);
-    REQUIRE(test.position.groundSpeed == Catch::Approx(230.98).margin(0.1)); // in m/s
+    REQUIRE(test.position.groundSpeed == Catch::Approx(230.47f).margin(0.01f)); // in m/s
     REQUIRE(test.position.track == 25);                                     // ADSB data shows 25.94.. Should we use floats instead of int?
     REQUIRE(test.position.lat == Catch::Approx(52.3888).margin(0.005));
     REQUIRE(test.position.lon == Catch::Approx(4.7209).margin(0.005));
@@ -281,7 +293,71 @@ TEST_CASE("Test descending aircraft", "[single-file]")
     CoreUtils::hexStrToByteArray("8d407a059908e102980c93715499", data);
     sendDump1090Frame(bus, data);
 
-    REQUIRE(test.position.verticalSpeed == Catch::Approx(-3.0).margin(0.001));
+    REQUIRE(test.position.verticalSpeed == Catch::Approx(-0.65024f).margin(0.001f));
+}
+
+TEST_CASE("TC19 velocity reports update available measurements independently")
+{
+    etl::message_bus<4> bus;
+    MockConfig config{bus};
+    GATAS::OwnshipState state;
+    state.location.store(ownship);
+    ADSBDecoder decoder{bus, config, state};
+    xSemaphoreTakeValue = pdTRUE;
+    REQUIRE(GATAS::PostConstruct::OK == decoder.postConstruct());
+    decoder.start();
+    decoder.on_receive(GATAS::AdapativeRadiusMsg{10'000'000});
+    decoder.filterAbove = 50'000;
+    decoder.filterBelow = 50'000;
+    Test receiver{bus};
+    const auto send = [&](const char *hex)
+    {
+        uint8_t data[14];
+        CoreUtils::hexStrToByteArray(hex, data);
+        receiver.received = false;
+        sendDump1090Frame(bus, data);
+    };
+
+    send("8d4850205817867d1ce5ec0fc283");
+    send("8d48502058178312d6eefa7b19b5");
+    send("8D485020994409940838175B284F"); // Sun, chapter 7, message A
+    REQUIRE(receiver.received);
+    CHECK(Catch::Approx(159.f * KN_TO_MS) == receiver.position.groundSpeed);
+    CHECK(182 == receiver.position.track);
+    CHECK(Catch::Approx(-4.22656f).margin(0.001f) == receiver.position.verticalSpeed);
+
+    // Subtype 2: (4-1)*4 east and (5-1)*4 north = 20 kt. Rate unavailable.
+    send("8d4850209a000400a00000caee41");
+    send("8d48502058178312d6eefa7b19b5");
+    REQUIRE(receiver.received);
+    CHECK(Catch::Approx(20.f * KN_TO_MS) == receiver.position.groundSpeed);
+    CHECK(36 == receiver.position.track);
+    CHECK(Catch::Approx(-4.22656f).margin(0.001f) == receiver.position.verticalSpeed);
+
+    // Both airspeed subtypes report heading and a descent of 2304 ft/min.
+    for (const char *airspeed : {"8d4850209b06b6af189400ca40dc", "8d4850209c06b6af189400df3802"})
+    {
+        send(airspeed);
+        send("8d48502058178312d6eefa7b19b5");
+        REQUIRE(receiver.received);
+        CHECK(36 == receiver.position.track);
+        CHECK(Catch::Approx(20.f * KN_TO_MS) == receiver.position.groundSpeed);
+        CHECK(Catch::Approx(-11.70432f).margin(0.001f) == receiver.position.verticalSpeed);
+    }
+
+    // Either missing component leaves the last ground vector intact. Rate code 1 is level.
+    const char *partial = GENERATE("8d485020990000002004008f8cc4", "8d48502099000100000400c9fa23");
+    send(partial);
+    send("8d48502058178312d6eefa7b19b5");
+    REQUIRE(receiver.received);
+    CHECK(Catch::Approx(20.f * KN_TO_MS) == receiver.position.groundSpeed);
+    CHECK(36 == receiver.position.track);
+    CHECK(0.f == receiver.position.verticalSpeed);
+
+    send("8d485020990001002004008c860a"); // Both components present and zero knots
+    send("8d48502058178312d6eefa7b19b5");
+    REQUIRE(receiver.received);
+    CHECK(0.f == receiver.position.groundSpeed);
 }
 
 TEST_CASE("failed ADSB decoder can be deleted without leaving a registered module", "[lifecycle]")
@@ -328,7 +404,19 @@ TEST_CASE("ADSB decoder accepts complete DF17 frames from the radio bus")
     auto *shortFrame = static_cast<uint8_t *>(pool.alloc(sizeof(sample) - 1));
     REQUIRE(shortFrame != nullptr);
     etl::copy_n(sample, sizeof(sample) - 1, shortFrame);
-    radioBus.receive(GATAS::ADSBMessageBinMsg{pool, shortFrame, sizeof(sample) - 1, GATAS::TrafficIngress::Dump1090});
+    auto *shortError = static_cast<uint8_t *>(pool.alloc(sizeof(sample) - 1));
+    REQUIRE(shortError != nullptr);
+    etl::fill_n(shortError, sizeof(sample) - 1, 0);
+    radioBus.receive(GATAS::RadioRxManchesterMsg{
+        pool,
+        shortFrame,
+        shortError,
+        sizeof(sample) - 1,
+        0,
+        1'090'000'000,
+        GATAS::ConspicuityProtocol::ADSB,
+        INT8_MIN,
+        GATAS::TrafficIngress::Dump1090});
     REQUIRE(decoder.adsbDataCollector.size() == 0);
     send(GATAS::ConspicuityProtocol::ADSB, sizeof(sample));
     REQUIRE(decoder.adsbDataCollector.size() == 1);
@@ -341,7 +429,7 @@ TEST_CASE("Dump1090 Monitor counts frames dropped when the pool is full")
     Dump1090Client client{bus, config};
     auto &pool = BaseModule::getGlobalPool();
     std::vector<void *> blocks;
-    while (auto *block = pool.alloc(GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH))
+    while (auto *block = pool.alloc(GATAS::MAX_MODE_S_MESSAGE_LENGTH))
     {
         blocks.push_back(block);
     }
@@ -468,6 +556,12 @@ TEST_CASE("ADS-B pressure altitude expires five seconds after the last valid bar
         };
         checkHeight("8d407a059908e102980c0376b281", 15);  // +50 ft
         checkHeight("8d407a059908e102980c8371b441", -15); // -50 ft
+        checkHeight("8d407a059908e102980c7e8bacda", 952);  // +3125 ft
+        checkHeight("8d407a059908e102980c7f7458d3", geoid); // Positive saturation
+        CHECK_FALSE(decoder.adsbDataCollector.current().gnssMinusBaroMetres.has_value());
+        checkHeight("8d407a059908e102980cfe8caa1a", -952); // -3125 ft
+        checkHeight("8d407a059908e102980cff735e13", geoid); // Negative saturation
+        CHECK_FALSE(decoder.adsbDataCollector.current().gnssMinusBaroMetres.has_value());
         checkHeight("8d407a059908e102980c0176ae9a", 0);   // Reported zero
         checkHeight("8d407a059908e102980c00895a93", geoid);
         checkHeight("8d407a059908e102980c808e5c53", geoid); // Sign bit only

@@ -27,7 +27,7 @@ struct AdsbCombinedDataStatus
     uint16_t velocity;          // Ground speed in knots
     int16_t squawk;             // Mode A squawk, -1 when unknown
     int16_t heading;            // Heading in degrees
-    int16_t vert_rate;          // Vertical Rate
+    int16_t verticalRateFpm;    // Last available signed rate in ft/min
     int16_t positionRssiDbm = INT16_MIN;
     uint8_t messageStatus; // How complete this message is
     GATAS::AircraftCategory category = GATAS::AircraftCategory::UNKNOWN;
@@ -80,7 +80,7 @@ struct AdsbCombinedDataStatus
     AdsbCombinedDataStatus(uint32_t icao_)
         : lastSeenSeconds(0), reportedAltitudeMetres(0), raw_even_latitude(0),
           raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0),
-          lat(0.0f), lon(0.0f), callSign(""), velocity(0), squawk(-1), heading(0), vert_rate(0), messageStatus(0)
+          lat(0.0f), lon(0.0f), callSign(""), velocity(0), squawk(-1), heading(0), verticalRateFpm(0), messageStatus(0)
     {
         (void)icao_;
     }
@@ -89,7 +89,7 @@ struct AdsbCombinedDataStatus
     AdsbCombinedDataStatus(uint32_t icao_, uint32_t lastSeenSeconds_)
         : lastSeenSeconds(lastSeenSeconds_), reportedAltitudeMetres(0), raw_even_latitude(0),
           raw_even_longitude(0), raw_odd_latitude(0), raw_odd_longitude(0),
-          lat(0.0f), lon(0.0f), callSign(""), velocity(0), squawk(-1), heading(0), vert_rate(0), messageStatus(0)
+          lat(0.0f), lon(0.0f), callSign(""), velocity(0), squawk(-1), heading(0), verticalRateFpm(0), messageStatus(0)
     {
         (void)icao_;
     }
@@ -281,17 +281,10 @@ public:
         return updatePosition(false, rssiDbm);
     }
 
-    void updateHeading(int16_t heading)
-    {
-        currentDataStatus->messageStatus |= HAS_HEADING;
-        currentDataStatus->heading = heading;
-    }
-
-    void updateVelocityHeading(uint16_t velocity, int16_t vert_rate, int16_t heading)
+    void updateVelocityHeading(uint16_t velocity, int16_t heading)
     {
         currentDataStatus->messageStatus |= HAS_HEADING | HAS_VELOCITY;
         currentDataStatus->velocity = velocity;
-        currentDataStatus->vert_rate = vert_rate;
         currentDataStatus->heading = heading;
     }
 

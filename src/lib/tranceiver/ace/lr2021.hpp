@@ -39,8 +39,6 @@ protected:
 
     void receiveOOKPacket() override;
 
-    static bool decodeOokFrame(uint8_t *data, uint8_t syncByte);
-
     etl::optional<uint16_t> receivedPacketCount();
 
     void receivePacket(uint16_t length, int16_t rssi, etl::optional<uint16_t> packetCount = etl::nullopt);

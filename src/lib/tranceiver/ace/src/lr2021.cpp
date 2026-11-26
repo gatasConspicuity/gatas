@@ -7,12 +7,11 @@
 #include "../../lr2021driver/inc/lr20xx_regmem.h"
 #include "../../lr2021driver/inc/lr20xx_workarounds.h"
 #include "../../lr2021driver/inc/lr20xx_pram.h"
-#include "ace/manchester.hpp"
 
 namespace
 {
-    constexpr uint8_t MODE_S_FRAME_BYTES = GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH;
-    constexpr uint8_t OOK_FIFO_BYTES = 2 * MODE_S_FRAME_BYTES - 1;
+    constexpr uint8_t MODE_S_FRAME_BYTES = GATAS::MAX_MODE_S_MESSAGE_LENGTH;
+    constexpr uint8_t OOK_FIFO_BYTES = 2 * MODE_S_FRAME_BYTES;
     constexpr uint32_t OOK_TIMING_REGISTER = 0xF30150;
 }
 
@@ -299,7 +298,7 @@ void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirec
             }
             previousOokTiming = static_cast<uint8_t>(timing);
         }
-        // SoftRF's DF17 profile uses the last eight sync chips as the first four payload bits.
+        // Keep raw OOK chips. RxDataFrameQueue restores no sync bits and performs Manchester decode.
         const lr20xx_radio_ook_mod_params_t modulation{
             parameters.frequency->chipRate, LR20XX_RADIO_OOK_PULSE_SHAPE_OFF,
             LR20XX_RADIO_FSK_COMMON_RX_BW_3_076_000_HZ, LR20XX_RADIO_OOK_MAG_DEPTH_FULL};
@@ -307,7 +306,7 @@ void Lr2021::configureRadio(const GATAS::RadioParameters &parameters, RadioDirec
             16, LR20XX_RADIO_OOK_ADDRESS_FILTERING_DISABLED, LR20XX_RADIO_OOK_HEADER_IMPLICIT,
             OOK_FIFO_BYTES, LR20XX_RADIO_OOK_CRC_OFF, LR20XX_RADIO_OOK_ENCODING_OFF};
         const auto &config = *parameters.config;
-        const uint8_t sync[LR20XX_RADIO_OOK_SYNCWORD_LENGTH]{config.syncWord[0], config.syncWord[1], config.syncWord[2], config.syncWord[3]};
+        const uint8_t sync[LR20XX_RADIO_OOK_SYNCWORD_LENGTH]{};
         // Match SoftRF's detector flags. Encoding is off for both sync and payload.
         const lr20xx_radio_ook_rx_detector_t detector{
             0x0285, 15, 0, LR20XX_RADIO_OOK_RX_DETECTOR_SFD_TYPE_FALLING_EDGE, 0, true};
@@ -472,7 +471,6 @@ bool Lr2021::discardRxBytes(uint16_t length)
 
 void Lr2021::receivePacket(uint16_t length, int16_t rssi, etl::optional<uint16_t> packetCount)
 {
-    const bool ook = lastRadioParameters.frequency->mode == GATAS::Modulation::OOK;
     if (packetCount)
     {
         // Only the latest variable-length packet's metadata is retained by the
@@ -513,7 +511,7 @@ void Lr2021::receivePacket(uint16_t length, int16_t rssi, etl::optional<uint16_t
                        (lastRadioParameters.config->protocol() != GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR || length % 4 == 0);
     for (uint16_t i = 0; i < packets; ++i)
     {
-        auto data = valid ? static_cast<uint8_t *>(getGlobalPool().alloc(length + (ook ? 1 : 0))) : nullptr;
+        auto data = valid ? static_cast<uint8_t *>(getGlobalPool().alloc(length)) : nullptr;
         if (data == nullptr)
         {
             if (!discardRxBytes(length))
@@ -526,35 +524,15 @@ void Lr2021::receivePacket(uint16_t length, int16_t rssi, etl::optional<uint16_t
                                .frequency = lastRadioParameters.hopFrequency,
                                .config = lastRadioParameters.config,
                                .frame = {getGlobalPool(), data},
-                               .length = static_cast<size_t>(ook ? MODE_S_FRAME_BYTES : length),
+                               .length = length,
                                .rssidBm = static_cast<int8_t>(etl::max<int16_t>(-128, etl::min<int16_t>(127, rssi)))};
-        if (!check(lr20xx_radio_fifo_read_rx(this, data + (ook ? 1 : 0), length)))
+        if (!check(lr20xx_radio_fifo_read_rx(this, data, length)))
         {
             return;
         }
-        if (!ook || decodeOokFrame(data, lastRadioParameters.config->syncWord[3]))
-        {
-            ++statistics.receivedPackets;
-            rxDataFrameQueue->push(etl::move(frame));
-        }
+        ++statistics.receivedPackets;
+        rxDataFrameQueue->push(etl::move(frame));
     }
-}
-
-bool Lr2021::decodeOokFrame(uint8_t *data, uint8_t syncByte)
-{
-    data[0] = syncByte;
-    uint8_t errors[MODE_S_FRAME_BYTES]{};
-    manchesterDecodeInline(data, errors, 2 * MODE_S_FRAME_BYTES);
-    for (size_t i = 0; i < MODE_S_FRAME_BYTES; ++i)
-    {
-        if (errors[i] != 0)
-        {
-            return false;
-        }
-        // The Mode S pulse in the first half of the bit represents a one.
-        data[i] = static_cast<uint8_t>(~data[i]);
-    }
-    return (data[0] >> 3) == 17;
 }
 
 void Lr2021::receiveOOKPacket()

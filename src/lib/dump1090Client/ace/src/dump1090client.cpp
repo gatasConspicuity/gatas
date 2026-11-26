@@ -15,7 +15,7 @@ void Dump1090Client::start()
 
 void Dump1090Client::processNewSentence(etl::span<uint8_t> data)
 {
-    constexpr uint8_t frameLength = GATAS::ADSBMessageBinMsg::MAX_BINARY_LENGTH;
+    constexpr uint8_t frameLength = GATAS::MAX_MODE_S_MESSAGE_LENGTH;
     constexpr uint8_t hexLength = frameLength * 2;
     // The line parser appends a NUL after the dump1090 line's semicolon.
     if (data.size() != hexLength + 3 || data.front() != '*' || data[hexLength + 1] != ';' || data.back() != 0)
@@ -40,8 +40,28 @@ void Dump1090Client::processNewSentence(etl::span<uint8_t> data)
         ++statistics.poolDrops;
         return;
     }
+    auto *error = static_cast<uint8_t *>(pool.alloc(frameLength));
+    if (error == nullptr)
+    {
+        pool.release(frame);
+        ++statistics.poolDrops;
+        return;
+    }
     CoreUtils::hexStrToByteArray(reinterpret_cast<const char *>(hex.data()), hexLength, frame);
-    getBus().receive(GATAS::ADSBMessageBinMsg{pool, frame, frameLength, GATAS::TrafficIngress::Dump1090});
+    for (uint8_t i = 0; i < frameLength; ++i)
+    {
+        error[i] = 0;
+    }
+    getBus().receive(GATAS::RadioRxManchesterMsg{
+        pool,
+        frame,
+        error,
+        frameLength,
+        CoreUtils::secondsSinceEpoch(),
+        1'090'000'000,
+        GATAS::ConspicuityProtocol::ADSB,
+        INT8_MIN,
+        GATAS::TrafficIngress::Dump1090});
     statistics.totalReceived += 1;
 }
 

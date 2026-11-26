@@ -63,7 +63,7 @@ void mode_s_init(mode_s_t *self)
 // Note: this function can be used with DF11 and DF17, other modes have the CRC
 // xored with the sender address as they are reply to interrogations, but a
 // casual listener can't split the address from the checksum.
-uint32_t mode_s_checksum_table[] = {
+const uint32_t mode_s_checksum_table[112] = {
     0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,
     0x2c38bc, 0x161c5e, 0x0b0e2f, 0xfa7d13, 0x82c48d, 0xbe9842, 0x5f4c21, 0xd05c14,
     0x682e0a, 0x341705, 0xe5f186, 0x72f8c3, 0xc68665, 0x9cb936, 0x4e5c9b, 0xd8d449,
@@ -79,7 +79,7 @@ uint32_t mode_s_checksum_table[] = {
     0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
     0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000};
 
-uint32_t mode_s_checksum(uint8_t *msg, int bits)
+uint32_t mode_s_checksum(const uint8_t *msg, int bits)
 {
   uint32_t crc = 0;
   int offset = (bits == 112) ? 0 : (112 - 56);
@@ -530,41 +530,34 @@ void mode_s_decode_phase2(mode_s_t *self, struct mode_s_msg *mm)
     {
       // Airborne Velocity Message
       const int magnitude = msg[10] & 0x7F;
-      mm->gnssMinusBaroFeet = magnitude == 0 ? INT16_MIN : (magnitude - 1) * ((msg[10] & 0x80) ? -25 : 25);
+      // Magnitude 127 is a bound and cannot supply a numerical height offset.
+      mm->gnssMinusBaroFeet = (magnitude == 0 || magnitude == 127) ? INT16_MIN : (magnitude - 1) * ((msg[10] & 0x80) ? -25 : 25);
+      mm->vert_rate_source = (msg[8] >> 4) & 1;
+      mm->vert_rate_sign = (msg[8] >> 3) & 1;
+      mm->vert_rate = ((msg[8] & 7) << 6) | (msg[9] >> 2);
       if (mm->mesub == 1 || mm->mesub == 2)
       {
         mm->ew_dir = (msg[5] & 4) >> 2;
         mm->ew_velocity = ((msg[5] & 3) << 8) | msg[6];
         mm->ns_dir = (msg[7] & 0x80) >> 7;
         mm->ns_velocity = ((msg[7] & 0x7f) << 3) | ((msg[8] & 0xe0) >> 5);
-        // Compute velocity and angle from the two speed components
-        mm->velocity = sqrtf(mm->ns_velocity * mm->ns_velocity +
-                             mm->ew_velocity * mm->ew_velocity);
-        mm->vert_rate_source = (msg[8] & 0x10) >> 4; // GNSS altitude is encoded as 0, while 1 encodes the barometric altitude.
-        mm->vert_rate_sign = (msg[8] & 0x8);  // with 0 and 1 referring to climb and descent, respectively
-        mm->vert_rate = (((msg[8] & 7) << 6) | ((msg[9] & 0xfc) >> 2));
-
-        if (mm->velocity)
+        mm->velocity = MODE_S_INVALID_GROUND_SPEED;
+        mm->heading = 0;
+        if (mm->ew_velocity != 0 && mm->ns_velocity != 0)
         {
-          int ewv = mm->ew_velocity;
-          int nsv = mm->ns_velocity;
-          float heading;
-
-          if (mm->ew_dir)
-            ewv *= -1;
-          if (mm->ns_dir)
-            nsv *= -1;
-          heading = atan2f(ewv, nsv);
-
-          // Convert to degrees.
-          mm->heading = heading * 360.f / (M_PI * 2.f);
-          // We don't want negative values but a 0-360 scale.
-          if (mm->heading < 0)
-            mm->heading += 360.f;
-        }
-        else
-        {
-          mm->heading = 0;
+          const int scale = mm->mesub == 2 ? 4 : 1;
+          const int east = (mm->ew_velocity - 1) * scale * (mm->ew_dir ? -1 : 1);
+          const int north = (mm->ns_velocity - 1) * scale * (mm->ns_dir ? -1 : 1);
+          mm->velocity = static_cast<uint16_t>(sqrtf(static_cast<float>(east * east + north * north)));
+          if (east != 0 || north != 0)
+          {
+            float track = atan2f(static_cast<float>(east), static_cast<float>(north)) * (180.f / 3.14159265f);
+            if (track < 0.f)
+            {
+              track += 360.f;
+            }
+            mm->heading = static_cast<int16_t>(track);
+          }
         }
       }
       else if (mm->mesub == 3 || mm->mesub == 4)

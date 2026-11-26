@@ -110,7 +110,8 @@ public:
     static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSL          { 4, GATAS::ConspicuityProtocol::ADSL_M_BAND,      true,  25, 16, 48, 8, {0x55, 0x99, 0x95, 0xA6, 0x9A, 0x65}};                   // ADSL on normal 0xA9, 0x6A => 0x18 26Byte first byt elength = 25Byte
     static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSLO_HDR     { 5, GATAS::ConspicuityProtocol::ADSL_O_BAND_HDR, false,   0, 16, 16, 0, {0x2D, 0xD4}};                                           // ADSL on O band HDR
     static constexpr GATAS::LinkLayerConfig PROTOCOL_FANET         { 7, GATAS::ConspicuityProtocol::FANET,     false, 200, 12,  8, 0, {0xF1}};                                                 // FANET
-    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSB          {10, GATAS::ConspicuityProtocol::ADSB,      false, 14, 0, 8, 0, {0, 0, 0, 0x95}};
+    // Mode S downlink formats have different first bits, so do not hardware-filter on a fixed sync word.
+    static constexpr GATAS::LinkLayerConfig PROTOCOL_ADSB          {10, GATAS::ConspicuityProtocol::ADSB,      true,  14, 0, 0, 0, {0}, GATAS::CombinedRadioRx::None, true};
 
     // Needs further research I did not get reliable reception yet
     static constexpr GATAS::LinkLayerConfig PROTOCOL_RX_ADSLFLARM  { 8, GATAS::ConspicuityProtocol::NONE,  true,  29, 16, 16, 0, {0x96, 0xA5}, GATAS::CombinedRadioRx::AdslFlarm};     // works to receive FLARM                                     // ADSL/FLARM RX Sync

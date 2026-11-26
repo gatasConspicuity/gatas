@@ -19,7 +19,7 @@
 /**
  * ADSBDecoder decodes ADSB message from a ADSB device and forwards that as NMEA Strings
  */
-class ADSBDecoder : public BaseModule, etl::message_router<ADSBDecoder, GATAS::ConfigUpdatedMsg, GATAS::Every5SecMsg, GATAS::AdapativeRadiusMsg, GATAS::RadioRxMsg, GATAS::ADSBMessageBinMsg>
+class ADSBDecoder : public BaseModule, etl::message_router<ADSBDecoder, GATAS::ConfigUpdatedMsg, GATAS::Every5SecMsg, GATAS::AdapativeRadiusMsg, GATAS::RadioRxMsg, GATAS::RadioRxManchesterMsg>
 {
 private:
     static constexpr uint8_t MAX_PLANES_TRACKED = 48;
@@ -32,6 +32,7 @@ private:
     struct
     {
         uint32_t crcErrors = 0;
+        uint32_t correctedFrames = 0;
         uint32_t knownAircraftFull = 0;
         uint32_t ignoredAircraftFull = 0;
         uint32_t totalMsgReceived = 0;
@@ -89,7 +90,7 @@ private:
 
     void on_receive(const GATAS::RadioRxMsg &msg);
 
-    void on_receive(const GATAS::ADSBMessageBinMsg &msg);
+    void on_receive(const GATAS::RadioRxManchesterMsg &msg);
 
     void processAdsbData(const uint8_t* data, size_t length, GATAS::TrafficIngress ingress, int16_t rssiDbm);
 

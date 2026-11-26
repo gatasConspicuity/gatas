@@ -93,7 +93,6 @@ class TestLr2021 : public Lr2021
 {
 public:
     using Lr2021::Lr2021;
-    using Lr2021::decodeOokFrame;
     using Lr2021::listen;
     using Lr2021::receiveOOKPacket;
     using Lr2021::receiveGFSKPacket;
@@ -183,13 +182,13 @@ TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
 {
     Fixture f;
     const GATAS::RfConfig rf{GATAS::Modulation::OOK, 1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
-    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, false, 14, 0, 8, 0, {0, 0, 0, 0x95}};
+    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, true, 14, 0, 0, 0, {0}, GATAS::CombinedRadioRx::None, true};
     const GATAS::RadioParameters profile{&adsb, &rf, rf.baseFrequency, 0};
     f.radio.configure(profile, false, 0);
     REQUIRE_FALSE(f.radio.hasHalError());
     REQUIRE(command(0x0281) == std::vector<uint8_t>{2, 0x81, 0, 0x1e, 0x84, 0x80, 0, 0, 0});
-    REQUIRE(command(0x0282) == std::vector<uint8_t>{2, 0x82, 0, 16, 0, 0, 27, 0});
-    REQUIRE(command(0x0284) == std::vector<uint8_t>{2, 0x84, 0, 0, 0, 0x95, 0x88});
+    REQUIRE(command(0x0282) == std::vector<uint8_t>{2, 0x82, 0, 16, 0, 0, 28, 0});
+    REQUIRE(command(0x0284) == std::vector<uint8_t>{2, 0x84, 0, 0, 0, 0, 0x80});
     REQUIRE(command(0x0288) == std::vector<uint8_t>{2, 0x88, 0x02, 0x85, 15, 0, 0});
     REQUIRE(std::vector<uint8_t>{2, 0x1a, 13} == command(0x021a));
     for (const auto &write : RadioTest::writes)
@@ -222,51 +221,33 @@ TEST_CASE("LR2021 configures the 1090 MHz OOK detector for receive only")
     REQUIRE(std::vector<uint8_t>{2, 0x1a, 0} == command(0x021a));
 }
 
-TEST_CASE("LR2021 reconstructs a DF17 frame from the OOK FIFO chips")
-{
-    etl::array<uint8_t, 28> data{0, 0xa6, 0x65, 0x55, 0x69, 0x59, 0x56, 0xa6,
-        0x66, 0x95, 0xa5, 0x5a, 0x95, 0x59, 0xa6, 0x69, 0x96, 0x55, 0xa5, 0x95,
-        0x99, 0xa5, 0x59, 0x95, 0x69, 0x5a, 0x99, 0x6a};
-    const uint8_t expected[]{0x8d, 0x40, 0x62, 0x1d, 0x58, 0xc3, 0x82, 0xd6, 0x90, 0xc8, 0xac, 0x28, 0x63, 0xa7};
-    SECTION("valid chip pairs")
-    {
-        REQUIRE(TestLr2021::decodeOokFrame(data.data(), 0x95));
-        REQUIRE(etl::equal(data.begin(), data.begin() + sizeof(expected), expected));
-    }
-    SECTION("invalid chip pair")
-    {
-        data[2] = 0;
-        REQUIRE_FALSE(TestLr2021::decodeOokFrame(data.data(), 0x95));
-    }
-}
-
 TEST_CASE("LR2021 drains complete OOK captures and leaves partial captures for the next completion")
 {
     Fixture f;
     const GATAS::RfConfig rf{GATAS::Modulation::OOK, 1'090'000'000, 0, 0, 3'076'000, 2'000'000, 0, 0, GATAS::RadioCapability::Ook1090};
-    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, false, 14, 0, 8, 0, {0, 0, 0, 0x95}};
+    const GATAS::LinkLayerConfig adsb{10, GATAS::ConspicuityProtocol::ADSB, true, 14, 0, 0, 0, {0}, GATAS::CombinedRadioRx::None, true};
     f.radio.configure({&adsb, &rf, rf.baseFrequency, 0}, false, 0);
     f.radio.listen();
     REQUIRE(std::vector<uint8_t>{2, 0x0c, 0xff, 0xff, 0xff} == command(0x020c));
     RadioTest::reset();
-    const std::vector<uint8_t> capture{0xa6, 0x65, 0x55, 0x69, 0x59, 0x56, 0xa6,
+    const std::vector<uint8_t> capture{0x95, 0xa6, 0x65, 0x55, 0x69, 0x59, 0x56, 0xa6,
         0x66, 0x95, 0xa5, 0x5a, 0x95, 0x59, 0xa6, 0x69, 0x96, 0x55, 0xa5, 0x95,
         0x99, 0xa5, 0x59, 0x95, 0x69, 0x5a, 0x99, 0x6a};
     auto first = capture;
-    bool invalidFirst = false;
-    SECTION("two valid captures") {}
-    SECTION("an invalid capture does not block the next one")
+    SECTION("two valid captures")
+    {
+    }
+    SECTION("a noisy capture is still passed to the shared decoder")
     {
         first[1] = 0;
-        invalidFirst = true;
     }
-    lrReply({0, 27, 80, 80, 0, 0});
-    lrReply({0, 58}); // Two full captures and four bytes of the next one.
+    lrReply({0, 28, 80, 80, 0, 0});
+    lrReply({0, 60}); // Two full captures and four bytes of the next one.
     RadioTest::response.insert(RadioTest::response.end(), first.begin(), first.end());
     RadioTest::response.insert(RadioTest::response.end(), capture.begin(), capture.end());
     f.radio.receiveOOKPacket();
     REQUIRE_FALSE(f.radio.hasHalError());
-    REQUIRE((invalidFirst ? 1 : 2) == f.radio.received());
+    REQUIRE(2 == f.radio.received());
     REQUIRE(2 == commandCount(0x0001));
     REQUIRE(0 == commandCount(0x011e)); // No FIFO clear between captures.
     REQUIRE(0 == commandCount(0x020c)); // No RX restart.
