@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <cstring>
 
 #include "ace/debug.hpp"
 #include "ace/semaphoreguard.hpp"
@@ -56,26 +57,24 @@ void ADSBDecoder::on_receive(const GATAS::RadioRxManchesterMsg &msg)
         return;
     }
 
-    if (msg.lengthBytes != 7 && msg.lengthBytes != GATAS::MAX_MODE_S_MESSAGE_LENGTH)
+    const size_t length = msg.lengthBytes;
+    if (length != 7 && length != ADSB::MAX_MODE_S_PACKET_BYTES)
     {
         return;
     }
 
     uint8_t correctedData[ADSB::MAX_MODE_S_PACKET_BYTES]{};
-    for (size_t i = 0; i < msg.lengthBytes; ++i)
-    {
-        correctedData[i] = msg.frame.get()[i];
-    }
+    std::memcpy(correctedData, msg.frame.get(), length);
 
     const int correctedBits = ADSB::Correct(
-        etl::span<uint8_t>(correctedData, msg.lengthBytes),
+        etl::span<uint8_t>(correctedData, length),
         msg.errorSpan());
     if (correctedBits > 0)
     {
         statistics.correctedFrames += 1;
     }
 
-    processAdsbData(correctedData, msg.lengthBytes, msg.ingress, msg.rssidBm);
+    processAdsbData(correctedData, length, msg.ingress, msg.rssidBm);
 }
 
 void ADSBDecoder::processAdsbData(const uint8_t *data, size_t length, GATAS::TrafficIngress ingress, int16_t rssiDbm)
