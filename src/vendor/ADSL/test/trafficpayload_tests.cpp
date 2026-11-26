@@ -21,14 +21,9 @@ TEST_CASE("TrafficPayload Default Constructor", "[TrafficPayload]")
 {
   TrafficPayload payload;
 
-  //    REQUIRE(payload.type() == Header::MessageType::TRACKING);
-  REQUIRE(payload.latitude() == Catch::Approx(-90.00073f).margin(0.000001));
-  REQUIRE(payload.longitude() == Catch::Approx(-180.00146f).margin(0.000001));
-  REQUIRE(payload.altitude() == 61116);
-  REQUIRE(payload.speed() == Catch::Approx(239.f).margin(0.125f));
-  REQUIRE(payload.verticalRate() == Catch::Approx(-119.5f).margin(0.1));
-  REQUIRE(payload.groundTrack() == 0);
-
+  REQUIRE(TrafficPayload::FlightState::UNDEFINED == 0);
+  REQUIRE(TrafficPayload::FlightState::ON_GROUND == 1);
+  REQUIRE(TrafficPayload::FlightState::AIRBORNE == 2);
   REQUIRE(payload.flightState() == TrafficPayload::FlightState::ON_GROUND);
   REQUIRE(payload.aircraftCategory() == TrafficPayload::AircraftCategory::NO_INFO);
   REQUIRE(payload.emergencyStatus() == TrafficPayload::EmergencyStatus::NO_EMERGENCY);
@@ -39,6 +34,19 @@ TEST_CASE("TrafficPayload Default Constructor", "[TrafficPayload]")
   REQUIRE(payload.verticalPositionAccuracy() == TrafficPayload::VerticalPositionAccuracy::UNKNOWN_NO_FIX);
   REQUIRE(payload.velocityAccuracy() == TrafficPayload::VelocityAccuracy::UNKNOWN_NO_FIX);
   REQUIRE(payload.timestampQms() == 0);
+
+  auto packet = createRadioPacket([&](etl::bit_stream_writer &writer)
+                                  { payload.serialize_issue1(writer); });
+  auto reader = createReader(packet);
+  REQUIRE(reader.read_unchecked<uint8_t>(6U) == 0U);
+  REQUIRE(reader.read_unchecked<uint8_t>(2U) == 1U);
+  REQUIRE(reader.read_unchecked<uint8_t>(5U) == 0U);
+  REQUIRE(reader.read_unchecked<uint8_t>(3U) == 1U);
+  REQUIRE(reader.read_unchecked<uint32_t>(24U) == 0x800000U);
+  REQUIRE(reader.read_unchecked<uint32_t>(24U) == 0x800000U);
+  REQUIRE(reader.read_unchecked<uint8_t>(8U) == 0xFFU);
+  REQUIRE(reader.read_unchecked<uint16_t>(14U) == 0x3FFFU);
+  REQUIRE(reader.read_unchecked<uint16_t>(9U) == 0x1FFU);
 }
 
 TEST_CASE("TrafficPayload Serialize/Deserialize Roundtrip Values", "[TrafficPayload]")
@@ -50,7 +58,7 @@ TEST_CASE("TrafficPayload Serialize/Deserialize Roundtrip Values", "[TrafficPayl
   layer.altitude(12876);
   layer.verticalRate(13.2f);
   layer.groundTrack(123.4f);
-  layer.flightState(TrafficPayload::FlightState::ALTITUDE_SOURCE_INVALID);
+  layer.flightState(TrafficPayload::FlightState::UNDEFINED);
   layer.aircraftCategory(TrafficPayload::AircraftCategory::UAS_OPEN_CATEGORY);
   layer.emergencyStatus(TrafficPayload::EmergencyStatus::UNLAWFUL_INTERFERENCE);
   layer.sourceIntegrityLevel(TrafficPayload::SourceIntegrityLevel::SIL_1E5);
@@ -88,6 +96,27 @@ TEST_CASE("TrafficPayload Serialize/Deserialize Roundtrip Values", "[TrafficPayl
   REQUIRE(received.velocityAccuracy() == layer.velocityAccuracy());
 }
 
+TEST_CASE("TrafficPayload signed coordinates survive wire round-trip", "[TrafficPayload]")
+{
+  // ADS-L Issue 2, G.1.5: signed 24-bit coordinates, with 1 degree encoded
+  // as 93206 latitude units and 46603 longitude units.
+  TrafficPayload payload;
+  payload.latitude(-1.0f);
+  payload.longitude(-1.0f);
+
+  auto packet = createRadioPacket([&](etl::bit_stream_writer &writer)
+                                  { payload.serialize_issue1(writer); });
+  auto reader = createReader(packet);
+  reader.skip(16U);
+  REQUIRE(reader.read_unchecked<uint32_t>(24U) == 0xFE93EAU);
+  REQUIRE(reader.read_unchecked<uint32_t>(24U) == 0xFF49F5U);
+  auto decodeReader = createReader(packet);
+  const auto decoded = TrafficPayload::deserialize_issue1(decodeReader);
+
+  REQUIRE(decoded.latitude() == Catch::Approx(-1.0f).margin(1e-5f));
+  REQUIRE(decoded.longitude() == Catch::Approx(-1.0f).margin(1e-5f));
+}
+
 TEST_CASE("TrafficPayload Latitude ", "[single-file]")
 {
   TrafficPayload payload;
@@ -122,13 +151,27 @@ TEST_CASE("TrafficPayload altitude ", "[single-file]")
   REQUIRE(payload.altitude() == -320);
 
   payload.altitude(62000);
-  REQUIRE(payload.altitude() == 61116);
+  // ADS-L Issue 2, G.1.7: saturation uses the maximum valid code 0x3FFE.
+  REQUIRE(payload.altitude() == 61104);
+  auto packet = createRadioPacket([&](etl::bit_stream_writer &writer)
+                                  { payload.serialize_issue1(writer); });
+  auto reader = createReader(packet);
+  reader.skip(72U);
+  REQUIRE(reader.read_unchecked<uint16_t>(14U) == 0x3FFEU);
 
   payload.altitude(0);
   REQUIRE(payload.altitude() == 0);
 
+  payload.altitude(1000);
+  packet = createRadioPacket([&](etl::bit_stream_writer &writer)
+                             { payload.serialize_issue1(writer); });
+  auto exampleReader = createReader(packet);
+  exampleReader.skip(72U);
+  REQUIRE(exampleReader.read_unchecked<uint16_t>(14U) == 0x0528U);
+  REQUIRE(payload.altitude() == 1000);
+
   payload.altitude(12000);
-  REQUIRE(payload.altitude() == 12002);
+  REQUIRE(payload.altitude() == 12000);
 }
 
 TEST_CASE("TrafficPayload speed ", "[single-file]")
@@ -143,6 +186,15 @@ TEST_CASE("TrafficPayload speed ", "[single-file]")
   payload.speed(100.0);
   REQUIRE(payload.speed() == Catch::Approx(100.0).margin(2.5));
 
+  payload.speed(120.0f);
+  // ADS-L Issue 2, G.1.8 publishes 120 m/s -> 0xC4.
+  REQUIRE(payload.speed() == Catch::Approx(120.0f).margin(0.01f));
+  auto packet = createRadioPacket([&](etl::bit_stream_writer &writer)
+                                  { payload.serialize_issue1(writer); });
+  auto reader = createReader(packet);
+  reader.skip(64U);
+  REQUIRE(reader.read_unchecked<uint8_t>(8U) == 0xC4U);
+
   payload.speed(237);
   REQUIRE(payload.speed() == Catch::Approx(236).margin(2.5));
 }
@@ -151,13 +203,28 @@ TEST_CASE("TrafficPayload verticalrate ", "[single-file]")
 {
   TrafficPayload payload;
   payload.verticalRate(-125.0f);
-  REQUIRE(payload.verticalRate() == Catch::Approx(-118.5f).margin(0.125 / 2));
+  REQUIRE(payload.verticalRate() == Catch::Approx(-118.0f).margin(0.125 / 2));
 
   payload.verticalRate(125.0f);
-  REQUIRE(payload.verticalRate() == Catch::Approx(119.5).margin(0.125 / 2));
+  REQUIRE(payload.verticalRate() == Catch::Approx(119.0).margin(0.125 / 2));
 
   payload.verticalRate(-10.125f);
-  REQUIRE(payload.verticalRate() == Catch::Approx(-10.125).margin(0.125 / 2));
+  REQUIRE(payload.verticalRate() == Catch::Approx(-10.0f).margin(0.01f));
+  payload.verticalRate(10.0f);
+  // ADS-L Issue 2, G.1.9 publishes 10 m/s -> 0x048 and -0.125 m/s -> 0x101.
+  REQUIRE(payload.verticalRate() == Catch::Approx(10.0f).margin(0.01f));
+  auto packet = createRadioPacket([&](etl::bit_stream_writer &writer)
+                                  { payload.serialize_issue1(writer); });
+  auto reader = createReader(packet);
+  reader.skip(86U);
+  REQUIRE(reader.read_unchecked<uint16_t>(9U) == 0x048U);
+
+  payload.verticalRate(-0.125f);
+  packet = createRadioPacket([&](etl::bit_stream_writer &writer)
+                             { payload.serialize_issue1(writer); });
+  auto negativeReader = createReader(packet);
+  negativeReader.skip(86U);
+  REQUIRE(negativeReader.read_unchecked<uint16_t>(9U) == 0x101U);
   payload.verticalRate(5.8f);
   REQUIRE(payload.verticalRate() == Catch::Approx(5.75f).margin(0.125 / 2));
 }
@@ -219,7 +286,7 @@ TEST_CASE("TrafficPayload serialize", "[single-file]")
                                   { payload.serialize_issue1(writer); });
 
   // printBufferHex(etl::span(packet.data(), packet.size()));
-  REQUIRE(packet == makeVector({0x00, 0x04, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFE, 0x00, 0x00, 0x00}));
+  REQUIRE(packet == makeVector({0x02, 0x04, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFE, 0x00, 0x00, 0x00}));
 }
 
 TEST_CASE("Timestamp Restore keeps received timestamps in the past", "single-file")

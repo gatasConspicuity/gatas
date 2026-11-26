@@ -24,10 +24,10 @@ namespace ADSL
     if (Range == 0)
       return Value;
     if (Range == 1)
-      return Thres + 1 + (Value << 1);
+      return Thres + (Value << 1);
     if (Range == 2)
-      return 3 * Thres + 2 + (Value << 2);
-    return 7 * Thres + 4 + (Value << 3);
+      return 3 * Thres + (Value << 2);
+    return 7 * Thres + (Value << 3);
   }
 
   template <class Type, int Bits>

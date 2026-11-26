@@ -169,17 +169,17 @@ namespace ADSL
 
     ReceiveCapability oBandReceiveCapability() const
     {
-      return mBandReceiveCapability_;
+      return oBandReceiveCapability_;
     }
 
     void oBandHdrReceiveCapability(ReceiveCapability rc)
     {
-      oBandReceiveCapability_ = rc;
+      oBandHdrReceiveCapability_ = rc;
     }
 
     ReceiveCapability oBandHdrReceiveCapability() const
     {
-      return mBandReceiveCapability_;
+      return oBandHdrReceiveCapability_;
     }
 
     // getters and setters for adslTrafficUplinkClient and adslFisBUplinkCLient
